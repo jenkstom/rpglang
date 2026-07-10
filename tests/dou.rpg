@@ -1,0 +1,7 @@
+     C* DOUGE: count to 3, RPGRET=3
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         RPGRET
+     C           CNT       DOUGE3
+     C                     ADD  1         CNT
+     C                     ADD  1         RPGRET
+     C                     END

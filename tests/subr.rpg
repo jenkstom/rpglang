@@ -1,0 +1,8 @@
+     C* Phase 8b subroutine: EXSR SUBMUL computes A*B into R.
+     C                     Z-ADD6         A
+     C                     Z-ADD7         B
+     C                     EXSR SUBMUL
+     C                     MOVE R         RPGRET
+     C           SUBMUL    BEGSR
+     C           A         MULT B         R
+     C                     ENDSR

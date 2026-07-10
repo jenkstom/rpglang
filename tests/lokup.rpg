@@ -1,0 +1,8 @@
+     C* LOKUP: find 30 in [10,20,30,40,50] => EQ ind 10.
+     E                    TABS    5   5  2 0A
+     C                     Z-ADD1         ID
+     C                     Z-ADD30        KEY
+     C           KEY       LOKUPTABS,ID                  10
+     C  10                 Z-ADD1         RPGRET
+** 
+1020304050

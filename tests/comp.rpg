@@ -1,0 +1,5 @@
+     C* COMP test: A=5, B=10, COMP A B -> LO ind 10 on -> RPGRET=1
+     C                     Z-ADD5         A
+     C                     Z-ADD10        B
+     C           A         COMP B                      10
+     C  10                 Z-ADD1         RPGRET

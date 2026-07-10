@@ -1,0 +1,9 @@
+     C* Phase 9: MOVEL vs MOVE alignment.
+     FFDATA   IP  F    80              DISK
+     FFOUT    O   F    132             PRINTER
+     IFDATA   AA  01
+     I                                        1   5 CNAME
+     C                     Z-ADD0         RPGRET
+     C                     MOVEL'HI'      CNAME
+     OFOUT    D  1
+     O                         CNAME     10

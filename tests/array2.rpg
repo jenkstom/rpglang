@@ -1,0 +1,6 @@
+     C* Phase 9b: run-time array element access + XFOOT.
+     E                    RARR        3  4 0
+     C                     Z-ADD10        RARR,1
+     C                     Z-ADD20        RARR,2
+     C                     Z-ADD30        RARR,3
+     C                     XFOOTRARR      RPGRET

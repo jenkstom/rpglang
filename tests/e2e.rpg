@@ -1,0 +1,10 @@
+     C* Phase 5 end-to-end: cycle + COMP + GOTO selective sum.
+     C* Read records, sum only values strictly greater than 4.
+     C* Data 003/005/002/008/001 -> 5+8 = 13 -> exit 13.
+     FTRANS   IP  F    80              DISK
+     ITRANS   AA  01
+     I                                        1   30AMT
+     C           AMT       COMP 4                    20
+     C  N20                GOTO SKIP
+     C                     ADD  AMT       RPGRET
+     C           SKIP      TAG

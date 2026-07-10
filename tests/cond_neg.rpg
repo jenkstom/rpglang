@@ -1,0 +1,6 @@
+     C* Negated condition test: ind 50 is ON, so N50 op is skipped.
+     C* Expected exit code = 7
+     C                     Z-ADD7         RPGRET
+     C                     Z-ADD0         T
+     C                     ADD  5         T          50
+     C  N50                Z-ADD9         RPGRET

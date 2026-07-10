@@ -1,0 +1,91 @@
+# =============================================================================
+# RPG II Compiler - .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Reference manuals (copyrighted / large - keep out of version control)
+# -----------------------------------------------------------------------------
+*.pdf
+docs/ref/manual_layout.txt
+docs/ref/manual_text.txt
+
+# -----------------------------------------------------------------------------
+# Build tree (CMake + compiler artifacts)
+# -----------------------------------------------------------------------------
+build/
+[Bb]in/
+[Oo]ut/
+install/
+
+# -----------------------------------------------------------------------------
+# Compiler-emitted artifacts
+# -----------------------------------------------------------------------------
+# Object / assembly / IR / temporary files from rpgc & LLVM toolchain
+*.o
+*.obj
+*.ll
+*.s
+*.bc
+*.out
+
+# Compiled RPG test executables
+*.x
+
+# --save-temps output
+*.ll.tmp
+*.save-temps/
+
+# -----------------------------------------------------------------------------
+# CMake
+# -----------------------------------------------------------------------------
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeScripts/
+CMakeUserPresets.json
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+!compiler/CMakeLists.txt
+!runtime/CMakeLists.txt
+*.cmake
+!*.cmake.in
+
+# -----------------------------------------------------------------------------
+# Static / shared libraries produced by the build
+# -----------------------------------------------------------------------------
+*.a
+*.so
+*.so.*
+*.dylib
+*.lib
+
+# -----------------------------------------------------------------------------
+# Core dumps & debug files
+# -----------------------------------------------------------------------------
+core
+core.*
+*.stackdump
+compile_commands.json
+
+# -----------------------------------------------------------------------------
+# Editor / IDE
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-workspace
+*.sublime-project
+
+# -----------------------------------------------------------------------------
+# Tags & index files
+# -----------------------------------------------------------------------------
+tags
+TAGS
+GTAGS
+GPATH
+GSYMS
+GRINFO

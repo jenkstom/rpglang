@@ -1,0 +1,3 @@
+     C* Phase 2 arithmetic test. Expected exit code = 42.
+     C                     Z-ADD40        RPGRET
+     C                     ADD  2         RPGRET

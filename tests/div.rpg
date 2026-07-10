@@ -1,0 +1,4 @@
+     C* DIV+MVR: 100/7 = quotient 14, remainder 2
+     C           100       DIV  7         Q
+     C                     MVR            R
+     C                     ADD  R         RPGRET

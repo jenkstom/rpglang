@@ -1,0 +1,8 @@
+     C* IFGT: 5>3 so then-branch runs, RPGRET=11
+     C                     Z-ADD5         A
+     C                     Z-ADD3         B
+     C           A         IFGT B
+     C                     Z-ADD11        RPGRET
+     C                     ELSE
+     C                     Z-ADD22        RPGRET
+     C                     END

@@ -1,0 +1,9 @@
+     C* Phase 9: character field read + MOVE + print.
+     FFDATA   IP  F    80              DISK
+     FFOUT    O   F    132             PRINTER
+     IFDATA   AA  01
+     I                                        1   5 CNAME
+     C                     MOVE 'WORLD'   CNAME
+     OFOUT    D  1
+     O                                   10 'Name:'
+     O                         CNAME     20

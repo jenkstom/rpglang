@@ -1,0 +1,12 @@
+.....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     F** This is the canonical "hello world" for the RPG II compiler.
+     F** In Phase 1 it is parsed only for the F-spec record; nothing executes
+     F** yet. It will gain meaning incrementally across Phases 2-5.
+     F*
+     F** Columns:            6 F = File spec line
+     F**                  7-15  Filename
+     F**                   19   File format (F=fixed)
+     F**                   40   Device (DISK/PRINTER/WORKSTN)
+     FEXAMPLR  IP  F  80     DISK
+     C*
+     C           EXAMPLR    SETON                     LR

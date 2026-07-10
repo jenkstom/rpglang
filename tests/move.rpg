@@ -1,0 +1,4 @@
+     C* MOVE test: SRC=73, MOVE SRC DST, accumulate DST. Expected exit 73.
+     C                     Z-ADD73        SRC
+     C                     MOVE SRC       DST
+     C                     ADD  DST       RPGRET

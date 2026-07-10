@@ -1,0 +1,8 @@
+     C* Phase 3 cycle test: sum AMT across records, return at LR.
+     C* Data file DATA has records '010','020','005','007' -> sum 42.
+     FDATA    IP  F    80              DISK
+     IDATA    AA  01
+     I                                        1   30AMT
+     C                     ADD  AMT       RPGRET
+     C* (LR total time: RPGRET holds the accumulated sum)
+     CLR                   SETOF

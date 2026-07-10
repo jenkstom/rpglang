@@ -1,0 +1,7 @@
+     C* Conditioned execution via result indicators.
+     C* T = 0 + 5 = 5 (positive) => indicator 50 ON => RPGRET = 100
+     C* Expected exit code = 100
+     C                     Z-ADD5         RPGRET
+     C                     Z-ADD0         T
+     C                     ADD  5         T          50
+     C  50                 Z-ADD100       RPGRET

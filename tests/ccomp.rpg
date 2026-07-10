@@ -1,0 +1,7 @@
+     C* char COMP: A=APPLE < B=BANANA => LO ind 20 => exit 1.
+     FCCFD    IP  F    80              DISK
+     ICCFD    AA  01
+     I                                        1   5 A
+     I                                        6  11 B
+     C           A         COMP B                      20
+     C  20                 Z-ADD1         RPGRET

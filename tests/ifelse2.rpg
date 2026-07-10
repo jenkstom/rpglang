@@ -1,0 +1,8 @@
+     C* IFGT false: 3>5 false, else-branch RPGRET=22
+     C                     Z-ADD3         A
+     C                     Z-ADD5         B
+     C           A         IFGT B
+     C                     Z-ADD11        RPGRET
+     C                     ELSE
+     C                     Z-ADD22        RPGRET
+     C                     END

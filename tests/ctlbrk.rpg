@@ -1,0 +1,19 @@
+     C* Phase 8 control break: subtotal per KEY at L1, grand total at LR.
+     FCDATA   IP  F    80              DISK
+     FCREPORT O   F    132             PRINTER
+     ICDATA   AA  01
+     I                                        1   10KEY   L1
+     I                                        2   30AMT
+     C                     ADD  AMT       SUB
+     C                     ADD  AMT       GRAND
+     OCREPORT D  1
+     O                         KEY       10
+     O                         AMT       20
+     CL1                   MOVE SUB       PSUB
+     CL1                   Z-ADD0         SUB
+     OCREPORT T  1    L1
+     O                                   15 'Subtotal:'
+     O                         PSUB      25
+     OCREPORT T  2    LR
+     O                                   15 'Grand total:'
+     O                         GRAND     25

@@ -1,0 +1,7 @@
+     C* DOWLT: sum 1..5 = 15
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         RPGRET
+     C           CNT       DOWLT5
+     C                     ADD  1         CNT
+     C                     ADD  CNT       RPGRET
+     C                     END

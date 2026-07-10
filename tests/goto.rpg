@@ -1,0 +1,8 @@
+     C* GOTO/TAG loop: sum 1..5 into RPGRET. Expected exit 15.
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         RPGRET
+     C           LOOP      TAG
+     C                     ADD  1         CNT
+     C                     ADD  CNT       RPGRET
+     C           CNT       COMP 5                        99
+     C  N99                GOTO LOOP

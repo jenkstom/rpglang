@@ -1,0 +1,8 @@
+     C* Edit code: read N, print N*1000 with commas.
+     FIN      IP  F    80              DISK
+     FPR      O   F    132             PRINTER
+     IIN      AA  01
+     I                                        1   50N
+     C           N         MULT 1000      VAL
+     OPR      D  1
+     O                         VAL   1   20

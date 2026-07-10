@@ -1,0 +1,12 @@
+     C* Phase 7: read RPDATA, print each AMT + grand total at LR.
+     FRPDATA  IP  F    80              DISK
+     FREPORT  O   F    132             PRINTER
+     IRPDATA  AA  01
+     I                                        1   30AMT
+     C                     ADD  AMT       TOTAL
+     OREPORT  D  1
+     O                                   20 'Amount ='
+     O                         AMT       30
+     OREPORT  T  2    LR
+     O                                   20 'Grand total ='
+     O                         TOTAL     30

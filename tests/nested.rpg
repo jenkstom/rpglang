@@ -1,0 +1,11 @@
+     C* Nested DOW+IF: sum even 1..6 = 2+4+6 = 12
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         RPGRET
+     C           CNT       DOWLE6
+     C                     ADD  1         CNT
+     C           CNT       DIV  2         Q
+     C                     MVR            R
+     C           R         IFEQ 0
+     C                     ADD  CNT       RPGRET
+     C                     END
+     C                     END
