@@ -1,0 +1,4 @@
+     C* Section B7: prerun-time array loaded from file PDATA.
+     C* PARR=[10,20,30] from PDATA; XFOOT = 60.
+     E    PDATA           PARR        3  2 0
+     C                     XFOOTPARR      RPGRET

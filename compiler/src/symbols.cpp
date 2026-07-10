@@ -40,6 +40,19 @@ llvm::Value *SymbolTable::get_or_create_field(const std::string &name) {
     return gv;
 }
 
+void SymbolTable::set_numeric_attrs(const std::string &name, int decimals) {
+    get_or_create_field(name);            // ensure the field exists
+    auto it = fields_.find(name);
+    if (it != fields_.end() && it->second.kind == FieldKind::Numeric)
+        it->second.decimals = decimals;
+}
+
+int SymbolTable::field_decimals(const std::string &name) const {
+    auto it = fields_.find(name);
+    if (it == fields_.end()) return 0;
+    return it->second.decimals < 0 ? 0 : it->second.decimals;
+}
+
 llvm::Value *SymbolTable::get_or_create_char_field(const std::string &name,
                                                    int length) {
     auto it = fields_.find(name);
@@ -60,7 +73,8 @@ llvm::Value *SymbolTable::get_or_create_char_field(const std::string &name,
 }
 
 llvm::Value *SymbolTable::get_or_create_array(const std::string &name, int count,
-                                              const std::vector<long> &init) {
+                                              const std::vector<long> &init,
+                                              bool is_table) {
     auto it = fields_.find(name);
     if (it != fields_.end()) return it->second.gv;
     if (count < 1) count = 1;
@@ -77,6 +91,16 @@ llvm::Value *SymbolTable::get_or_create_array(const std::string &name, int count
         llvm::ConstantArray::get(arrTy, inits), "rpga_" + name);
     gv->setAlignment(llvm::Align(4));
     FieldInfo fi; fi.kind = FieldKind::Array; fi.array_count = count; fi.gv = gv;
+    // Tables track the 1-based index of the element selected by the most
+    // recent successful LOKUP (defaults to 1, the first element).
+    if (is_table) {
+        fi.is_table = true;
+        fi.shadow_gv = new llvm::GlobalVariable(
+            mod_, i32, /*isConstant=*/false,
+            llvm::GlobalValue::InternalLinkage,
+            llvm::ConstantInt::get(i32, 1), "rpgs_" + name);
+        fi.shadow_gv->setAlignment(llvm::Align(4));
+    }
     fields_[name] = fi;
     return gv;
 }
@@ -108,6 +132,25 @@ llvm::Value *SymbolTable::load_field(const std::string &name) {    auto it = fie
     return nullptr;   // character fields have no scalar "load"
 }
 
+llvm::GlobalVariable *SymbolTable::table_shadow(const std::string &name) {
+    auto it = fields_.find(name);
+    return (it != fields_.end() && it->second.is_table) ? it->second.shadow_gv
+                                                        : nullptr;
+}
+
+llvm::Value *SymbolTable::table_elem_ptr(const std::string &name) {
+    auto it = fields_.find(name);
+    if (it == fields_.end() || !it->second.is_table) return nullptr;
+    auto *i32   = llvm::Type::getInt32Ty(mod_.getContext());
+    auto *arrTy = llvm::ArrayType::get(i32, (unsigned)it->second.array_count);
+    // current index is 1-based; subtract one for the 0-based GEP.
+    llvm::Value *cur = builder_.CreateLoad(i32, it->second.shadow_gv, name+"_ci");
+    llvm::Value *idx0 = builder_.CreateSub(cur, llvm::ConstantInt::get(i32, 1, true),
+                                           name+"_ci0");
+    return builder_.CreateInBoundsGEP(arrTy, it->second.gv,
+        {llvm::ConstantInt::get(i32, 0), idx0}, name+"_ep");
+}
+
 llvm::Value *SymbolTable::resolve_operand(const std::string &token) {
     if (token.empty()) return nullptr;
     if (is_integer_literal(token)) {
@@ -136,6 +179,11 @@ llvm::Value *SymbolTable::resolve_operand(const std::string &token) {
             arrTy, fi->gv, {llvm::ConstantInt::get(i32, 0), idx}, an+"_el");
         return builder_.CreateLoad(i32, gep, an+"_v");
     }
+    // A bare table name (no explicit index) resolves to the table's current
+    // element, selected by its LOKUP shadow index.
+    if (auto *tep = table_elem_ptr(token))
+        return builder_.CreateLoad(llvm::Type::getInt32Ty(mod_.getContext()),
+                                   tep, token+"_tv");
     auto it = fields_.find(token);
     if (it == fields_.end()) {
         // Auto-create as numeric (Phase 2 behaviour for undeclared fields).

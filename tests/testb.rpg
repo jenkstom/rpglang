@@ -1,0 +1,5 @@
+     C* TESTB: CF='C' (bits 1,6,7 on), mask '0' (bit0 off) -> HI -> 1
+     C                     MOVE 'C'       CF    1
+     C                     TESTB'0'       CF         010203
+     C                     Z-ADD0         RPGRET
+     C  01                 Z-ADD1         RPGRET

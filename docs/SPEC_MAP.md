@@ -101,6 +101,7 @@ start); **D** prints once per record at detail time; **T** prints at total time
 | `DIV`   | optional| required| required      | +/−/Z; `r = F1/F2` quotient; F2≠0         |
 | `MVR`   | blank   | blank   | required      | +/−/Z; `r` = remainder of preceding DIV   |
 | `Z-ADD` | (unused)| required| required      | +/−/Z; `r = F2` (clears result first)     |
+| `Z-SUB` | (unused)| required| required      | +/−/Z; `r = -F2` (negate)                 |
 | `SETON` | blank   | blank   | blank         | turn ON indicators named in 54–59 (up to 3)|
 | `SETOF` | blank   | blank   | blank         | turn OFF indicators named in 54–59 (up to 3)|
 | `COMP`  | required| required| blank         | HI if F1>F2, LO if F1<F2, EQ if F1==F2    |
@@ -112,14 +113,19 @@ start); **D** prints once per record at detail time; **T** prints at total time
 | `ELSE`  | blank   | blank   | blank         | none; else-branch of the current IF      |
 | `DOWxx` | required| required| blank         | none; do-while: test-at-top, 0+ iters    |
 | `DOUxx` | required| required| blank         | none; do-until: test-at-bottom, 1+ iters  |
-| `END`   | blank   | blank   | blank         | none; closes IF/DOW/DOU (single END op)  |
+| `DO`    | opt(start)| req(limit)| opt(index)| none; counted loop, body runs while index ≤ limit |
+| `CASxx` | optional| optional| required(sub) | opt HI/LO/EQ; calls sub in result if F1xxF2 |
+| `END`   | opt(incr)| blank  | blank         | none; closes IF/DOW/DOU/DO/CAS (incr only for DO) |
 | `EXSR`  | blank   | required(name)| blank    | none; call the named subroutine          |
+| `EXCPT` | blank   | opt(name)| blank       | none; write type-E O-records matching name|
 | `BEGSR` | required(name)| blank| blank    | none; begin subroutine (F1 = name)       |
 | `ENDSR` | opt(label)| blank| blank      | none; return from subroutine             |
 | `XFOOT` | blank   | required(array)| required| +/−/Z; sum all elements into result     |
 | `SQRT`  | blank   | required| required    | none; √(F2) → result, half-adjusted      |
 | `LOKUP` | required| required(array)| blank | HI/LO/EQ; search array for F1, update index |
 | `MOVEA` | blank   | required| required      | none; left-justified byte move (array↔field) |
+| `TESTZ` | blank   | blank   | required(char)| HI plus zone, LO minus zone, EQ other (leftmost char) |
+| `TESTB` | blank   | required| required(char)| HI all-off, LO mixed, EQ all-on for masked bits |
 
 **Phase 9 additions.** Alphanumeric fields (I-spec col 52 blank) compile to
 `[N x i8]` globals; `MOVE`/`MOVEL` do right/left-justified byte copies; quoted
@@ -142,6 +148,78 @@ LLVM function sharing the program's globals (fields, indicators). `EXSR`
 calls it; `ENDSR` returns to the caller. No recursion; no GOTO across the
 subroutine boundary.
 
+**Section B additions — tables, prerun-time, alternating arrays.** An E-spec
+name beginning with `TAB` (case-insensitive) is a *table* rather than an
+array; tables have no explicit indexing and instead carry a hidden 1-based
+current-element shadow (`rpgs_<name>`, default 1). `LOKUP` of a bare table
+name advances the shadow to the matched element, and a *related* table named
+in the result field advances in lockstep (its corresponding element becomes
+current). A bare table name in any factor/result field resolves to the
+shadow-selected element; the explicit `TABLE,INDEX` form still works as an
+ordinary array ref. **Prerun-time** arrays/tables (cols 11–18 filename) are
+loaded once at the top of `main` via the `rpg_rt_load_arrays` runtime helper,
+before the cycle or calc chain runs. **Alternating** arrays/tables (cols 46–57:
+46–51 partner name, 52–54 entry length, 56 decimals, 57 sequence) are parsed
+and emitted as their own global; their compile-time and prerun-time data
+interleave on each record (A1 B1 A2 B2 …).
+
+**Section C additions — the numeric data model.** Every numeric field is stored
+as a single signed `i32` that is a *scaled integer*: the stored value equals the
+true value × 10^decimals, where `decimals` is the field's decimal-position count
+(I-spec col 52, or C-spec col 52 for an inline-defined result). Arithmetic
+honors this scale: ADD/SUB align operands to `max(dec1,dec2)` before computing;
+MULT's result scale is `dec1+dec2`; DIV scales the numerator up to retain
+precision, then all ops adjust to the result field's scale. **Half-adjust**
+(C-spec col 53 = `H`) rounds by adding 5 at the first dropped digit before
+truncating; it applies to ADD/SUB/MULT/DIV (and SQRT, which is always
+half-adjusted). `Z-ADD`/`Z-SUB` rescale factor 2 to the result's decimals.
+
+I-spec **col 43** selects the input field's byte encoding: blank = zoned
+(ASCII digits, the default), `P` = packed-decimal (two BCD digits per byte, sign
+nibble F=+/D=− in the low-order byte), `B` = binary (big-endian; 2-byte int16
+or 4-byte int32). Packed and binary fields are decoded at read time by
+`rpg_rt_get_packed` / `rpg_rt_get_binary` into the same scaled-integer
+representation. O-spec col 44 is parsed but treated as a no-op (DISK/ICF only).
+
+**Sign-overpunch** governs MOVE between alphameric and numeric operands
+(Section C, C10): the last digit of the character string carries the sign via
+its zone — `A`–`I` = positive digits 1–9, `J`–`R` = negative digits 1–9, plain
+`0`–`9` = positive. `rpg_rt_overpunch_in` decodes a character string to a signed
+value (used by char→numeric MOVE); `rpg_rt_overpunch_out` encodes a value back
+(numeric→char MOVE). Output formatting is decimal-aware via
+`rpg_rt_line_put_num_dec` and `rpg_rt_edit_dec`, which emit the field's
+fractional digits from the scaled integer.
+
+**Section D additions — output spec gaps.** Heading (H) lines and any detail
+line conditioned by the **1P** first-page indicator print once at program start,
+before the cycle; 1P turns off afterward (it is a new reserved indicator index).
+**Skip-before/skip-after** (O-spec cols 19–20 / 21–22) advance the output to an
+absolute page line via `rpg_rt_skip`; a skip to a line at or before the current
+position starts a new page (form-feed, page counter incremented). The
+**PAGE** / **PAGE1**–**PAGE7** reserved output field names print a per-file page
+counter (page 1 on the first page) via `rpg_rt_page`. **Per-field conditioning
+indicators** (O-spec field-line cols 23–31) gate individual fields on a line —
+a field whose conditions don't hold is omitted while the rest print. **Edit
+words** (cols 45–70, quoted, with col 38 blank) format a numeric field via
+`rpg_rt_edit_word`: blanks are replaceable (filled by source digits
+right-aligned), the first `0` stops zero-suppression, the first `*` does
+check-protection, a trailing `-` or `CR` is a sign (printed only if negative),
+and `&` forces a literal blank.
+
+**Section E additions — input spec gaps.** A primary file may contain multiple
+record types distinguished by **record-identification codes** (I-spec cols
+21–41): three 7-column sets (position / Not / C-Z-D / character), with AND/OR
+continuation lines. At read time each record type's codes are matched against
+the record buffer; the matching type's record-identifying indicator (cols
+19–20) turns on, and records matching no type are skipped. A field's
+**field-record-relation** (cols 63–64) ties it to a record type so it is
+extracted only when that indicator is on. **Field indicators** (cols 65–66 /
+67–68 / 69–70) turn on at read time when a numeric field is positive / negative
+/ zero (for an alphameric field, the 69–70 indicator fires on all-blank). A
+`**` record-identification line marks **look-ahead fields**: the field lines
+that follow are decoded from the *next* (uncommitted) record via
+`rpg_rt_peek_next`, and fill with 9s at end-of-file.
+
 Control levels (L1–L9) are assigned to input fields on the **I-spec, cols
 59–60**. The cycle detects a break when a control field's value changes
 between records; the broken level and all lower levels turn on (cascade:
@@ -159,12 +237,31 @@ follow a DIV and moves the remainder to its result field. Overflow is silent
 truncation (max 15 digits, signed). Half-adjust (col 53 `H`) rounds the result
 for ADD/SUB/MULT/DIV (not MVR, not DIV-then-MVR).
 
-Structured-op rules: a single `END` operation closes IFxx, DOWxx, and DOUxx
-groups (there is no ENDIF/ENDDO in S/36 RPG II). `DOWxx` tests at the top
-(body may run zero times); `DOUxx` tests at the bottom (body runs at least
-once, exits when the condition becomes true). Groups nest up to 100 deep.
-There is no `ANDxx`/`ORxx` operation in this dialect — compound conditions use
-AN/OR lines (cols 7–8) over indicators.
+Structured-op rules: a single `END` operation closes IFxx, DOWxx, DOUxx, DO,
+and CAS groups (there is no ENDIF/ENDDO in S/36 RPG II). `DOWxx` tests at the
+top (body may run zero times); `DOUxx` tests at the bottom (body runs at least
+once, exits when the condition becomes true). `DO` is a counted loop: it moves
+factor 1 (start, default 1) into the index (result field; compiler-generated if
+blank), runs the body while the index ≤ factor 2 (limit), and at END adds the
+END's factor 2 (increment, default 1) to the index. `CASxx` opens a case group
+(one or more CASxx ops then END); each CASxx compares F1/F2 and, if true, calls
+the subroutine named in the result field — `CAS` with blank xx is an
+unconditional default that runs like EXSR. Groups nest up to 100 deep. There is
+no `ANDxx`/`ORxx` operation in this dialect — compound conditions use AN/OR
+lines (cols 7–8) over indicators.
+
+**Section A additions.** `Z-SUB` stores the negation of factor 2. `EXCPT` (with
+an optional name in factor 2) writes type-E O-records at calculation time: a
+named EXCPT writes only E-records whose cols 32–37 name matches; a blank
+factor 2 writes only the unnamed E-records. The O-spec parser now carries the
+filename forward across continuation record lines. `TESTZ` tests the "zone" of
+the leftmost character of the (alphameric) result field — since this is an ASCII
+compiler with no EBCDIC zone, the plus zone is the manual's explicit set `&`
+and A–I (plus a–i as an ASCII extension), the minus zone is `-` and J–R (plus
+j–r), and anything else is the zero zone. `TESTB` tests the bits named by factor
+2 (a `'025'`-style bit-number literal where 0 is the leftmost bit, or the ON
+bits of a 1-position character field) against the result field: HI if every
+tested bit is off, LO if mixed, EQ if every tested bit is on.
 
 ## Indicators
 

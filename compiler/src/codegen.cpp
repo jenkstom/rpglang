@@ -27,6 +27,7 @@
 #include "fspec.h"
 #include "ispec.h"
 #include "ospec.h"
+#include "espec.h"
 
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
@@ -40,6 +41,7 @@
 #include <llvm/IR/Verifier.h>
 
 #include <cstdio>
+#include <algorithm>
 #include <unordered_map>
 
 namespace rpgc {
@@ -73,6 +75,12 @@ public:
                 ConstantInt::getFalse(ctx_),
                 "rpg_l" + std::to_string(i));
         }
+        // First-page indicator 1P: on at program start, off after the heading
+        // pass (Section D, D12).
+        first_page_ = new GlobalVariable(
+            mod_, Type::getInt1Ty(ctx_), /*isConstant=*/false,
+            GlobalValue::InternalLinkage,
+            ConstantInt::getTrue(ctx_), "rpg_1p");
     }
 
     /* GEP to indicator slot i (1..99). */
@@ -100,11 +108,14 @@ public:
     /* Resolve an indicator index from a parsed token:
      *   -1      => LR
      *   -2..-10 => L1..L9
+     *   -11     => 1P (first-page)
      *   1..99   => general indicator slot
      */
     llvm::Value *load_resolved(int idx) {
         if (idx == -1)
             return builder_.CreateLoad(llvm::Type::getInt1Ty(ctx_), lr_, "lr");
+        if (idx == -11)
+            return builder_.CreateLoad(llvm::Type::getInt1Ty(ctx_), first_page_, "p1");
         if (idx <= -2 && idx >= -10)
             return builder_.CreateLoad(llvm::Type::getInt1Ty(ctx_),
                                        ctl_[-idx - 1], "l" + std::to_string(-idx-1));
@@ -112,6 +123,7 @@ public:
     }
     void store_resolved(int idx, llvm::Value *v) {
         if (idx == -1) { builder_.CreateStore(v, lr_); return; }
+        if (idx == -11) { builder_.CreateStore(v, first_page_); return; }
         if (idx <= -2 && idx >= -10) {
             builder_.CreateStore(v, ctl_[-idx - 1]); return;
         }
@@ -137,6 +149,10 @@ public:
         for (int i = 1; i <= 9; ++i) builder_.CreateStore(t, ctl_[i]);
         builder_.CreateStore(t, lr_);
     }
+    /* Turn off 1P after the heading pass (Section D, D12). */
+    void clear_first_page() {
+        builder_.CreateStore(llvm::ConstantInt::getFalse(ctx_), first_page_);
+    }
 
     llvm::GlobalVariable *lr() { return lr_; }
     llvm::GlobalVariable *in() { return in_; }
@@ -147,6 +163,7 @@ private:
     llvm::IRBuilder<>  &builder_;
     llvm::GlobalVariable *in_ = nullptr;
     llvm::GlobalVariable *lr_ = nullptr;
+    llvm::GlobalVariable *first_page_ = nullptr;   // 1P
     llvm::GlobalVariable *ctl_[10] = {};   // ctl_[1..9] = L1..L9
 };
 
@@ -207,21 +224,70 @@ public:
      * or the linear form (C-specs once). */
     bool generate(const Program &prog) {
         declare_runtime();
-        // Create globals for every E-spec array (numeric arrays only for now).
+        // Create globals for every numeric E-spec array/table. Tables (TAB-
+        // prefixed) additionally get a current-element shadow index. An
+        // alternating partner (cols 46-51) becomes its own array/table global.
         for (const auto &a : prog.arrays) {
             if (a.decimals >= 0)
-                syms_.get_or_create_array(a.name, a.entries, a.init_data);
+                syms_.get_or_create_array(a.name, a.entries, a.init_data,
+                                          is_table_name(a.name));
+            if (!a.alt_name.empty() && a.alt_decimals >= 0)
+                syms_.get_or_create_array(a.alt_name, a.entries, a.alt_init_data,
+                                          is_table_name(a.alt_name));
         }
+        arrays_ = &prog.arrays;
+        // Stash the O-spec records so EXCPT can reach them from calc time.
+        outputs_ = &prog.outputs;
         // Compile subroutines first so EXSR calls in main can resolve.
         generate_subroutines(prog.calcs);
         if (find_primary_input(prog.files)) {
             return generate_cycle(prog);
         }
-        return generate_linear(prog.calcs);
+        return generate_linear(prog.calcs, prog.outputs);
+    }
+
+    /* Emit prerun-time array/table loads at the current insert point. Each
+     * PreRunTime numeric array opens its `from_file` and reads `entries`
+     * fixed-width fields into its global; an alternating partner (cols 46-51)
+     * is loaded from the same records. Section B. */
+    void emit_prerun_loads() {
+        using namespace llvm;
+        if (!arrays_) return;
+        auto &c   = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        auto *ptr = PointerType::get(c, 0);
+        for (const auto &a : *arrays_) {
+            if (a.load != ArrayLoad::PreRunTime) continue;
+            if (a.decimals < 0) continue;   // alphanumeric: deferred
+            Value *path = builder_.CreateGlobalStringPtr(a.from_file, "afn");
+            const FieldInfo *fi = syms_.info(a.name);
+            if (!fi) continue;
+            auto *arrTy = ArrayType::get(i32, (unsigned)fi->array_count);
+            Value *outA = builder_.CreateConstInBoundsGEP2_32(
+                arrTy, cast<GlobalVariable>(fi->gv), 0, 0, a.name+"_lp");
+            Value *outB = ConstantPointerNull::get(static_cast<PointerType*>(ptr));
+            int lenB = 0;
+            if (!a.alt_name.empty() && a.alt_decimals >= 0) {
+                const FieldInfo *fb = syms_.info(a.alt_name);
+                if (fb) {
+                    auto *bTy = ArrayType::get(i32, (unsigned)fb->array_count);
+                    outB = builder_.CreateConstInBoundsGEP2_32(
+                        bTy, cast<GlobalVariable>(fb->gv), 0, 0, a.alt_name+"_lp");
+                    lenB = a.alt_entry_len > 0 ? a.alt_entry_len : a.entry_len;
+                }
+            }
+            int lenA = a.entry_len > 0 ? a.entry_len : 1;
+            builder_.CreateCall(load_arrays_,
+                {path, ConstantInt::get(i32, lenA, true),
+                 ConstantInt::get(i32, lenB, true),
+                 ConstantInt::get(i32, a.entries, true), outA, outB},
+                a.name+"_ld");
+        }
     }
 
     /* Linear form: C-specs run once, in order (Phase 2 behaviour). */
-    bool generate_linear(const std::vector<CSpec> &specs) {
+    bool generate_linear(const std::vector<CSpec> &specs,
+                         const std::vector<ORecord> &outputs) {
         using namespace llvm;
 
         // Build main.
@@ -232,10 +298,19 @@ public:
         BasicBlock *entry = BasicBlock::Create(mod_->getContext(), "entry", main);
         builder_.SetInsertPoint(entry);
 
+        // Load any prerun-time arrays/tables before the program runs.
+        emit_prerun_loads();
+
+        // Linear programs generally have no output, but if O-specs are present
+        // run the first-page (heading) pass too (D12).
+        static std::unordered_map<std::string, llvm::Value *> empty_ids;
+        out_ids_ = &empty_ids;
+        BasicBlock *afterHead = emit_heading_pass(main, entry, outputs);
+
         // Route through emit_spec_chain so structured ops (IF/ELSE/END/DOW/DOU)
         // and GOTO/TAG work in linear programs too. Level "" picks up all specs
         // whose control_level is blank.
-        BasicBlock *prev = emit_spec_chain(main, entry, specs, "");
+        BasicBlock *prev = emit_spec_chain(main, afterHead, specs, "");
 
         BasicBlock *exitbb = BasicBlock::Create(mod_->getContext(), "exit", main);
         builder_.SetInsertPoint(prev);
@@ -274,9 +349,35 @@ private:
             FunctionType::get(i32, {i32, ptr, i64}, false),
             Function::ExternalLinkage, "rpg_rt_read_next", mod_.get());
 
+        // Section E (E19): look-ahead peek.
+        peek_next_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr, i64}, false),
+            Function::ExternalLinkage, "rpg_rt_peek_next", mod_.get());
+
         get_decimal_ = Function::Create(
             FunctionType::get(i64, {ptr, i32, i32, i32}, false),
             Function::ExternalLinkage, "rpg_rt_get_decimal", mod_.get());
+
+        // Section C: packed-decimal / binary input decoders.
+        get_packed_ = Function::Create(
+            FunctionType::get(i64, {ptr, i32, i32, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_get_packed", mod_.get());
+        get_binary_ = Function::Create(
+            FunctionType::get(i64, {ptr, i32, i32, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_get_binary", mod_.get());
+
+        // Section C (C10): sign-overpunch MOVE helpers.
+        overpunch_in_ = Function::Create(
+            FunctionType::get(i64, {ptr, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_overpunch_in", mod_.get());
+        overpunch_out_ = Function::Create(
+            FunctionType::get(i32, {i64, ptr, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_overpunch_out", mod_.get());
+
+        // Section D: skip/page output helpers (D13/D14).
+        skip_fn_ = Function::Create(
+            FunctionType::get(voidTy, {i32, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_skip", mod_.get());
 
         // Phase 7 output functions.
         open_output_ = Function::Create(
@@ -291,14 +392,27 @@ private:
         line_put_num_ = Function::Create(
             FunctionType::get(voidTy, {i64, i32}, false),
             Function::ExternalLinkage, "rpg_rt_line_put_num", mod_.get());
+        // Section C: decimal-aware output variants.
+        line_put_num_dec_ = Function::Create(
+            FunctionType::get(voidTy, {i64, i32, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_line_put_num_dec", mod_.get());
         emit_line_ = Function::Create(
             FunctionType::get(voidTy, {i32, i32}, false),
             Function::ExternalLinkage, "rpg_rt_emit_line", mod_.get());
 
-        // Phase 10 edit-code formatter.
+        // Phase 10 edit-code formatter (decimals=0 legacy entry point).
         edit_fn_ = Function::Create(
             FunctionType::get(i32, {i64, i32, i32, ptr, i32}, false),
             Function::ExternalLinkage, "rpg_rt_edit", mod_.get());
+        // Section C: decimal-aware edit-code formatter.
+        edit_dec_fn_ = Function::Create(
+            FunctionType::get(i32, {i64, i32, i32, i32, ptr, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_edit_dec", mod_.get());
+
+        // Section B: prerun-time array/table loader.
+        load_arrays_ = Function::Create(
+            FunctionType::get(i32, {ptr, i32, i32, i32, ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_load_arrays", mod_.get());
     }
 
     /* Emit the implicit RPG program cycle. Phase 3 implements a simplified
@@ -313,6 +427,135 @@ private:
      *   exit:         close_all -> ret <exit value>
      *
      * (Control-level total calculations L1-L9/L0 arrive in a later phase.) */
+
+    /* Decode one input field from the record buffer into its global, and emit
+     * any field indicators (E18). Extracted from the extract loop so the
+     * field-record-relation guard (E17) can call it conditionally. */
+    void emit_one_input_field(llvm::LLVMContext &c, llvm::Value *bufPtr,
+                              const ISpecField &fld, int reclen) {
+        using namespace llvm;
+        auto *i32 = Type::getInt32Ty(c);
+        auto *i8  = Type::getInt8Ty(c);
+        if (fld.decimals < 0) {
+            // Character field: copy raw record bytes [from-1 .. to-1].
+            int len = fld.to - fld.from + 1;
+            if (len < 1) return;
+            Value *dst = syms_.get_or_create_char_field(fld.name, len);
+            auto *arrTy = ArrayType::get(i8, (unsigned)len);
+            Value *dstp = builder_.CreateConstInBoundsGEP2_32(arrTy,
+                cast<GlobalVariable>(dst), 0, 0, fld.name+"_dp");
+            Value *srcp = builder_.CreateInBoundsGEP(i8, bufPtr,
+                ConstantInt::get(i32, fld.from - 1, true), fld.name+"_sp");
+            builder_.CreateMemCpy(dstp, MaybeAlign(), srcp, MaybeAlign(),
+                                  (unsigned)len);
+            // Field indicator (cols 69-70): on when an alphameric field is
+            // all blanks.
+            if (fld.zero_ind) {
+                Value *allblank = ConstantInt::getTrue(c);
+                for (int b = 0; b < len; ++b) {
+                    Value *bp = builder_.CreateInBoundsGEP(i8, srcp,
+                        ConstantInt::get(i32, b, true));
+                    Value *ch = builder_.CreateLoad(i8, bp, fld.name+"_cb");
+                    Value *isSp = builder_.CreateICmpEQ(ch,
+                        ConstantInt::get(i8, (uint8_t)' '), fld.name+"_sp");
+                    allblank = builder_.CreateAnd(allblank, isSp, fld.name+"_ab");
+                }
+                inds_.store_resolved(fld.zero_ind, allblank);
+            }
+        } else {
+            Function *dec = get_decimal_;
+            if (fld.data_format == 'P')      dec = get_packed_;
+            else if (fld.data_format == 'B') dec = get_binary_;
+            Value *v = builder_.CreateCall(dec,
+                {bufPtr, ConstantInt::get(i32, reclen, true),
+                 ConstantInt::get(i32, fld.from, true),
+                 ConstantInt::get(i32, fld.to, true)},
+                fld.name + "_in");
+            Value *v32 = builder_.CreateTrunc(v, i32, fld.name + "_i32");
+            builder_.CreateStore(v32, syms_.get_or_create_field(fld.name));
+            // Field indicators (cols 65-70): plus on >0, minus on <0, zero on 0.
+            auto *zero = ConstantInt::get(i32, 0, true);
+            if (fld.plus_ind)
+                inds_.store_resolved(fld.plus_ind,
+                    builder_.CreateICmpSGT(v32, zero, fld.name+"_p"));
+            if (fld.minus_ind)
+                inds_.store_resolved(fld.minus_ind,
+                    builder_.CreateICmpSLT(v32, zero, fld.name+"_m"));
+            if (fld.zero_ind)
+                inds_.store_resolved(fld.zero_ind,
+                    builder_.CreateICmpEQ(v32, zero, fld.name+"_z"));
+        }
+    }
+
+    /* Record-identification selection (E17). If any record type for the primary
+     * file carries identification codes, match the current record (in bufPtr)
+     * against each type's code-sets, set the matching record-identifying
+     * indicator, and return a new block to continue field extraction from.
+     * Records matching no type branch back to `head` (skipped). If no record
+     * type has codes, returns `extract` unchanged (no-op). */
+    llvm::BasicBlock *emit_record_selection(llvm::Function *main,
+                                            llvm::BasicBlock *head,
+                                            llvm::BasicBlock *extract,
+                                            llvm::Value *bufPtr,
+                                            const Program &prog) {
+        using namespace llvm;
+        auto &c   = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        auto *i8  = Type::getInt8Ty(c);
+        // Collect record types that carry codes.
+        std::vector<const ISpecRec *> typed;
+        for (const auto &r : prog.in_records)
+            if (!r.codes.empty()) typed.push_back(&r);
+        if (typed.empty()) return extract;   // single-record-type: no selection
+
+        builder_.SetInsertPoint(extract);
+        // First clear all record-identifying indicators that have codes, so
+        // only the matching type is on this cycle.
+        for (const auto *r : typed)
+            if (r->rec_indicator > 0)
+                inds_.store_resolved(r->rec_indicator,
+                                     ConstantInt::getFalse(c));
+
+        // For each typed record, evaluate AND of its code-sets and store the
+        // result into its record-identifying indicator.
+        Value *anyMatch = ConstantInt::getFalse(c);
+        for (const auto *r : typed) {
+            Value *match = ConstantInt::getTrue(c);
+            for (const auto &cs : r->codes) {
+                Value *bp = builder_.CreateInBoundsGEP(i8, bufPtr,
+                    ConstantInt::get(i32, cs.pos - 1, true), "rc_p");
+                Value *b  = builder_.CreateLoad(i8, bp, "rc_b");
+                Value *want = ConstantInt::get(i8, (uint8_t)cs.ch);
+                Value *same;
+                if (cs.czd == 'C') {
+                    same = builder_.CreateICmpEQ(b, want, "rc_eq");
+                } else if (cs.czd == 'Z') {
+                    // high nibble (zone)
+                    Value *zn = builder_.CreateLShr(b,
+                        ConstantInt::get(i8, 4), "rc_zn");
+                    Value *wz = builder_.CreateLShr(want,
+                        ConstantInt::get(i8, 4), "rc_wz");
+                    same = builder_.CreateICmpEQ(zn, wz, "rc_zeq");
+                } else { // 'D' low nibble (digit)
+                    Value *m = ConstantInt::get(i8, 0x0F);
+                    Value *dg = builder_.CreateAnd(b, m, "rc_dg");
+                    Value *wd = builder_.CreateAnd(want, m, "rc_wd");
+                    same = builder_.CreateICmpEQ(dg, wd, "rc_deq");
+                }
+                if (cs.negate) same = builder_.CreateNot(same, "rc_neg");
+                match = builder_.CreateAnd(match, same, "rc_and");
+            }
+            if (r->rec_indicator > 0)
+                inds_.store_resolved(r->rec_indicator, match);
+            anyMatch = builder_.CreateOr(anyMatch, match, "rc_any");
+        }
+        // If no type matched, skip this record (loop back to head).
+        BasicBlock *fieldEx = BasicBlock::Create(c, "rec_sel", main);
+        builder_.CreateCondBr(anyMatch, fieldEx, head);
+        builder_.SetInsertPoint(fieldEx);
+        return fieldEx;
+    }
+
     bool generate_cycle(const Program &prog) {
         using namespace llvm;
         auto &c  = mod_->getContext();
@@ -320,7 +563,7 @@ private:
         auto *i64 = Type::getInt64Ty(c);
 
         const FSpec *pf = find_primary_input(prog.files);
-        if (!pf) return generate_linear(prog.calcs); // defensive
+        if (!pf) return generate_linear(prog.calcs, prog.outputs); // defensive
 
         int reclen = pf->reclen > 0 ? pf->reclen : 80;
 
@@ -330,6 +573,9 @@ private:
                                           "main", mod_.get());
         BasicBlock *entry = BasicBlock::Create(c, "entry", main);
         builder_.SetInsertPoint(entry);
+
+        // Load any prerun-time arrays/tables before the cycle starts.
+        emit_prerun_loads();
 
         // Record buffer global: [reclen+1 x i8], zeroed.
         auto *bufTy = ArrayType::get(Type::getInt8Ty(c), (unsigned)reclen + 1);
@@ -363,6 +609,10 @@ private:
         }
         out_ids_ = &out_ids;
 
+        // First-page pass: emit headings (and 1P-conditioned detail) once at
+        // program start, before the cycle begins (D12).
+        BasicBlock *afterHead = emit_heading_pass(main, entry, prog.outputs);
+
         // Pre-create globals for every input field so the extract block and
         // the C-spec operand resolution share the same storage. Character
         // fields (blank decimal position) get [N x i8] storage and are loaded
@@ -376,6 +626,21 @@ private:
                 syms_.get_or_create_char_field(fld.name, len);
             } else {
                 syms_.get_or_create_field(fld.name);
+                // Record the field's decimal-position count so arithmetic
+                // (Section C) treats the stored i32 as a scaled integer.
+                syms_.set_numeric_attrs(fld.name, fld.decimals);
+            }
+        }
+        // Pre-create globals for look-ahead fields too (E19).
+        for (const auto &fld : prog.lookahead_fields) {
+            if (fld.name.empty()) continue;
+            if (fld.decimals < 0) {
+                int len = fld.to - fld.from + 1;
+                if (len < 1) len = 1;
+                syms_.get_or_create_char_field(fld.name, len);
+            } else {
+                syms_.get_or_create_field(fld.name);
+                syms_.set_numeric_attrs(fld.name, fld.decimals);
             }
         }
 
@@ -422,32 +687,74 @@ private:
 
         // extract: load each field from the buffer.
         builder_.SetInsertPoint(extract);
+        // Record-identification selection (E17): if any record type for the
+        // primary file carries identification codes, match the record and set
+        // the matching record-identifying indicator; skip non-matching records.
+        BasicBlock *fieldExtract = emit_record_selection(main, head, extract,
+                                                         bufPtr, prog);
+        if (fieldExtract != extract)
+            builder_.SetInsertPoint(fieldExtract);
         for (const auto &fld : prog.in_fields) {
             if (fld.name.empty()) continue;
-            if (fld.decimals < 0) {
-                // Character field: copy raw record bytes [from-1 .. to-1].
-                int len = fld.to - fld.from + 1;
-                if (len < 1) continue;
-                Value *dst = syms_.get_or_create_char_field(fld.name, len);
-                auto *arrTy = ArrayType::get(Type::getInt8Ty(c), (unsigned)len);
-                Value *dstp = builder_.CreateConstInBoundsGEP2_32(arrTy,
-                    cast<GlobalVariable>(dst), 0, 0, fld.name+"_dp");
-                // src = &rec_buf[from-1]
-                Value *srcp = builder_.CreateInBoundsGEP(
-                    Type::getInt8Ty(c), bufPtr,
-                    ConstantInt::get(i32, fld.from - 1, true), fld.name+"_sp");
-                builder_.CreateMemCpy(dstp, llvm::MaybeAlign(),
-                    srcp, llvm::MaybeAlign(), (unsigned)len);
+            // Field-record-relation (cols 63-64, E17): a field tied to a record
+            // type is extracted only when that record-identifying indicator is on.
+            if (fld.record_id > 0) {
+                Value *on = inds_.load_resolved(fld.record_id);
+                BasicBlock *fdo = BasicBlock::Create(c, "fld_rid", main);
+                BasicBlock *fafter = BasicBlock::Create(c, "fld_ria", main);
+                builder_.CreateCondBr(on, fdo, fafter);
+                builder_.SetInsertPoint(fdo);
+                emit_one_input_field(c, bufPtr, fld, reclen);
+                builder_.CreateBr(fafter);
+                builder_.SetInsertPoint(fafter);
             } else {
-                Value *v = builder_.CreateCall(get_decimal_,
-                    {bufPtr,
-                     ConstantInt::get(i32, reclen, true),
-                     ConstantInt::get(i32, fld.from, true),
-                     ConstantInt::get(i32, fld.to, true)},
-                    fld.name + "_in");
-                Value *v32 = builder_.CreateTrunc(v, i32, fld.name + "_i32");
-                builder_.CreateStore(v32, syms_.get_or_create_field(fld.name));
+                emit_one_input_field(c, bufPtr, fld, reclen);
             }
+        }
+
+        // Look-ahead fields (E19): peek at the next record and decode the
+        // look-ahead fields from it; at EOF the fields are filled with 9s.
+        if (!prog.lookahead_fields.empty()) {
+            // Look-ahead buffer global (created once).
+            if (!la_buf_) {
+                auto *bufTy = ArrayType::get(Type::getInt8Ty(c), reclen + 1);
+                la_buf_ = new GlobalVariable(
+                    *mod_, bufTy, /*isConstant=*/false,
+                    GlobalValue::InternalLinkage,
+                    ConstantAggregateZero::get(bufTy), "rpg_la_rec");
+            }
+            Value *laPtr = builder_.CreateConstInBoundsGEP2_32(
+                ArrayType::get(Type::getInt8Ty(c), reclen + 1), la_buf_, 0, 0);
+            Value *peeked = builder_.CreateCall(peek_next_,
+                {fid, laPtr, ConstantInt::get(i64, reclen + 1, false)}, "la_got");
+            Value *haveLA = builder_.CreateICmpNE(peeked,
+                ConstantInt::get(i32, 0), "have_la");
+            BasicBlock *laDo = BasicBlock::Create(c, "la.do", main);
+            BasicBlock *laEOF = BasicBlock::Create(c, "la.eof", main);
+            BasicBlock *laAfter = BasicBlock::Create(c, "la.after", main);
+            builder_.CreateCondBr(haveLA, laDo, laEOF);
+            // Decode from the peek buffer.
+            builder_.SetInsertPoint(laDo);
+            for (const auto &fld : prog.lookahead_fields) {
+                if (fld.name.empty()) continue;
+                emit_one_input_field(c, laPtr, fld, reclen);
+            }
+            builder_.CreateBr(laAfter);
+            // EOF: fill numeric look-ahead fields with all-9s (the manual's
+            // end-of-file rule); leave alphameric fields unchanged.
+            builder_.SetInsertPoint(laEOF);
+            for (const auto &fld : prog.lookahead_fields) {
+                if (fld.name.empty() || fld.decimals < 0) continue;
+                int len = fld.to - fld.from + 1;
+                if (len < 1) len = 1;
+                long nines = 1;
+                for (int d = 0; d < len; ++d) nines *= 10;   // 999...9
+                builder_.CreateStore(
+                    ConstantInt::get(i32, (uint32_t)(nines - 1), true),
+                    syms_.get_or_create_field(fld.name));
+            }
+            builder_.CreateBr(laAfter);
+            builder_.SetInsertPoint(laAfter);
         }
 
         // Control-break detection: for each control field, compare current value
@@ -558,81 +865,248 @@ private:
     /* Emit the output record lines of the requested timing into the block
      * `prev`. Returns the block to continue from (the last merge block, or
      * `prev` if nothing was emitted). */
-    llvm::BasicBlock *emit_output(llvm::Function *main, llvm::BasicBlock *prev,
-                     const std::vector<ORecord> &records, OType want) {
+    /* Emit one output record line (conditioning gate + fields + emit_line)
+     * into the block `prev`. Returns the continuation block. Shared by the
+     * cycle-timed output (emit_output) and the calc-time EXCPT path
+     * (emit_exception). A record whose file has no open output id is skipped. */
+    llvm::BasicBlock *emit_one_record(llvm::Function *main,
+                                      llvm::BasicBlock *prev,
+                                      const ORecord &rec) {
         using namespace llvm;
-        builder_.SetInsertPoint(prev);
         auto &c   = mod_->getContext();
         auto *i32 = Type::getInt32Ty(c);
 
-        for (const auto &rec : records) {
-            // Skip heading lines for now (1P/heading timing deferred). We only
-            // handle D at detail time and T at total time.
-            if (rec.type == OType::Heading) continue;
-            if (rec.type != want) continue;
+        // Resolve the output file id for this record.
+        auto it = out_ids_->find(rec.file);
+        if (it == out_ids_->end()) return prev;   // no output file: skip
+        Value *fid = it->second;
+        cur_out_fid_ = fid;   // visible to PAGE fields (D14)
 
-            // Resolve the output file id for this record.
-            auto it = out_ids_->find(rec.file);
-            if (it == out_ids_->end()) continue;   // no output file: skip
-            Value *fid = it->second;
+        builder_.SetInsertPoint(prev);
+        // Conditioning: branch around the line if conditions don't hold.
+        Value *cond = eval_conditions(inds_, builder_, rec.conditions);
+        BasicBlock *dob = BasicBlock::Create(c, "out_do", main);
+        BasicBlock *nxt = BasicBlock::Create(c, "out_after", main);
+        builder_.CreateCondBr(cond, dob, nxt);
 
-            // Conditioning: branch around the line if conditions don't hold.
-            Value *cond = eval_conditions(inds_, builder_, rec.conditions);
-            BasicBlock *dob = BasicBlock::Create(c, "out_do", main);
-            BasicBlock *nxt = BasicBlock::Create(c, "out_after", main);
-            builder_.CreateCondBr(cond, dob, nxt);
+        builder_.SetInsertPoint(dob);
+        // Skip-before (D13): advance to the requested line (form-feed on a
+        // lower line). Space-before (col 17) adds blank lines first.
+        if (rec.skip_before > 0) {
+            builder_.CreateCall(skip_fn_, {fid,
+                ConstantInt::get(i32, rec.skip_before, true)});
+        }
+        // Build the line: line_begin(reclen). Use 132 for PRINTER default.
+        builder_.CreateCall(line_begin_, {ConstantInt::get(i32, 132)});
+        // Place each field/constant. Per-field conditioning indicators
+        // (cols 23-31) gate individual fields (D15): a field whose conditions
+        // don't hold is skipped.
+        for (const auto &f : rec.fields) {
+            if (f.conditions.empty()) {
+                emit_one_field(main, f);
+            } else {
+                Value *fc = eval_conditions(inds_, builder_, f.conditions);
+                BasicBlock *fdo = BasicBlock::Create(c, "fld_do", main);
+                BasicBlock *fskip = BasicBlock::Create(c, "fld_skip", main);
+                BasicBlock *fafter = BasicBlock::Create(c, "fld_after", main);
+                builder_.CreateCondBr(fc, fdo, fskip);
+                builder_.SetInsertPoint(fdo);
+                emit_one_field(main, f);
+                builder_.CreateBr(fafter);
+                builder_.SetInsertPoint(fskip);
+                builder_.CreateBr(fafter);
+                builder_.SetInsertPoint(fafter);
+            }
+        }
+        builder_.CreateCall(emit_line_,
+            {fid, ConstantInt::get(i32, rec.space_after, true)});
+        // Skip-after (D13): advance to the requested line after printing.
+        if (rec.skip_after > 0) {
+            builder_.CreateCall(skip_fn_, {fid,
+                ConstantInt::get(i32, rec.skip_after, true)});
+        }
+        builder_.CreateBr(nxt);
+        builder_.SetInsertPoint(nxt);
+        return nxt;
+    }
 
-            builder_.SetInsertPoint(dob);
-            // Build the line: line_begin(reclen). Use 132 for PRINTER default.
-            builder_.CreateCall(line_begin_, {ConstantInt::get(i32, 132)});
-            // Place each field/constant.
-            for (const auto &f : rec.fields) {
-                // Per-field conditioning (skip the field if its indicators are off);
-                // Phase 7 ignores per-field conditioning for simplicity (always emit).
-                if (f.is_const) {
-                    Value *str = builder_.CreateGlobalStringPtr(f.text, "oconst");
-                    builder_.CreateCall(line_put_str_, {
-                        str,
-                        ConstantInt::get(i32, (int)f.text.size(), true),
+    /* Place a single field/constant onto the current output line. Assumes the
+     * caller has already set the insert point and run line_begin_. */
+    void emit_one_field(llvm::Function *main, const OField &f) {
+        using namespace llvm;
+        auto &c   = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        if (f.is_const) {
+            Value *str = builder_.CreateGlobalStringPtr(f.text, "oconst");
+            builder_.CreateCall(line_put_str_, {
+                str,
+                ConstantInt::get(i32, (int)f.text.size(), true),
+                ConstantInt::get(i32, f.end_pos, true)});
+        } else if (!f.edit_word.empty()) {
+            // Edit word (D16): format the numeric field via the runtime.
+            emit_edit_word_field(f);
+        } else if (is_page_field(f.name)) {
+            // PAGE / PAGE1-PAGE7 (D14): place the page counter.
+            emit_page_field(main, f);
+        } else if (syms_.has_field(f.name)) {
+            if (syms_.is_char_field(f.name)) {
+                // Character field: put_str with its bytes.
+                int len = syms_.info(f.name)->length;
+                Value *ptr; int plen;
+                syms_.resolve_char_operand(f.name, ptr, plen);
+                builder_.CreateCall(line_put_str_, {
+                    ptr, ConstantInt::get(i32, len, true),
+                    ConstantInt::get(i32, f.end_pos, true)});
+            } else {
+                // Numeric field. Section C: honour the field's decimal
+                // positions so scaled-integer values print correctly.
+                Value *v = syms_.load_field(f.name);
+                Value *v64 = builder_.CreateSExt(v, Type::getInt64Ty(c), f.name+"_o");
+                int dec = syms_.field_decimals(f.name);
+                if (f.edit_code != 0) {
+                    // Edit code: format via runtime into a temp buffer.
+                    Value *buf = builder_.CreateAlloca(
+                        Type::getInt8Ty(c),
+                        ConstantInt::get(i32, 64, false), f.name+"_eb");
+                    Value *n = builder_.CreateCall(edit_dec_fn_, {
+                        v64,
+                        ConstantInt::get(i32, (int)f.edit_code, true),
+                        ConstantInt::get(i32, f.end_pos, true),
+                        ConstantInt::get(i32, dec, true),
+                        buf,
+                        ConstantInt::get(i32, 64, true)}, f.name+"_en");
+                    builder_.CreateCall(line_put_str_, {buf, n,
                         ConstantInt::get(i32, f.end_pos, true)});
-                } else if (syms_.has_field(f.name)) {
-                    if (syms_.is_char_field(f.name)) {
-                        // Character field: put_str with its bytes.
-                        int len = syms_.info(f.name)->length;
-                        Value *ptr; int plen;
-                        syms_.resolve_char_operand(f.name, ptr, plen);
-                        builder_.CreateCall(line_put_str_, {
-                            ptr, ConstantInt::get(i32, len, true),
-                            ConstantInt::get(i32, f.end_pos, true)});
-                    } else {
-                        // Numeric field.
-                        Value *v = syms_.load_field(f.name);
-                        Value *v64 = builder_.CreateSExt(v, Type::getInt64Ty(c), f.name+"_o");
-                        if (f.edit_code != 0) {
-                            // Edit code: format via runtime into a temp buffer.
-                            Value *buf = builder_.CreateAlloca(
-                                Type::getInt8Ty(c),
-                                ConstantInt::get(i32, 64, false), f.name+"_eb");
-                            Value *n = builder_.CreateCall(edit_fn_, {
-                                v64,
-                                ConstantInt::get(i32, (int)f.edit_code, true),
-                                ConstantInt::get(i32, f.end_pos, true),
-                                buf,
-                                ConstantInt::get(i32, 64, true)}, f.name+"_en");
-                            builder_.CreateCall(line_put_str_, {buf, n,
-                                ConstantInt::get(i32, f.end_pos, true)});
-                        } else {
-                            builder_.CreateCall(line_put_num_, {v64,
-                                ConstantInt::get(i32, f.end_pos, true)});
-                        }
-                    }
+                } else {
+                    builder_.CreateCall(line_put_num_dec_, {
+                        v64, ConstantInt::get(i32, f.end_pos, true),
+                        ConstantInt::get(i32, dec, true)});
                 }
             }
-            builder_.CreateCall(emit_line_,
-                {fid, ConstantInt::get(i32, rec.space_after, true)});
-            builder_.CreateBr(nxt);
-            prev = nxt;
-            builder_.SetInsertPoint(nxt);
+        }
+    }
+
+    /* True if `name` is the PAGE / PAGE1-PAGE7 reserved output field. */
+    bool is_page_field(const std::string &name) {
+        std::string u;
+        std::transform(name.begin(), name.end(), std::back_inserter(u),
+                       [](unsigned char ch){ return std::toupper(ch); });
+        if (u == "PAGE") return true;
+        if (u.size() == 5 && u.substr(0,4) == "PAGE" &&
+            u[4] >= '1' && u[4] <= '7') return true;
+        return false;
+    }
+
+    /* Place a PAGE / PAGE1-PAGE7 page-counter value (D14). The page counters
+     * live in the runtime, advanced on form-feed by rpg_rt_skip. */
+    void emit_page_field(llvm::Function * /*main*/, const OField &f) {
+        using namespace llvm;
+        auto &c   = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        auto *i64 = Type::getInt64Ty(c);
+        if (!page_fn_) {
+            page_fn_ = Function::Create(
+                FunctionType::get(i32, {i32, i32}, false),
+                Function::ExternalLinkage, "rpg_rt_page", mod_.get());
+        }
+        // Determine which counter: PAGE => 0 (the record's own file); PAGE1-7
+        // => 1..7 (the nth-opened file). The file id is the current record's;
+        // for PAGE1-7 we pass the digit and the runtime maps it to the file.
+        std::string u;
+        std::transform(f.name.begin(), f.name.end(), std::back_inserter(u),
+                       [](unsigned char ch){ return std::toupper(ch); });
+        int which = 0;
+        if (u.size() == 5 && u.substr(0,4) == "PAGE") which = u[4] - '0';
+        // The current record's file id is on top of the call chain; fetch it
+        // from the record being emitted via the cur_out_fid_ member.
+        Value *fid = cur_out_fid_;
+        Value *pg = builder_.CreateCall(page_fn_,
+            {fid, ConstantInt::get(i32, which, true)}, "pg");
+        Value *pg64 = builder_.CreateSExt(pg, i64, "pg64");
+        builder_.CreateCall(line_put_num_, {pg64,
+            ConstantInt::get(i32, f.end_pos, true)});
+    }
+
+    /* Format a numeric field via an edit word (D16). */
+    void emit_edit_word_field(const OField &f) {
+        using namespace llvm;
+        auto &c   = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        auto *i64 = Type::getInt64Ty(c);
+        auto *ptr = PointerType::get(c, 0);
+        if (!edit_word_fn_) {
+            edit_word_fn_ = Function::Create(
+                FunctionType::get(i32, {i64, ptr, i32, i32, ptr, i32}, false),
+                Function::ExternalLinkage, "rpg_rt_edit_word", mod_.get());
+        }
+        Value *v = syms_.load_field(f.name);
+        Value *v64 = builder_.CreateSExt(v, i64, f.name+"_ew");
+        int dec = syms_.field_decimals(f.name);
+        Value *word = builder_.CreateGlobalStringPtr(f.edit_word, "eword");
+        Value *buf = builder_.CreateAlloca(Type::getInt8Ty(c),
+            ConstantInt::get(i32, 64, false), f.name+"_ewb");
+        Value *n = builder_.CreateCall(edit_word_fn_, {
+            v64, word,
+            ConstantInt::get(i32, (int)f.edit_word.size(), true),
+            ConstantInt::get(i32, dec, true),
+            buf,
+            ConstantInt::get(i32, 64, true)}, f.name+"_ewn");
+        builder_.CreateCall(line_put_str_, {buf, n,
+            ConstantInt::get(i32, f.end_pos, true)});
+    }
+
+    llvm::BasicBlock *emit_output(llvm::Function *main, llvm::BasicBlock *prev,
+                     const std::vector<ORecord> &records, OType want) {
+        for (const auto &rec : records) {
+            // Heading lines are emitted once at program start by
+            // emit_heading_pass, not during the detail/total cycle.
+            if (rec.type == OType::Heading) continue;
+            if (rec.type != want) continue;
+            prev = emit_one_record(main, prev, rec);
+        }
+        return prev;
+    }
+
+    /* First-page pass (D12): run once at program start, while the 1P indicator
+     * is on. Emits all Heading records (each gated by its own conditions, which
+     * may include 1P) and any non-heading records conditioned by 1P. Then turns
+     * 1P off so these records never fire again. */
+    llvm::BasicBlock *emit_heading_pass(llvm::Function *main,
+                                        llvm::BasicBlock *prev,
+                                        const std::vector<ORecord> &records) {
+        bool any = false;
+        for (const auto &rec : records) {
+            if (rec.type == OType::Heading) {
+                prev = emit_one_record(main, prev, rec);
+                any = true;
+            } else if (rec.type == OType::Detail && has_1p_condition(rec.conditions)) {
+                // A detail line conditioned by 1P also prints at first-page time.
+                prev = emit_one_record(main, prev, rec);
+                any = true;
+            }
+        }
+        if (any) inds_.clear_first_page();
+        return prev;
+    }
+
+    /* True if any condition references the 1P indicator (idx -11). */
+    bool has_1p_condition(const std::vector<CondInd> &conds) {
+        for (const auto &c : conds) if (c.indicator == -11) return true;
+        return false;
+    }
+
+    /* EXCPT: write type-E (exception) O-records during calculation time. With a
+     * name in factor2, only E-records whose except_name matches are written;
+     * with blank factor2, only the unnamed E-records. `outputs` is the whole
+     * O-spec record list; `name` is the EXCPT name from the C-spec. */
+    llvm::BasicBlock *emit_exception(llvm::Function *main,
+                                     llvm::BasicBlock *prev,
+                                     const std::vector<ORecord> &outputs,
+                                     const std::string &name) {
+        for (const auto &rec : outputs) {
+            if (rec.type != OType::Exception) continue;
+            if (rec.except_name != name) continue;
+            prev = emit_one_record(main, prev, rec);
         }
         return prev;
     }
@@ -680,11 +1154,15 @@ private:
         // here with a block stack so they nest; everything else goes through
         // emit_spec (which handles TAG/GOTO and conditioned regular ops).
         struct Frame {
-            Op op;                       // IF, DOW, or DOU
+            Op op;                       // IF, DOW, DOU, DO, or CAS
             llvm::BasicBlock *header;    // DOW loop-back target (test-at-top)
             llvm::BasicBlock *exit;      // block after the construct (merge/exit)
             const CSpec *spec;           // the opening spec (for DOU bottom-test)
             bool has_else;               // IF: an ELSE was seen
+            // DO (counted loop) bookkeeping.
+            llvm::Value *do_index_ptr = nullptr;  // &index field
+            llvm::Value *do_limit = nullptr;      // limit value (evaluated once)
+            std::string  do_index_name;           // result field name (or generated)
         };
         std::vector<Frame> frames;
 
@@ -717,7 +1195,8 @@ private:
             using namespace llvm;
             auto &ctx = main->getContext();
 
-            if (c->op == Op::IF || c->op == Op::DOW || c->op == Op::DOU) {
+            if (c->op == Op::IF || c->op == Op::DOW || c->op == Op::DOU
+                                 || c->op == Op::DO) {
                 Frame fr{};
                 fr.op   = c->op;
                 fr.exit = BasicBlock::Create(ctx, "merge", main);
@@ -747,6 +1226,61 @@ private:
                     Value *cond = eval_cmp_op(*c);
                     builder_.CreateCondBr(cond ? cond : ConstantInt::getTrue(ctx),
                                           body, fr.exit);
+                    fr.header = header;
+                    prev = body;
+                } else if (c->op == Op::DO) { // DO -- counted loop.
+                    // The DO operation itself is gated by its conditioning
+                    // indicators. If they fail, skip the whole group (step 1).
+                    builder_.SetInsertPoint(prev);
+                    Value *cind = eval_conditions(inds_, builder_, c->conditions);
+                    BasicBlock *doEntry = BasicBlock::Create(ctx, "do_entry", main);
+                    builder_.CreateCondBr(cind, doEntry, fr.exit);
+
+                    builder_.SetInsertPoint(doEntry);
+                    // Step 2: move the starting value (factor1, default 1) into
+                    // the index field (result, compiler-generated if absent).
+                    auto *i32 = Type::getInt32Ty(ctx);
+                    Value *start = c->factor1.empty()
+                        ? (Value*)ConstantInt::get(i32, 1)
+                        : syms_.resolve_operand(c->factor1);
+                    if (!start) {
+                        report("input", c->lineno, 18, DiagKind::Error,
+                               "DO requires a numeric starting value in factor 1");
+                        start = ConstantInt::get(i32, 1);
+                    }
+                    // Resolve the index field. If a result field is named, use
+                    // it; otherwise generate a hidden one per group.
+                    std::string idxName = c->result;
+                    if (idxName.empty())
+                        idxName = "__do_idx" + std::to_string(c->lineno);
+                    Value *idxPtr = syms_.get_or_create_field(idxName);
+                    builder_.CreateStore(start, idxPtr);
+                    fr.do_index_ptr  = idxPtr;
+                    fr.do_index_name = idxName;
+
+                    // The limit is read once at entry (the manual allows the
+                    // limit to be modified inside the body, but re-reading each
+                    // iteration matches the step-3 description as "compare
+                    // index to factor2"; we evaluate the limit value up front
+                    // so a literal/field limit is stable).
+                    Value *limit = c->factor2.empty()
+                        ? (Value*)ConstantInt::get(i32, 1)
+                        : syms_.resolve_operand(c->factor2);
+                    if (!limit) {
+                        report("input", c->lineno, 33, DiagKind::Error,
+                               "DO requires a numeric limit value in factor 2");
+                        limit = ConstantInt::get(i32, 1);
+                    }
+                    fr.do_limit = limit;
+
+                    // Header (step 3): if index > limit, exit; else run body.
+                    BasicBlock *header = BasicBlock::Create(ctx, "do_head", main);
+                    BasicBlock *body   = BasicBlock::Create(ctx, "do_body", main);
+                    builder_.CreateBr(header);
+                    builder_.SetInsertPoint(header);
+                    Value *idx = builder_.CreateLoad(i32, idxPtr, "do_idx");
+                    Value *gt  = builder_.CreateICmpSGT(idx, limit, "do_gt");
+                    builder_.CreateCondBr(gt, fr.exit, body);
                     fr.header = header;
                     prev = body;
                 } else { // DOU -- test-at-bottom; enter body unconditionally.
@@ -785,7 +1319,7 @@ private:
             if (c->op == Op::END) {
                 if (frames.empty()) {
                     report("input", c->lineno, 28, DiagKind::Error,
-                           "END without matching IF/DOW/DOU");
+                           "END without matching IF/DOW/DOU/DO/CAS");
                     continue;
                 }
                 Frame fr = std::move(frames.back());
@@ -807,6 +1341,32 @@ private:
                     builder_.SetInsertPoint(prev);
                     builder_.CreateBr(fr.header);
                     prev = fr.exit;
+                } else if (fr.op == Op::DO) {
+                    // Step 6: add the increment (END's factor2, default 1) to
+                    // the index and branch back to the header (step 3). The
+                    // increment is re-read each iteration so a field-valued
+                    // increment can change inside the loop.
+                    builder_.SetInsertPoint(prev);
+                    auto *i32 = Type::getInt32Ty(ctx);
+                    const CSpec *endspec = c;   // the END spec
+                    Value *incv;
+                    if (!endspec->factor2.empty()) {
+                        incv = syms_.resolve_operand(endspec->factor2);
+                        if (!incv) incv = ConstantInt::get(i32, 1);
+                    } else {
+                        incv = ConstantInt::get(i32, 1);
+                    }
+                    Value *cur = builder_.CreateLoad(i32, fr.do_index_ptr, "do_i");
+                    Value *nxt = builder_.CreateAdd(cur, incv, "do_inc");
+                    builder_.CreateStore(nxt, fr.do_index_ptr);
+                    builder_.CreateBr(fr.header);
+                    prev = fr.exit;
+                } else if (fr.op == Op::CAS) {
+                    // END of a CAS group: the fall-through (no CASxx matched,
+                    // or a matched sub returned) continues at the merge block.
+                    builder_.SetInsertPoint(prev);
+                    builder_.CreateBr(fr.exit);
+                    prev = fr.exit;
                 } else { // DOU -- test-at-bottom, here at END.
                     // body falls into a test block; exit when cond TRUE, else
                     // loop back to the body top (stored in fr.header).
@@ -822,13 +1382,94 @@ private:
                 continue;
             }
 
-            // Regular op (incl. TAG/GOTO/arith/CASE later).
+            // CASxx: conditionally call the subroutine named in the result
+            // field. A CAS group is one or more CASxx ops followed by END. We
+            // lazily open a CAS frame on the first CASxx (sharing one merge
+            // block for the whole group) and close it at END. An unconditional
+            // CAS (blank xx) calls its sub unconditionally and ends the group.
+            if (c->op == Op::CAS) {
+                // Open a CAS frame if we're not already in one.
+                if (frames.empty() || frames.back().op != Op::CAS) {
+                    Frame fr{};
+                    fr.op   = Op::CAS;
+                    fr.exit = BasicBlock::Create(ctx, "cas_end", main);
+                    frames.push_back(std::move(fr));
+                }
+                BasicBlock *casExit = frames.back().exit;
+
+                // Emit into the current fall-through block. (eval_conditions /
+                // eval_cmp_op below emit instructions, so the insert point must
+                // be set first.)
+                builder_.SetInsertPoint(prev);
+
+                // Conditioning indicators on the CASxx line gate just this line.
+                Value *cind = eval_conditions(inds_, builder_, c->conditions);
+
+                // The comparison (xx) between factor1 and factor2. For an
+                // unconditional CAS (blank xx) there is no comparison; the sub
+                // runs whenever the line's conditioning indicators hold.
+                Value *cmp = nullptr;
+                if (c->cmp != CmpOp::NONE || (!c->factor1.empty() && !c->factor2.empty())) {
+                    if (!c->factor1.empty() && !c->factor2.empty())
+                        cmp = eval_cmp_op(*c);
+                }
+                // Resulting indicators (HI/LO/EQ): set per the comparison even
+                // when no subroutine is named.
+                emit_cas_result_indicators(*c);
+
+                // Decide whether this CASxx fires.
+                Value *fire = cmp;
+                if (cmp && cind)  fire = builder_.CreateAnd(cmp, cind, "cas_c");
+                else if (cind)    fire = cind;
+
+                bool unconditional = (c->cmp == CmpOp::NONE &&
+                                      c->factor1.empty() && c->factor2.empty());
+
+                BasicBlock *callBB =
+                    BasicBlock::Create(ctx, "cas_call", main);
+                BasicBlock *nextBB =
+                    BasicBlock::Create(ctx, "cas_next", main);
+
+                builder_.SetInsertPoint(prev);
+                if (unconditional) {
+                    // Always run the sub (subject only to conditioning inds, but
+                    // a true unconditional CAS ignores them like EXSR). Branch
+                    // straight to the call.
+                    builder_.CreateBr(callBB);
+                } else if (fire) {
+                    builder_.CreateCondBr(fire, callBB, nextBB);
+                } else {
+                    // No comparison and not unconditional (e.g. CAS with no
+                    // factors but indicators only): treat as unconditional.
+                    builder_.CreateBr(callBB);
+                }
+
+                // Call block: invoke the subroutine, then branch to the group
+                // merge. After a sub runs, the program continues after END.
+                builder_.SetInsertPoint(callBB);
+                if (!c->result.empty()) {
+                    auto it = subroutines_.find(c->result);
+                    if (it == subroutines_.end()) {
+                        report("input", c->lineno, 43, DiagKind::Error,
+                               "CASxx subroutine '" + c->result +
+                               "' has no matching BEGSR");
+                    } else {
+                        builder_.CreateCall(it->second);
+                    }
+                }
+                builder_.CreateBr(casExit);
+
+                prev = nextBB;
+                continue;
+            }
+
+            // Regular op (incl. TAG/GOTO/arith).
             prev = emit_spec(main, prev, *c);
         }
 
         // Unmatched openers: report but keep going.
         if (!frames.empty()) {
-            error("unbalanced IFxx/DOWxx/DOUxx (missing END)");
+            error("unbalanced IFxx/DOWxx/DOUxx/DO (missing END)");
         }
         // If this chain had a control-level gate, branch its fall-through into
         // the merge block and return the merge as the continuation.
@@ -902,7 +1543,8 @@ private:
         bool is_div = (c.op == Op::DIV);
         bool is_mvr = (c.op == Op::MVR);
         bool is_struct = (c.op == Op::IF || c.op == Op::DOW || c.op == Op::DOU ||
-                          c.op == Op::ELSE || c.op == Op::END || c.op == Op::CAS);
+                          c.op == Op::DO || c.op == Op::ELSE ||
+                          c.op == Op::END || c.op == Op::CAS);
         if (!is_div && !is_mvr && !is_struct) last_remainder_ = false;
 
         switch (c.op) {
@@ -912,6 +1554,7 @@ private:
             case Op::DIV:  emit_binop(c);  return false;
             case Op::MVR:  emit_mvr(c);    return false;
             case Op::ZADD: emit_zadd(c);   return false;
+            case Op::ZSUB: emit_zsub(c);   return false;
             case Op::SETON:case Op::SETOF: emit_seton(c); return false;
             case Op::COMP:  emit_comp(c);  return false;
             case Op::MOVE:
@@ -919,10 +1562,13 @@ private:
             case Op::TAG:   return false;   // marker; nothing to emit
             case Op::GOTO:  emit_goto(c);   return true;  // branches away
             case Op::EXSR:  emit_exsr(c);   return false;  // call subroutine
+            case Op::EXCPT: emit_except(c); return false;  // write E-lines
             case Op::XFOOT: emit_xfoot(c);  return false;
             case Op::SQRT:  emit_sqrt(c);   return false;
             case Op::LOKUP: emit_lokup(c);  return false;
             case Op::MOVEA: emit_movea(c);  return false;
+            case Op::TESTZ: emit_testz(c);  return false;
+            case Op::TESTB: emit_testb(c);  return false;
             default:
                 // Structured ops (IF/DOU/DOW/ELSE/END/CAS) are handled at the
                 // chain level, not as individual op bodies. Unknown ops were
@@ -931,16 +1577,40 @@ private:
         }
     }
 
+    /* A compile-time power of ten as an i64 constant (1, 10, 100, ...). */
+    llvm::Constant *pow10_i64(int n) {
+        long v = 1;
+        for (int i = 0; i < n; ++i) v *= 10;
+        return llvm::ConstantInt::get(
+            llvm::Type::getInt64Ty(mod_->getContext()), (uint64_t)v, true);
+    }
+
+    /* Decimal positions of a factor token: 0 for literals/undeclared, the
+     * field's recorded decimals otherwise. */
+    int operand_decimals(const std::string &tok) {
+        if (tok.empty()) return 0;
+        // "ARR,INDEX" element refs and integer literals are scale-0.
+        std::string an, it;
+        if (syms_.parse_array_ref(tok, an, it)) return 0;
+        return syms_.field_decimals(tok);
+    }
+
     /* ADD/SUB/MULT/DIV share the "factor1 optional, result substitutes" rule.
-     * Computes r = (f1 present ? f1 OP f2 : r OP f2) using signed integer math.
      *
-     * Per the manual: SUB = F1-F2, MULT = F1*F2 (result len = F1+F2, but we use
-     * i32 so overflow wraps silently), DIV = F1/F2 (signed integer quotient;
-     * decimal-place retention is deferred with packed/decimal support). The
-     * remainder of a DIV is kept in last_remainder_ for a following MVR. */
+     * Section C: every numeric field is a scaled integer (stored value =
+     * true value x 10^decimals). Arithmetic works in i64 with explicit decimal
+     * alignment:
+     *   ADD/SUB - align both operands to max(d1,d2), then adjust to result_dec.
+     *   MULT    - product scale = d1+d2; adjust to result_dec.
+     *   DIV     - scale the numerator up to gain precision before sdiv; adjust
+     *             to result_dec.
+     * Half-adjust (col 53 = H) rounds when digits are dropped. The remainder of
+     * a DIV (unscaled integer remainder) is kept in last_remainder_ for MVR. */
     void emit_binop(const CSpec &c) {
         using namespace llvm;
-        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i64 = Type::getInt64Ty(ctx);
 
         const char *opname = "arith";
         switch (c.op) {
@@ -963,34 +1633,93 @@ private:
         }
         Value *rptr = resolve_result_ptr(c);
 
-        // Left operand: factor1 if present, else the result field's current
-        // value (the accumulate-into-result rule). For an array-element result,
-        // load from that element.
-        Value *lhs;
+        // Result decimal scale: explicit col 52 wins, else the field's own.
+        int result_dec = c.result_dec >= 0 ? c.result_dec
+                                            : syms_.field_decimals(c.result);
+        // An inline-declared result field (col 52 present) records its scale.
+        if (c.result_dec >= 0) syms_.set_numeric_attrs(c.result, c.result_dec);
+
+        // Resolve operands as i64, tracking their scales.
+        int d2 = operand_decimals(c.factor2);
+        Value *f2_64 = builder_.CreateSExt(f2, i64, "f2_64");
+        Value *lhs_64;
+        int d1;
         if (!c.factor1.empty()) {
-            lhs = syms_.resolve_operand(c.factor1);
+            Value *lhs = syms_.resolve_operand(c.factor1);
+            lhs_64 = builder_.CreateSExt(lhs, i64, "f1_64");
+            d1 = operand_decimals(c.factor1);
         } else {
-            lhs = builder_.CreateLoad(i32, rptr, c.result + "_cur");
+            lhs_64 = builder_.CreateSExt(
+                builder_.CreateLoad(i32, rptr, c.result + "_cur"), i64, "cur_64");
+            d1 = syms_.field_decimals(c.result);
         }
 
-        Value *res;
+        // Helper: scale a value from `from_dec` to `to_dec` by a power of ten
+        // (multiply up, or truncating-divide down with optional half-adjust).
+        auto scale_to = [&](Value *v, int from_dec, int to_dec,
+                            bool ha, const char *tag) -> Value * {
+            if (from_dec == to_dec) return v;
+            if (to_dec > from_dec) {
+                return builder_.CreateMul(v, pow10_i64(to_dec - from_dec), tag);
+            }
+            int drop = from_dec - to_dec;
+            if (ha) {
+                // half-adjust: add 5*10^(drop-1) before truncating.
+                Value *bias = builder_.CreateMul(
+                    pow10_i64(drop - 1),
+                    llvm::ConstantInt::get(i64, 5, true), "ha_bias");
+                // Sign-aware: add bias for positive, subtract for negative.
+                Value *neg = builder_.CreateICmpSLT(v,
+                    llvm::ConstantInt::get(i64, 0, true), "ha_neg");
+                Value *adj = builder_.CreateSelect(neg,
+                    builder_.CreateNeg(bias, "ha_negb"), bias, "ha_adj");
+                v = builder_.CreateAdd(v, adj, "ha_v");
+            }
+            return builder_.CreateSDiv(v, pow10_i64(drop), tag);
+        };
+
+        Value *res_64;
         switch (c.op) {
-            case Op::ADD:  res = builder_.CreateAdd (lhs, f2, "add");  break;
-            case Op::SUB:  res = builder_.CreateSub (lhs, f2, "sub");  break;
-            case Op::MULT: res = builder_.CreateMul (lhs, f2, "mul");  break;
+            case Op::ADD:
+            case Op::SUB: {
+                int hi = std::max(d1, d2);
+                Value *a = scale_to(lhs_64, d1, hi, false, "al");
+                Value *b = scale_to(f2_64,  d2, hi, false, "bl");
+                Value *sum = (c.op == Op::ADD)
+                    ? builder_.CreateAdd(a, b, "add")
+                    : builder_.CreateSub(a, b, "sub");
+                res_64 = scale_to(sum, hi, result_dec, c.half_adjust, "rs");
+                break;
+            }
+            case Op::MULT: {
+                Value *prod = builder_.CreateMul(lhs_64, f2_64, "mul");
+                res_64 = scale_to(prod, d1 + d2, result_dec, c.half_adjust, "rs");
+                break;
+            }
             case Op::DIV: {
-                // Signed integer division. Record the remainder for a possible
-                // following MVR. We stash it in a hidden global rather than an
-                // SSA value so MVR (which may land in a different basic block
-                // inside an IF/DO body) can load it without dominance issues.
-                res = builder_.CreateSDiv(lhs, f2, "div");
-                Value *rem = builder_.CreateSRem(lhs, f2, "rem");
-                builder_.CreateStore(rem, get_divrem_slot());
-                last_remainder_ = true;   // signal "remainder saved"
+                // Scale the numerator so the quotient carries result_dec
+                // decimals (plus a couple of guard digits for half-adjust).
+                int guard = c.half_adjust ? 1 : 0;
+                int num_dec = result_dec + guard;
+                Value *num = scale_to(lhs_64, d1, num_dec, false, "dn");
+                // f2 has d2 decimals; dividing num (num_dec) by f2 (d2) yields
+                // a quotient of scale (num_dec - d2).
+                int q_dec = num_dec - d2;
+                Value *quot = builder_.CreateSDiv(num, f2_64, "div");
+                // The integer remainder for MVR is the true remainder of the
+                // operand-as-written (scaled to result_dec).
+                Value *lhs_res = scale_to(lhs_64, d1, result_dec, false, "lrd");
+                Value *f2_res  = scale_to(f2_64,  d2, result_dec, false, "frd");
+                Value *rem = builder_.CreateSRem(lhs_res, f2_res, "rem");
+                builder_.CreateStore(
+                    builder_.CreateTrunc(rem, i32, "rem32"), get_divrem_slot());
+                last_remainder_ = true;
+                res_64 = scale_to(quot, q_dec, result_dec, c.half_adjust, "rs");
                 break;
             }
             default: return;
         }
+        Value *res = builder_.CreateTrunc(res_64, i32, "res32");
         builder_.CreateStore(res, rptr);
         emit_arith_result_indicators(inds_, builder_, c, res);
     }
@@ -1031,7 +1760,32 @@ private:
         return divrem_slot_;
     }
 
-    /* Z-ADD: r = f2 (clears result first, i.e. result = 0 + f2). */
+    /* Rescale an i32 value (from operand `tok`'s decimal count) to the result
+     * field's decimal count, returning an i32. Used by Z-ADD/Z-SUB. When the
+     * result declares its own decimals (col 52) and the result field is being
+     * freshly defined, record that scale on the field. Section C. */
+    llvm::Value *rescale_to_result(llvm::Value *v, const std::string &tok,
+                                   const CSpec &c) {
+        using namespace llvm;
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        auto *i64 = Type::getInt64Ty(mod_->getContext());
+        int from_dec = operand_decimals(tok);
+        // A result declaring col 52 decimals defines the field's scale.
+        int to_dec = c.result_dec >= 0 ? c.result_dec
+                                        : syms_.field_decimals(c.result);
+        if (c.result_dec >= 0) syms_.set_numeric_attrs(c.result, c.result_dec);
+        if (from_dec == to_dec) return v;
+        Value *v64 = builder_.CreateSExt(v, i64, "sc_in");
+        if (to_dec > from_dec) {
+            v64 = builder_.CreateMul(v64, pow10_i64(to_dec - from_dec), "sc_up");
+        } else {
+            v64 = builder_.CreateSDiv(v64, pow10_i64(from_dec - to_dec), "sc_dn");
+        }
+        return builder_.CreateTrunc(v64, i32, "sc_out");
+    }
+
+    /* Z-ADD: r = f2 (clears result first, i.e. result = 0 + f2). Factor 2 is
+     * rescaled to the result field's decimal positions (Section C). */
     void emit_zadd(const CSpec &c) {
         using namespace llvm;
         if (c.result.empty()) {
@@ -1046,8 +1800,31 @@ private:
             return;
         }
         Value *rptr = resolve_result_ptr(c);
-        builder_.CreateStore(f2, rptr);
-        emit_arith_result_indicators(inds_, builder_, c, f2);
+        Value *v = rescale_to_result(f2, c.factor2, c);
+        builder_.CreateStore(v, rptr);
+        emit_arith_result_indicators(inds_, builder_, c, v);
+    }
+
+    /* Z-SUB: r = -f2 (zero and subtract). Same operands/result-indicators as
+     * Z-ADD, but the value stored is the negation of factor 2. */
+    void emit_zsub(const CSpec &c) {
+        using namespace llvm;
+        if (c.result.empty()) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "Z-SUB requires a result field");
+            return;
+        }
+        Value *f2 = syms_.resolve_operand(c.factor2);
+        if (!f2) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "Z-SUB requires factor 2");
+            return;
+        }
+        Value *neg = builder_.CreateNeg(f2, "zsub");
+        Value *rptr = resolve_result_ptr(c);
+        Value *v = rescale_to_result(neg, c.factor2, c);
+        builder_.CreateStore(v, rptr);
+        emit_arith_result_indicators(inds_, builder_, c, v);
     }
 
     /* SETON / SETOF: turn the named indicators on/off. Up to three, one per
@@ -1076,6 +1853,19 @@ private:
             return;
         }
         builder_.CreateCall(it->second);
+    }
+
+    /* EXCPT: write type-E O-records at calculation time. `factor2` names an
+     * EXCPT group; blank factor2 selects the unnamed E-records. Emits into the
+     * current block (already gated by the C-spec's conditioning indicators via
+     * emit_spec). Each E-record then re-applies its own line conditioning. */
+    void emit_except(const CSpec &c) {
+        if (!outputs_ || outputs_->empty()) return;
+        // The current function is the one the spec chain is emitting into.
+        llvm::Function *main = builder_.GetInsertBlock()->getParent();
+        llvm::BasicBlock *prev = builder_.GetInsertBlock();
+        prev = emit_exception(main, prev, *outputs_, c.factor2);
+        builder_.SetInsertPoint(prev);
     }
 
     /* Generate one subroutine as a void() function. The body runs the specs
@@ -1137,6 +1927,25 @@ private:
             return;
         }
         builder_.CreateBr(it->second);
+    }
+
+    /* CASxx resulting indicators: same three-way HI/LO/EQ semantics as COMP.
+     * Used when a CASxx line names indicators in cols 54-59 (valid with or
+     * without a subroutine in the result field). No-op if no factors. */
+    void emit_cas_result_indicators(const CSpec &c) {
+        using namespace llvm;
+        if (c.hi.indicator == 0 && c.lo.indicator == 0 && c.eq.indicator == 0)
+            return;
+        if (c.factor1.empty() || c.factor2.empty()) return;
+        auto set = [&](ResultInd slot, CmpOp cop) {
+            if (slot.indicator == 0) return;
+            CSpec tmp = c; tmp.cmp = cop;
+            Value *cmp = eval_cmp_op(tmp);
+            if (cmp) inds_.store_resolved(slot.indicator, cmp);
+        };
+        set(c.hi, CmpOp::GT);
+        set(c.lo, CmpOp::LT);
+        set(c.eq, CmpOp::EQ);
     }
 
     /* COMP: three-way compare factor1 vs factor2. Sets HI/LO/EQ (54-59).
@@ -1232,14 +2041,45 @@ private:
     void emit_move(const CSpec &c) {
         using namespace llvm;
         auto &ctx = mod_->getContext();
+        auto *i8  = Type::getInt8Ty(ctx);
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i64 = Type::getInt64Ty(ctx);
         if (c.result.empty()) {
             report("input", c.lineno, 43, DiagKind::Error,
                    "MOVE requires a result field");
             return;
         }
-        // Character -> character MOVE/MOVEL: right/left justified byte copy.
+
+        // Resolve factor2 as char bytes if it is a char field / literal.
         Value *srcp; int srclen;
-        if (syms_.resolve_char_operand(c.factor2, srcp, srclen)) {
+        bool f2_char = syms_.resolve_char_operand(c.factor2, srcp, srclen);
+
+        // Decide whether the result is numeric. It is numeric when it is an
+        // already-declared numeric field, or when the C-spec declares it so
+        // (col 52 decimals present, or col 49-51 length with no decimal blank).
+        bool result_numeric = syms_.has_field(c.result)
+                              && !syms_.is_char_field(c.result);
+        if (!syms_.has_field(c.result) && c.result_dec >= 0) result_numeric = true;
+
+        // --- char factor2 -> numeric result: sign-overpunch decode (C10) ---
+        if (f2_char && result_numeric) {
+            Value *v64 = builder_.CreateCall(overpunch_in_,
+                {srcp, ConstantInt::get(i32, srclen, true)}, c.result+"_op");
+            Value *v32 = builder_.CreateTrunc(v64, i32, c.result+"_op32");
+            // Record the result's scale and store.
+            int rdec = c.result_dec >= 0 ? c.result_dec
+                                          : syms_.field_decimals(c.result);
+            if (c.result_dec >= 0) syms_.set_numeric_attrs(c.result, c.result_dec);
+            Value *rptr = syms_.get_or_create_field(c.result);
+            // The decoded digits are already in the result field's scale (an
+            // N-digit zoned string maps to N integer digits).
+            (void)rdec;
+            builder_.CreateStore(v32, rptr);
+            return;
+        }
+
+        // --- character -> character MOVE/MOVEL: right/left justified copy ---
+        if (f2_char) {
             int dstlen;
             Value *rptr;
             if (syms_.is_char_field(c.result)) {
@@ -1249,7 +2089,7 @@ private:
                 dstlen = c.result_len > 0 ? c.result_len : srclen;
                 rptr = syms_.get_or_create_char_field(c.result, dstlen);
             }
-            auto *arrTy = ArrayType::get(Type::getInt8Ty(ctx), (unsigned)dstlen);
+            auto *arrTy = ArrayType::get(i8, (unsigned)dstlen);
             Value *dstp = builder_.CreateConstInBoundsGEP2_32(arrTy,
                 cast<GlobalVariable>(rptr), 0, 0, c.result+"_dp");
             int copylen = std::min(srclen, dstlen);
@@ -1258,17 +2098,41 @@ private:
                 dstoff = dstlen - copylen;
                 srcoff = srclen - copylen;
             }
-            auto *i8 = Type::getInt8Ty(ctx);
             Value *d = builder_.CreateInBoundsGEP(i8, dstp,
-                ConstantInt::get(Type::getInt32Ty(ctx), dstoff, true));
+                ConstantInt::get(i32, dstoff, true));
             Value *s = builder_.CreateInBoundsGEP(i8, srcp,
-                ConstantInt::get(Type::getInt32Ty(ctx), srcoff, true));
+                ConstantInt::get(i32, srcoff, true));
             builder_.CreateMemCpy(d, MaybeAlign(), s, MaybeAlign(),
                                   (unsigned)copylen);
             return;
         }
-        // Numeric MOVE: simple value store (Phase 4 behaviour).
+
+        // --- numeric factor2 -> character result: sign-overpunch encode (C10) -
+        bool result_char = syms_.is_char_field(c.result)
+                           || (!syms_.has_field(c.result) && c.result_dec < 0
+                               && c.result_len > 0);
         Value *f2 = syms_.resolve_operand(c.factor2);
+        if (result_char) {
+            if (!f2) {
+                report("input", c.lineno, 33, DiagKind::Error,
+                       std::string(c.op == Op::MOVEL ? "MOVEL" : "MOVE") +
+                       " requires factor 2");
+                return;
+            }
+            int dstlen = syms_.is_char_field(c.result)
+                ? syms_.info(c.result)->length
+                : (c.result_len > 0 ? c.result_len : 1);
+            Value *rptr = syms_.get_or_create_char_field(c.result, dstlen);
+            auto *arrTy = ArrayType::get(i8, (unsigned)dstlen);
+            Value *dstp = builder_.CreateConstInBoundsGEP2_32(arrTy,
+                cast<GlobalVariable>(rptr), 0, 0, c.result+"_dp");
+            Value *v64 = builder_.CreateSExt(f2, i64, c.result+"_oe");
+            builder_.CreateCall(overpunch_out_,
+                {v64, dstp, ConstantInt::get(i32, dstlen, true)}, c.result+"_o");
+            return;
+        }
+
+        // --- numeric MOVE: simple value store (Phase 4 behaviour) ---
         if (!f2) {
             report("input", c.lineno, 33, DiagKind::Error,
                    std::string(c.op == Op::MOVEL ? "MOVEL" : "MOVE") +
@@ -1301,6 +2165,8 @@ private:
             return builder_.CreateInBoundsGEP(arrTy, fi->gv,
                 {ConstantInt::get(i32,0), idx}, an+"_rp");
         }
+        // A bare table name as a result target: store into the current element.
+        if (auto *tep = syms_.table_elem_ptr(c.result)) return tep;
         return syms_.get_or_create_field(c.result);
     }
 
@@ -1408,6 +2274,29 @@ private:
         setind(c.eq, 0,  "lk_eq");
         setind(c.hi, 1,  "lk_hi");
         setind(c.lo, -1, "lk_lo");
+
+        // Tables (bare table name in factor 2, no explicit index): on an equal
+        // match the table's current-element shadow is updated to the matched
+        // element. If the result field names a *different* table (a related
+        // table), its shadow advances in lockstep so its corresponding element
+        // is now "current". rc==0 means an equal element was found.
+        if (!has_idx && syms_.is_table(an)) {
+            Value *found = builder_.CreateICmpEQ(rc, ConstantInt::get(i32, 0), "lk_f");
+            Value *midx  = builder_.CreateLoad(i32, idxp, "lk_mi");
+            if (GlobalVariable *sh = syms_.table_shadow(an)) {
+                Value *old = builder_.CreateLoad(i32, sh, an+"_so");
+                Value *nw  = builder_.CreateSelect(found, midx, old, an+"_sn");
+                builder_.CreateStore(nw, sh);
+            }
+            if (!c.result.empty() && c.result != an && syms_.is_table(c.result)) {
+                if (GlobalVariable *rsh = syms_.table_shadow(c.result)) {
+                    Value *old = builder_.CreateLoad(i32, rsh, c.result+"_so");
+                    Value *nw  = builder_.CreateSelect(found, midx, old,
+                                                       c.result+"_sn");
+                    builder_.CreateStore(nw, rsh);
+                }
+            }
+        }
     }
 
     /* MOVEA: left-justified move of factor2's bytes into the result. Treats
@@ -1436,6 +2325,146 @@ private:
         builder_.CreateMemCpy(dp, MaybeAlign(), sp, MaybeAlign(), (unsigned)n);
     }
 
+    /* TESTZ: test the "zone" of the leftmost character of the result field
+     * (which must be alphameric). Sets HI on a plus zone, LO on a minus zone,
+     * EQ otherwise. The manual defines the zones by EBCDIC high-nibble; since
+     * this is an ASCII compiler there is no EBCDIC zone, so we honor the
+     * explicit character sets the manual names (plus lowercase as an ASCII
+     * extension, treating a letter's case as sharing its zone):
+     *   plus  zone:  '&'  A-I (and a-i)
+     *   minus zone:  '-'  J-R (and j-r)
+     *   zero  zone:  anything else
+     * Factor 1 and factor 2 are not used. */
+    void emit_testz(const CSpec &c) {
+        using namespace llvm;
+        if (c.result.empty()) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "TESTZ requires a result field");
+            return;
+        }
+        // Result must be a character field.
+        if (!syms_.is_char_field(c.result)) {
+            // If undeclared, treat as a 1-position character field.
+            syms_.get_or_create_char_field(c.result, 1);
+        }
+        Value *rp; int rlen;
+        if (!syms_.resolve_char_operand(c.result, rp, rlen)) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "TESTZ result field must be alphameric");
+            return;
+        }
+        auto *i8  = Type::getInt8Ty(mod_->getContext());
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        // Load byte[0] and zero-extend to i32 for range tests.
+        Value *b0 = builder_.CreateLoad(i8, rp, "tz_b");
+        Value *ch = builder_.CreateZExt(b0, i32, "tz_ch");
+
+        auto inRange = [&](int lo, int hi) -> Value * {
+            Value *geLo = builder_.CreateICmpSGE(ch,
+                ConstantInt::get(i32, lo), "tz_ge");
+            Value *leHi = builder_.CreateICmpSLE(ch,
+                ConstantInt::get(i32, hi), "tz_le");
+            return builder_.CreateAnd(geLo, leHi, "tz_rng");
+        };
+        // Plus zone: '&' (0x26) | A-I (0x41-0x49) | a-i (0x61-0x69)
+        Value *plusAmp = builder_.CreateICmpEQ(ch,
+            ConstantInt::get(i32, (int)'&'), "tz_amp");
+        Value *plus    = builder_.CreateOr(plusAmp,
+            builder_.CreateOr(inRange('A','I'), inRange('a','i'), "tz_pAi"),
+            "tz_plus");
+        // Minus zone: '-' (0x2D) | J-R (0x4A-0x52) | j-r (0x6A-0x72)
+        Value *minusDsh= builder_.CreateICmpEQ(ch,
+            ConstantInt::get(i32, (int)'-'), "tz_dsh");
+        Value *minus   = builder_.CreateOr(minusDsh,
+            builder_.CreateOr(inRange('J','R'), inRange('j','r'), "tz_mJr"),
+            "tz_minus");
+        // Zero zone = neither (the fallthrough).
+
+        auto set = [&](ResultInd slot, Value *v) {
+            if (slot.indicator == 0) return;
+            inds_.store_resolved(slot.indicator, v);
+        };
+        set(c.hi, plus);
+        set(c.lo, minus);
+        if (c.eq.indicator != 0) {
+            Value *zero = builder_.CreateOr(plus, minus, "tz_pm");
+            zero = builder_.CreateNot(zero, "tz_zero");
+            inds_.store_resolved(c.eq.indicator, zero);
+        }
+    }
+
+    /* TESTB: test the bits named in factor2 against the corresponding bits of
+     * the 1-position result field. Factor2 is either a bit-number literal
+     * '025' (digits 0-7, 0 = leftmost/high bit) or a 1-position alphameric
+     * field whose ON bits form the mask. Sets:
+     *   HI: every tested bit is OFF in the result
+     *   LO: the tested bits are of MIXED status (some on, some off)
+     *   EQ: every tested bit is ON in the result  (also set if mask==0) */
+    void emit_testb(const CSpec &c) {
+        using namespace llvm;
+        if (c.result.empty()) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "TESTB requires a result field");
+            return;
+        }
+        // Resolve the result byte (1-position character field).
+        if (!syms_.is_char_field(c.result))
+            syms_.get_or_create_char_field(c.result, 1);
+        Value *rp; int rlen;
+        if (!syms_.resolve_char_operand(c.result, rp, rlen)) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "TESTB result field must be alphameric");
+            return;
+        }
+        auto *i8  = Type::getInt8Ty(mod_->getContext());
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        Value *rb = builder_.CreateLoad(i8, rp, "tb_r");
+        Value *resVal = builder_.CreateZExt(rb, i32, "tb_rv");
+
+        // Build the mask: either from a bit-number literal in factor2 ('025')
+        // or from the ON bits of a 1-position field in factor2.
+        Value *mask = nullptr;
+        Value *fp; int flen;
+        if (!c.factor2.empty() && c.factor2.front() == '\'') {
+            // Bit-number literal: each digit 0-7 names a bit (0=leftmost=0x80).
+            std::string lit = c.factor2.substr(1);
+            if (!lit.empty() && lit.back() == '\'') lit.pop_back();
+            unsigned m = 0;
+            for (char d : lit) {
+                if (d >= '0' && d <= '7') m |= (0x80 >> (d - '0'));
+            }
+            mask = ConstantInt::get(i32, m);
+        } else if (syms_.resolve_char_operand(c.factor2, fp, flen)) {
+            Value *fb = builder_.CreateLoad(i8, fp, "tb_f");
+            mask = builder_.CreateZExt(fb, i32, "tb_mv");
+        } else {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "TESTB requires a bit-number literal or character field in factor 2");
+            return;
+        }
+
+        // tested = resVal & mask  (bits we care about, with their result status)
+        // The manual compares only the bits named in the mask.
+        Value *tested = builder_.CreateAnd(resVal, mask, "tb_tested");
+        Value *allOn  = builder_.CreateICmpEQ(tested, mask, "tb_allon");
+        Value *anyOn  = builder_.CreateICmpNE(tested, ConstantInt::get(i32, 0),
+                                              "tb_anyon");
+        Value *allOff = builder_.CreateICmpEQ(tested, ConstantInt::get(i32, 0),
+                                              "tb_alloff");
+        // HI: every tested bit off. EQ: every tested bit on. LO: mixed (some on,
+        // some off). If mask == 0 (no bits selected), the manual says EQ turns on.
+        Value *mixed = builder_.CreateAnd(anyOn, builder_.CreateNot(allOn),
+                                          "tb_mixed");
+
+        auto set = [&](ResultInd slot, Value *v) {
+            if (slot.indicator == 0) return;
+            inds_.store_resolved(slot.indicator, v);
+        };
+        set(c.hi, allOff);
+        set(c.lo, mixed);
+        set(c.eq, allOn);
+    }
+
     /* Like resolve_result_ptr but takes a raw token (for LOKUP index fields). */
     llvm::Value *resolve_result_ptr_for_token(const std::string &tok) {
         if (tok.empty()) return nullptr;
@@ -1452,19 +2481,40 @@ private:
     llvm::Function               *open_input_   = nullptr;
     llvm::Function               *set_reclen_   = nullptr;
     llvm::Function               *read_next_    = nullptr;
+    llvm::Function               *peek_next_    = nullptr;  // Section E (E19)
     llvm::Function               *get_decimal_  = nullptr;
+    llvm::Function               *get_packed_   = nullptr;  // Section C
+    llvm::Function               *get_binary_   = nullptr;  // Section C
+    llvm::Function               *overpunch_in_  = nullptr; // Section C (C10)
+    llvm::Function               *overpunch_out_ = nullptr; // Section C (C10)
+    // Section D output helpers.
+    llvm::Function               *skip_fn_       = nullptr; // D13 skip/page
+    llvm::Function               *page_fn_       = nullptr; // D14 page counter
+    llvm::Function               *edit_word_fn_  = nullptr; // D16 edit words
+    // The file id of the record currently being emitted (for PAGE fields).
+    llvm::Value                  *cur_out_fid_   = nullptr;
     // Record buffer global for the cycle.
     llvm::GlobalVariable         *rec_buf_      = nullptr;
+    // Look-ahead peek buffer global (E19).
+    llvm::GlobalVariable         *la_buf_       = nullptr;
     // Runtime output-function declarations.
-    llvm::Function               *open_output_  = nullptr;
-    llvm::Function               *line_begin_   = nullptr;
-    llvm::Function               *line_put_str_ = nullptr;
-    llvm::Function               *line_put_num_ = nullptr;
-    llvm::Function               *emit_line_    = nullptr;
+    llvm::Function               *open_output_     = nullptr;
+    llvm::Function               *line_begin_      = nullptr;
+    llvm::Function               *line_put_str_    = nullptr;
+    llvm::Function               *line_put_num_    = nullptr;
+    llvm::Function               *line_put_num_dec_ = nullptr;  // Section C
+    llvm::Function               *emit_line_       = nullptr;
     // Phase 10 edit-code formatter.
-    llvm::Function               *edit_fn_      = nullptr;
+    llvm::Function               *edit_fn_         = nullptr;
+    llvm::Function               *edit_dec_fn_     = nullptr;   // Section C
+    // Section B prerun-time array/table loader.
+    llvm::Function               *load_arrays_  = nullptr;
     // Map of output filename -> its file-id Value (set during cycle entry).
     std::unordered_map<std::string, llvm::Value *> *out_ids_ = nullptr;
+    // The program's O-spec records, stashed for calc-time EXCPT emission.
+    const std::vector<ORecord> *outputs_ = nullptr;
+    // The program's E-spec arrays/tables (for prerun-time load emission).
+    const std::vector<ESpecArray> *arrays_ = nullptr;
     // TAG label -> its basic block, for resolving GOTO (incl. forward refs).
     // Cleared per spec chain so detail and total chains don't cross-resolve.
     std::unordered_map<std::string, llvm::BasicBlock *> tag_blocks_;
@@ -1509,7 +2559,7 @@ std::unique_ptr<llvm::Module> generate_module_linear(
     llvm::LLVMContext &ctx) {
 
     CodeGen cg(ctx, module_name);
-    cg.generate_linear(specs);
+    cg.generate_linear(specs, {});
     auto mod = cg.take_module();
 
     if (llvm::verifyModule(*mod, &llvm::errs())) {

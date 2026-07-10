@@ -14,6 +14,7 @@
 #include "rpg_runtime.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* -------------------------------------------------------------------------- */
@@ -41,6 +42,12 @@ static struct {
     FILE *fp;            /* stdio stream, NULL if slot free */
     int   is_input;      /* 1 = read, 0 = write              */
     int   reclen;        /* declared fixed record length     */
+    int   line;          /* current line on the page (output) */
+    int   page;          /* current page number (output)      */
+    /* Look-ahead peek cache (E19): one buffered record per file. */
+    char  peek[1024];    /* the peeked record (NUL-terminated) */
+    int   peek_len;      /* bytes in peek (0 = no record peeked) */
+    int   peek_valid;    /* 1 = peek holds the next record */
 } g_files[RPG_RT_MAX_FILES];
 
 int rpg_rt_open_input(const char *path) {
@@ -61,22 +68,10 @@ int rpg_rt_open_input(const char *path) {
     return -1;
 }
 
-int rpg_rt_read_next(int file_id, char *buf, size_t buflen) {
-    /* Fixed-length record semantics.
-     *
-     * Each logical record is presented as exactly `reclen` characters. Bytes
-     * are read one at a time so we can stop on a newline: if a CR/LF is seen
-     * before `reclen` bytes have been gathered, the newline is consumed and
-     * the rest of the window is padded with spaces. Lines longer than reclen
-     * are split across successive records (pure fixed-length behaviour).
-     *
-     * `buflen` must be >= reclen+1; we NUL-terminate for convenience. If the
-     * caller never set a reclen, fall back to a line-based read so the stub
-     * still works.
-     */
-    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) {
-        return 0; /* treated as EOF */
-    }
+/* Read one physical record from `file_id`'s stream into `buf`. The core of
+ * rpg_rt_read_next, shared with rpg_rt_peek_next (E19). Returns 1 on record,
+ * 0 on EOF. */
+static int read_one(int file_id, char *buf, size_t buflen) {
     FILE *fp = g_files[file_id].fp;
     int   rl = g_files[file_id].reclen;
 
@@ -98,28 +93,14 @@ int rpg_rt_read_next(int file_id, char *buf, size_t buflen) {
     while (got < rl) {
         c = fgetc(fp);
         if (c == EOF) {
-            /* EOF before any byte => real end of file. Mid-record EOF pads the
-             * partial record with spaces (a short last line is still a record). */
             if (got == 0) return 0;
             break;
         }
-        if (c == '\n') {
-            /* Newline fills out the rest of the record with spaces. */
-            break;
-        }
-        if (c == '\r') {
-            /* Swallow a lone CR; a following LF (CRLF) is handled next loop. */
-            continue;
-        }
+        if (c == '\n') break;
+        if (c == '\r') continue;
         buf[got++] = (char)c;
     }
 
-    /* If the record filled exactly to reclen (a full record, not newline-ended),
-     * and the very next byte is a line terminator, consume that one terminator.
-     * This aligns record boundaries with line boundaries for exactly-full lines
-     * (e.g. an 80-col card image terminated by \n) and avoids a phantom empty
-     * record. Long lines keep splitting: the byte after a full record is a data
-     * byte, not a newline, so nothing is consumed. */
     if (got == rl) {
         int peek = fgetc(fp);
         if (peek == '\r') {
@@ -130,9 +111,60 @@ int rpg_rt_read_next(int file_id, char *buf, size_t buflen) {
         }
     }
 
-    /* Pad the remainder of the fixed-width window with spaces. */
     while (got < rl) buf[got++] = ' ';
     buf[rl] = '\0';
+    return 1;
+}
+
+int rpg_rt_read_next(int file_id, char *buf, size_t buflen) {
+    /* Fixed-length record semantics.
+     *
+     * Each logical record is presented as exactly `reclen` characters. Bytes
+     * are read one at a time so we can stop on a newline: if a CR/LF is seen
+     * before `reclen` bytes have been gathered, the newline is consumed and
+     * the rest of the window is padded with spaces. Lines longer than reclen
+     * are split across successive records (pure fixed-length behaviour).
+     *
+     * `buflen` must be >= reclen+1; we NUL-terminate for convenience. If the
+     * caller never set a reclen, fall back to a line-based read so the stub
+     * still works.
+     */
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) {
+        return 0; /* treated as EOF */
+    }
+    /* If a look-ahead peek is pending (E19), consume it first. */
+    if (g_files[file_id].peek_valid) {
+        size_t n = (size_t)g_files[file_id].peek_len;
+        if (n + 1 > buflen) n = buflen - 1;
+        memcpy(buf, g_files[file_id].peek, n);
+        buf[n] = '\0';
+        g_files[file_id].peek_valid = 0;
+        return 1;
+    }
+    return read_one(file_id, buf, buflen);
+}
+
+/* Peek at the next record without consuming it (E19 look-ahead). The record is
+ * read into a per-file cache and copied to `buf`; a subsequent read_next
+ * returns the cached record. Returns 1 on record, 0 on EOF (look-ahead fields
+ * are then filled with 9s by the caller). */
+int rpg_rt_peek_next(int file_id, char *buf, size_t buflen) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) {
+        return 0;
+    }
+    if (!g_files[file_id].peek_valid) {
+        char tmp[sizeof g_files[file_id].peek];
+        if (!read_one(file_id, tmp, sizeof tmp)) return 0;
+        size_t n = strlen(tmp);
+        memcpy(g_files[file_id].peek, tmp, n);
+        g_files[file_id].peek[n] = '\0';
+        g_files[file_id].peek_len = (int)n;
+        g_files[file_id].peek_valid = 1;
+    }
+    size_t n = (size_t)g_files[file_id].peek_len;
+    if (n + 1 > buflen) n = buflen - 1;
+    memcpy(buf, g_files[file_id].peek, n);
+    buf[n] = '\0';
     return 1;
 }
 
@@ -164,8 +196,106 @@ long rpg_rt_get_decimal(const char *rec, int reclen, int from, int to) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Character comparison (Phase 10). Left-aligned, blank-padded to the longer   */
-/* length, byte-wise (ASCII collating order).                                 */
+/* Packed-decimal and binary input decoders (Section C, C9).                   */
+/*                                                                            */
+/* The field spans record bytes [from..to] (1-based). Packed format packs two  */
+/* BCD digits per byte with a sign nibble in the low-order byte's low nibble   */
+/* (F=+, D=-). Binary is big-endian (S/36 convention): 2-byte = int16,        */
+/* 4-byte = int32. The decoded value is the same scaled integer a zoned field  */
+/* of equal digits would produce, so it flows into the i32 model unchanged.    */
+/* -------------------------------------------------------------------------- */
+long rpg_rt_get_packed(const char *rec, int reclen, int from, int to) {
+    if (from < 1) from = 1;
+    if (to > reclen) to = reclen;
+    if (to < from) return 0;
+    long v = 0;
+    int n = to - from + 1;            /* number of packed bytes */
+    for (int k = 0; k < n; ++k) {
+        unsigned char b = (unsigned char)rec[from - 1 + k];
+        int hi = (b >> 4) & 0x0F;     /* high nibble = a digit (all bytes) */
+        int lo = b & 0x0F;            /* low nibble = digit, or sign on last */
+        if (k < n - 1) {
+            v = v * 10 + hi;
+            v = v * 10 + lo;
+        } else {
+            v = v * 10 + hi;          /* last byte: high nibble is a digit */
+            /* low nibble is the sign: D = negative, anything else = positive */
+        }
+    }
+    /* Sign from the low nibble of the final byte. */
+    unsigned char last = (unsigned char)rec[to - 1];
+    int sign = last & 0x0F;
+    if (sign == 0x0D) return -v;
+    return v;
+}
+
+long rpg_rt_get_binary(const char *rec, int reclen, int from, int to) {
+    if (from < 1) from = 1;
+    if (to > reclen) to = reclen;
+    int n = to - from + 1;
+    if (n <= 0) return 0;
+    if (n >= 4) {
+        /* 4-byte (or more) big-endian signed int32. */
+        long v = 0;
+        for (int k = 0; k < 4; ++k)
+            v = (v << 8) | (unsigned char)rec[from - 1 + k];
+        return v;
+    }
+    /* 2-byte big-endian signed int16, sign-extended. */
+    int v = ((unsigned char)rec[from - 1] << 8) | (unsigned char)rec[from];
+    if (v & 0x8000) v -= 0x10000;     /* sign-extend */
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sign-overpunch encode/decode (Section C, C10).                             */
+/*                                                                            */
+/* In a zoned-decimal / alphameric string the last character's "zone" carries  */
+/* the sign. ASCII sign-overpunch (matching the manual's letter sets):         */
+/*   positive: A-I encode digits 1-9, { encodes 0, plain 0-9 stay as-is.      */
+/*   negative: J-R encode digits 1-9, } encodes 0.                             */
+/* rpg_rt_overpunch_in reads the leading digits and applies the trailing sign; */
+/* rpg_rt_overpunch_out writes `len` digits and overpunches the last.          */
+/* -------------------------------------------------------------------------- */
+long rpg_rt_overpunch_in(const char *s, int len) {
+    if (!s || len <= 0) return 0;
+    int neg = 0;
+    long v = 0;
+    for (int i = 0; i < len; ++i) {
+        unsigned char ch = (unsigned char)s[i];
+        int digit;
+        if (ch >= '0' && ch <= '9')      digit = ch - '0';          /* plain */
+        else if (ch >= 'A' && ch <= 'I') digit = ch - 'A' + 1;      /* +1..+9 */
+        else if (ch >= 'a' && ch <= 'i') digit = ch - 'a' + 1;
+        else if (ch >= 'J' && ch <= 'R') { digit = ch - 'J' + 1; neg = 1; } /* -1..-9 */
+        else if (ch >= 'j' && ch <= 'r') { digit = ch - 'j' + 1; neg = 1; }
+        else if (ch == '{' || ch == '}') { digit = 0; if (ch == '}') neg = 1; }
+        else                              digit = 0;                 /* blank etc. */
+        v = v * 10 + digit;
+    }
+    return neg ? -v : v;
+}
+
+int rpg_rt_overpunch_out(long value, char *out, int len) {
+    if (!out || len <= 0) return 0;
+    int neg = value < 0;
+    unsigned long uv = neg ? (unsigned long)(-value) : (unsigned long)value;
+    /* Write digits right-to-left, then overpunch the last (rightmost) one. */
+    for (int i = len - 1; i >= 0; --i) {
+        int d = (int)(uv % 10);
+        uv /= 10;
+        char ch;
+        if (i == len - 1) {
+            /* the units digit carries the sign via overpunch */
+            if (neg) ch = (d == 0) ? '}' : (char)('J' + d - 1);
+            else     ch = (d == 0) ? '0' : (char)('A' + d - 1);
+        } else {
+            ch = (char)('0' + d);
+        }
+        out[i] = ch;
+    }
+    return len;
+}
 /* -------------------------------------------------------------------------- */
 int rpg_rt_cmp_str(const char *a, int alen, const char *b, int blen) {
     int n = alen > blen ? alen : blen;
@@ -195,6 +325,75 @@ int rpg_rt_lokup(long key, const int *arr, int count, int *idx) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Prerun-time array/table loader (Section B).                                 */
+/*                                                                            */
+/* Reads the whole file into memory, then walks it once extracting fixed-      */
+/* width ASCII-decimal fields. For alternating arrays/tables the primary and   */
+/* partner elements interleave on each record (A1 B1 A2 B2 ...).              */
+/* -------------------------------------------------------------------------- */
+
+/* Parse `len` chars at `p` as a non-negative decimal integer (blanks and      */
+/* leading zeros ignored; non-digit stops the parse => 0).                     */
+static long parse_dec(const char *p, int len) {
+    long v = 0;
+    for (int i = 0; i < len; ++i) {
+        char c = p[i];
+        if (c >= '0' && c <= '9') v = v * 10 + (c - '0');
+        else if (c == ' ')        continue;   /* embedded blanks skipped */
+        else                      break;
+    }
+    return v;
+}
+
+int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
+                       int total, int *out_a, int *out_b) {
+    if (!path || !out_a || total <= 0 || len_a <= 0) return 0;
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        fprintf(stderr, "rpg_rt: cannot open prerun-time array file '%s'\n", path);
+        return 0;
+    }
+    if (len_b < 0) len_b = 0;
+
+    /* Slurp the file into a memory buffer (prerun-time arrays are small). */
+    char *buf = NULL;
+    size_t cap = 0, n = 0;
+    int ch;
+    while ((ch = fgetc(fp)) != EOF) {
+        if (n == cap) {
+            cap = cap ? cap * 2 : 256;
+            char *nb = (char *)realloc(buf, cap);
+            if (!nb) { free(buf); fclose(fp); return 0; }
+            buf = nb;
+        }
+        buf[n++] = (char)ch;
+    }
+    fclose(fp);
+
+    int stored = 0;            /* elements written to out_a */
+    int i = 0;                 /* cursor into buf */
+    int pair = 0;              /* partner elements written (out_b) */
+    while (stored < total && i + len_a <= (int)n) {
+        /* Skip a newline before the next primary element (records are
+         * newline-delimited; element fields are fixed width). */
+        while (i < (int)n && (buf[i] == '\n' || buf[i] == '\r')) ++i;
+        if (i + len_a > (int)n) break;
+        out_a[stored++] = (int)parse_dec(buf + i, len_a);
+        i += len_a;
+        if (len_b > 0 && out_b && pair < total) {
+            if (i + len_b <= (int)n) {
+                out_b[pair++] = (int)parse_dec(buf + i, len_b);
+                i += len_b;
+            } else {
+                out_b[pair++] = 0;
+            }
+        }
+    }
+    free(buf);
+    return stored;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Edit codes (Phase 10). Format a number with zero-suppression, commas, a     */
 /* decimal point, and a sign. We implement the common subset:                  */
 /*   '1' : zero-suppress, comma, decimal point, no sign (CR/blank for neg)    */
@@ -205,9 +404,15 @@ int rpg_rt_lokup(long key, const int *arr, int count, int *idx) {
 /*   'N'-'Q': like '1'-'4' but leading sign                                    */
 /* The output is right-justified to `width` (spaces) when width > 0.          */
 /* -------------------------------------------------------------------------- */
-int rpg_rt_edit(long value, char code, int width, char *out, int out_cap) {
+/* Edit codes. rpg_rt_edit_dec honours a decimal-position count (Section C):   */
+/* the stored value is a scaled integer, so the last `decimals` digits are the */
+/* fractional part. rpg_rt_edit is the decimals=0 legacy entry point.         */
+/* -------------------------------------------------------------------------- */
+int rpg_rt_edit_dec(long value, char code, int width, int decimals,
+                    char *out, int out_cap) {
     int neg = value < 0;
     unsigned long v = neg ? (unsigned long)(-value) : (unsigned long)value;
+    if (decimals < 0) decimals = 0;
 
     /* Determine formatting flags from the edit code. */
     int use_comma = 0, use_decimal = 0, sign_style = 0; /* 0=CR, 1=trailing-, 2=leading */
@@ -224,24 +429,42 @@ int rpg_rt_edit(long value, char code, int width, char *out, int out_cap) {
             /* Unknown code: plain decimal. */
             break;
     }
+    /* When the field carries decimal positions, force a decimal point even if
+     * the edit code (3/4) would normally omit it. */
+    if (decimals > 0) use_decimal = 1;
 
-    /* Build digits into a temp buffer (reversed). */
-    char digits[24];
+    /* Build digits into a temp buffer (reversed), padded so the fractional
+     * part always has `decimals` digits. */
+    char digits[40];
     int nd = 0;
+    int need = decimals + 1;            /* at least one integer digit */
     if (v == 0) { digits[nd++] = '0'; }
     while (v > 0) { digits[nd++] = (char)('0' + (v % 10)); v /= 10; }
+    while (nd < need) digits[nd++] = '0';
 
     /* Assemble the formatted string left-to-right. */
-    char buf[48];
+    char buf[64];
     int len = 0;
-    /* leading sign */
     if (sign_style == 2) { buf[len++] = neg ? '-' : '+'; }
-    /* insert commas every 3 digits (no decimals in this integer model) */
-    for (int i = nd - 1; i >= 0; --i) {
+    /* integer digits = everything above the decimal positions */
+    int nint = nd - decimals;
+    for (int i = nd - 1; i >= decimals; --i) {
         buf[len++] = digits[i];
-        if (use_comma && i > 0 && i % 3 == 0) buf[len++] = ',';
+        /* commas are placed every three integer digits counting from the
+         * units place (i == decimals is the units digit). */
+        if (use_comma && i > decimals) {
+            int from_units = i - decimals;     /* 1.. for digits above units */
+            if (from_units % 3 == 0) buf[len++] = ',';
+        }
     }
-    if (use_decimal) { buf[len++] = '.'; buf[len++] = '0'; }
+    if (use_decimal) {
+        buf[len++] = '.';
+        if (decimals == 0) {
+            buf[len++] = '0';   /* integer-model default fractional digit */
+        } else {
+            for (int i = decimals - 1; i >= 0; --i) buf[len++] = digits[i];
+        }
+    }
     /* trailing sign / CR */
     if (sign_style == 1 && neg) buf[len++] = '-';
     else if (sign_style == 0 && neg) { buf[len++] = 'C'; buf[len++] = 'R'; }
@@ -256,6 +479,104 @@ int rpg_rt_edit(long value, char code, int width, char *out, int out_cap) {
     for (int i = 0; i < len && oi < total; ++i) out[oi++] = buf[i];
     out[oi] = '\0';
     return oi;
+}
+
+int rpg_rt_edit(long value, char code, int width, char *out, int out_cap) {
+    return rpg_rt_edit_dec(value, code, width, 0, out, out_cap);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Edit words (Section D, D16).                                               */
+/*                                                                            */
+/* The edit word is a pattern in which blanks are "replaceable" (filled by    */
+/* source digits), the first '0' stops zero-suppression, the first '*' fills   */
+/* suppressed zeros with asterisks, a trailing '-' or "CR" is a negative sign  */
+/* (printed only if negative), '&' forces a literal blank, and any other char  */
+/* (',', '.', '/', etc.) is a constant printed in place. Source digits are     */
+/* consumed right-to-left from the value's decimal-adjusted digit string.      */
+/* -------------------------------------------------------------------------- */
+int rpg_rt_edit_word(long value, const char *word, int word_len,
+                     int decimals, char *out, int out_cap) {
+    if (!out || out_cap <= 0) return 0;
+    int neg = value < 0;
+    unsigned long uv = neg ? (unsigned long)(-value) : (unsigned long)value;
+    if (decimals < 0) decimals = 0;
+
+    /* Build the magnitude's digit string in normal (MSD-first) order. */
+    char mag[40];
+    int mnd = 0;
+    if (uv == 0) mag[mnd++] = '0';
+    {
+        char rev[40];
+        int rnd = 0;
+        unsigned long t = uv;
+        while (t > 0) { rev[rnd++] = (char)('0' + t % 10); t /= 10; }
+        while (rnd > 0) mag[mnd++] = rev[--rnd];
+    }
+
+    /* Count the replaceable positions in the word (blanks, the first 0, the
+     * first *). The source digits are right-aligned over these positions. */
+    int stop = -1;          /* index of first '0' or '*' (suppression stop) */
+    char stopch = 0;
+    int nrep = 0;
+    int negat = -1;         /* index of a trailing '-' sign indicator */
+    for (int i = 0; i < word_len; ++i) {
+        char w = word[i];
+        int rep = (w == ' ' || w == '0' || w == '*');
+        if (rep) {
+            nrep++;
+            if (stop < 0 && (w == '0' || w == '*')) { stop = i; stopch = w; }
+        }
+        if (w == '-' && i > 0 && word[i-1] == ' ') negat = i;
+    }
+    int negCR = -1;
+    if (word_len >= 2 && word[word_len-2] == 'C' && word[word_len-1] == 'R')
+        negCR = word_len - 2;
+
+    /* Right-align magnitude digits over the nrep positions (pad leading 0). */
+    char src[64];
+    int sp = 0;             /* cursor into src as we consume left-to-right */
+    if (nrep > 0) {
+        int pad = nrep - mnd;
+        for (int i = 0; i < pad; ++i) src[sp++] = '0';
+        for (int i = 0; i < mnd && sp < nrep; ++i) src[sp++] = mag[i];
+        sp = 0;             /* consume from the start */
+    }
+
+    /* Walk the word left-to-right, emitting output. */
+    char tmp[96];
+    int oi = 0;
+    int significant = 0;    /* a non-zero digit has been placed */
+    for (int i = 0; i < word_len && oi < (int)sizeof(tmp) - 2; ++i) {
+        char w = word[i];
+        if (w == '&') { tmp[oi++] = ' '; continue; }       /* forced blank */
+        if (i == negat) { if (neg) tmp[oi++] = '-'; continue; }
+        if (i == negCR) { if (neg) { tmp[oi++] = 'C'; tmp[oi++] = 'R'; }
+                          ++i; continue; }
+
+        int rep = (w == ' ' || w == '0' || w == '*');
+        if (rep) {
+            char d = (sp < nrep) ? src[sp++] : '0';
+            if (d != '0') significant = 1;
+            int at_stop = (i == stop);
+            if (!significant && !at_stop) {
+                /* suppression zone */
+                tmp[oi++] = (stopch == '*') ? '*' : ' ';
+            } else {
+                if (at_stop) significant = 1;   /* '0'/'*' anchor prints its digit */
+                tmp[oi++] = d;
+            }
+        } else {
+            /* Constant char (',', '.', '/', etc.). */
+            if (!significant && stop >= 0 && i > stop) tmp[oi++] = ' ';
+            else                                       tmp[oi++] = w;
+        }
+    }
+    int n = oi;
+    if (n > out_cap - 1) n = out_cap - 1;
+    for (int i = 0; i < n; ++i) out[i] = tmp[i];
+    out[n] = '\0';
+    return n;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -280,6 +601,8 @@ int rpg_rt_open_output(const char *path) {
             g_files[id].fp       = fp;
             g_files[id].is_input = 0;
             g_files[id].reclen   = 0;
+            g_files[id].line     = 0;
+            g_files[id].page     = 1;   /* the first page is page 1 (D14) */
             return id;
         }
     }
@@ -330,6 +653,27 @@ void rpg_rt_line_put_num(long value, int end_pos) {
     place_right(tmp, n, end_pos);
 }
 
+void rpg_rt_line_put_num_dec(long value, int end_pos, int decimals) {
+    /* Section C: value is a scaled integer; emit it with `decimals` fractional
+     * digits, right-justified to end_pos. decimals<=0 falls back to put_num. */
+    if (decimals <= 0) { rpg_rt_line_put_num(value, end_pos); return; }
+    int neg = value < 0;
+    unsigned long uv = neg ? (unsigned long)(-value) : (unsigned long)value;
+    char digits[24];
+    int nd = 0;
+    int need = decimals + 1;
+    if (uv == 0) digits[nd++] = '0';
+    while (uv > 0) { digits[nd++] = (char)('0' + uv % 10); uv /= 10; }
+    while (nd < need) digits[nd++] = '0';
+    char tmp[32];
+    int oi = 0;
+    if (neg) tmp[oi++] = '-';
+    for (int i = nd - 1; i >= decimals; --i) tmp[oi++] = digits[i];
+    tmp[oi++] = '.';
+    for (int i = decimals - 1; i >= 0; --i) tmp[oi++] = digits[i];
+    place_right(tmp, oi, end_pos);
+}
+
 void rpg_rt_emit_line(int file_id, int space_after) {
     if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return;
     if (g_line_len < 0) g_line_len = 0;
@@ -342,6 +686,53 @@ void rpg_rt_emit_line(int file_id, int space_after) {
     for (int i = 0; i < (space_after ? space_after : 1); ++i)
         fputc('\n', g_files[file_id].fp);
     g_line_len = 0;
+    /* Track the line position on the current page (D13). */
+    g_files[file_id].line += 1 + (space_after > 0 ? space_after : 0);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Skip and page support (Section D, D13/D14).                                 */
+/*                                                                            */
+/* rpg_rt_skip advances `file_id`'s output to absolute line `line_no` on the  */
+/* current page. If `line_no` is at or before the current line, that means a  */
+/* new page: emit a form-feed, reset the line counter, and bump the page      */
+/* counter; then advance (with blank lines) to `line_no`.                     */
+/* -------------------------------------------------------------------------- */
+void rpg_rt_skip(int file_id, int line_no) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return;
+    if (line_no < 1) line_no = 1;
+    FILE *fp = g_files[file_id].fp;
+    int cur = g_files[file_id].line;
+    if (line_no <= cur || cur == 0) {
+        /* New page: form-feed, reset line, advance page counter. */
+        fputc('\f', fp);
+        g_files[file_id].line = 0;
+        g_files[file_id].page += 1;
+        cur = 0;
+    }
+    /* Advance to the requested line with blank lines. */
+    while (g_files[file_id].line < line_no - 1) {
+        fputc('\n', fp);
+        g_files[file_id].line++;
+    }
+}
+
+/* Return the current page number for a file. `which`: 0 => this file's own
+ * page counter; 1..7 => the page counter of the nth opened output file. */
+int rpg_rt_page(int file_id, int which) {
+    if (which >= 1 && which <= 7) {
+        /* Find the nth output file in slot order. */
+        int seen = 0;
+        for (int id = 0; id < RPG_RT_MAX_FILES; ++id) {
+            if (g_files[id].fp && !g_files[id].is_input) {
+                ++seen;
+                if (seen == which) return g_files[id].page;
+            }
+        }
+        return 0;
+    }
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES) return 0;
+    return g_files[file_id].page;
 }
 
 void rpg_rt_close_all(void) {

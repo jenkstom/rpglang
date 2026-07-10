@@ -1,0 +1,8 @@
+     C* E17: record-identification codes select record types.
+     C* Col 1 = '1' -> indicator 01; col 1 = '2' -> indicator 02.
+     FRIDATA  IP  F    80              DISK
+     FRIOUT   O   F    132             PRINTER
+     IRIDATA      011    C1
+     I            021    C2
+     I                                     2   4   0VAL       02
+     C  02                 ADD  VAL       RPGRET

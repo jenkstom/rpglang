@@ -1,8 +1,9 @@
 /* ========================================================================== *
  * espec.h -- parse Extension Specifications (E-specs) for arrays/tables.
  *
- * Phase 9 implements a practical subset: compile-time and run-time numeric
- * arrays (no tables, no prerun-time). See docs/SPEC_MAP.md for columns.
+ * Section B extends Phase 9: tables (TAB-prefixed names), prerun-time arrays
+ * loaded from a file at program start, and alternating arrays/tables (the
+ * partner defined in columns 46-57). See docs/SPEC_MAP.md for columns.
  * ========================================================================== */
 #ifndef RPGC_ESPEC_H
 #define RPGC_ESPEC_H
@@ -17,7 +18,7 @@ namespace rpgc {
 enum class ArrayLoad {
     CompileTime,    // data follows the O-specs after a "** " record
     RunTime,        // loaded by C-specs at run time (zero-initialised)
-    PreRunTime      // loaded from a file at program start (deferred)
+    PreRunTime      // loaded from a file at program start (Section B)
 };
 
 struct ESpecArray {
@@ -30,7 +31,19 @@ struct ESpecArray {
     ArrayLoad   load = ArrayLoad::RunTime;
     std::string from_file;            // cols 11-18 (prerun-time)
     std::vector<long> init_data;      // compile-time values (numeric)
+    // Alternating partner (cols 46-57): a second array/table whose elements
+    // interleave with `name`'s on each input record. Blank when not used.
+    std::string alt_name;             // cols 46-51
+    int         alt_entry_len = 0;    // cols 52-54
+    int         alt_decimals  = -1;   // col 56 (-1 = alphanumeric)
+    bool        alt_ascending = false;// col 57 == 'A'
+    std::vector<long> alt_init_data;  // compile-time values for the partner
 };
+
+/* A name beginning with TAB (case-insensitive) denotes a table rather than an
+ * array, per the IBM manual. Tables have no explicit indexing; a hidden
+ * "current element" is maintained and updated by LOKUP. */
+bool is_table_name(const std::string &name);
 
 std::vector<ESpecArray> parse_especs(const std::vector<SourceLine> &src);
 

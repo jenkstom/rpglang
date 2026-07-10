@@ -28,6 +28,7 @@ struct OField {
     bool        is_const  = false;     // true => constant in `text`
     std::string name;                  // field name (cols 32-37) if !is_const
     std::string text;                  // constant text (cols 45-70) if is_const
+    std::string edit_word;             // cols 45-70 quoted edit word (D16); empty=none
     int         end_pos   = 0;         // cols 40-43: rightmost position (0 => pack after prev)
     std::vector<CondInd> conditions;   // cols 23-31, per-field conditioning
     bool        blank_after = false;   // col 39 == 'B'
@@ -41,8 +42,11 @@ struct ORecord {
     OType       type = OType::Detail;  // col 15
     int         space_after = 1;       // col 18 (default single-space)
     int         space_before = 0;      // col 17
+    int         skip_before = 0;       // cols 19-20 skip-to line (D13); 0=none
+    int         skip_after  = 0;       // cols 21-22 skip-to line (D13); 0=none
     std::vector<CondInd> conditions;   // cols 23-31, line conditioning
     std::vector<OField> fields;        // field lines that follow this record line
+    std::string except_name;           // cols 32-37, EXCPT name (type-E only)
 };
 
 std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src);

@@ -2,79 +2,111 @@
 
 Complete inventory of remaining work to handle any RPG II program. Organized
 by area and priority. Each item notes what it is and rough effort. Current
-state: 31 tests passing across Phases 1–10.
+state: 54 tests passing across Phases 1–10 and Sections A–E.
 
 ---
 
-## A. Missing operation codes (C-spec)
+## A. Missing operation codes (C-spec) — DONE
 
-- [ ] **A1. `Z-SUB`** — `r = -F2` (negate). Same pattern as Z-ADD. ~15 min.
-- [ ] **A2. `DO` / `END` (counted loop)** — `DO S E`: body runs (E−S+1) times.
-      Distinct from DOW/DOU; needs its own frame type in the block stack. ~1 hr.
-- [ ] **A3. `CASxx` / `END` (case/select)** — multi-way branch to subroutines.
-      Needs CAS-group parsing + END matching. Depends on subroutines (work).
-      ~1.5 hr.
-- [ ] **A4. `EXCPT` / exception (E) output** — `EXCPT name` writes O-spec type-E
-      lines. Needs E-type O-records + an emission path called from calc time.
-      ~1 hr.
-- [ ] **A5. `TESTZ` / `TESTB`** — test zone/bits of a character field, set
-      indicators. Niche; ~30 min each.
-
----
-
-## B. Tables and prerun-time arrays (E-spec)
-
-- [ ] **B6. Tables (`TAB`-prefixed names)** — no direct indexing; a
-      "last-selected element" shadow updated by LOKUP. Needs per-table shadow
-      globals + name-prefix handling in operand resolution. ~2 hr.
-- [ ] **B7. Prerun-time arrays/tables** — loaded from a file at program start
-      (cols 11–18 filename). Needs runtime loader + a load phase before the
-      cycle. ~1.5 hr.
-- [ ] **B8. Alternating arrays** (cols 46–57) — paired array/table definitions.
-      Niche. ~45 min.
+- [x] **A1. `Z-SUB`** — `r = -F2` (negate). Same pattern as Z-ADD.
+- [x] **A2. `DO` / `END` (counted loop)** — `DO S E`: body runs while the index
+      (default start 1) is ≤ the limit, incrementing by END's factor 2 (default
+      1) each pass. New DO frame type in the block stack.
+- [x] **A3. `CASxx` / `END` (case/select)** — a CAS group is a run of CASxx ops
+      followed by one END; each CASxx compares F1/F2 and, if true, calls the
+      subroutine named in the result field. Blank-xx CAS is the unconditional
+      default. CAS frames share one merge block.
+- [x] **A4. `EXCPT` / exception (E) output** — `EXCPT name` writes the type-E
+      O-records whose EXCPT name (cols 32–37) matches; blank factor 2 selects
+      the unnamed E-records. Emitted at calc time via emit_one_record (shared
+      with cycle output). O-spec parser now carries the filename forward across
+      continuation record lines.
+- [x] **A5. `TESTZ` / `TESTB`** — TESTZ tests the "zone" of the leftmost char of
+      the result field (HI=plus, LO=minus, EQ=zero; ASCII uses the manual's
+      explicit char sets `&`/A–I, `-`/J–R, else). TESTB tests bits named by a
+      factor-2 literal `'025'` or a 1-char field mask (HI=all off, LO=mixed,
+      EQ=all on).
 
 ---
 
-## C. Numeric data model
+## B. Tables and prerun-time arrays (E-spec) — DONE
 
-- [ ] **C9. Packed-decimal (`P`) and binary (`B`) field storage** — I-spec col 43
-      / O-spec col 44. Currently everything is zoned-ASCII-i32. Needs decode/
-      encode in the runtime + width tracking in the symbol table. ~3 hr (the
-      biggest single item).
-- [ ] **C10. Numeric↔character MOVE with sign-overpunch** — EBCDIC zone-sign
-      (J–R = negative) on the last digit of alphameric→numeric MOVE. ASCII-
-      specific mapping decision needed. ~1.5 hr.
-- [ ] **C11. Decimal scaling** — honor result field decimals (col 52) for
-      MULT/DIV and half-adjust (col 53) rounding on all arithmetic. Currently
-      integer-only. ~2 hr.
-
----
-
-## D. Output specs (O-spec) — finish Phase 7 gaps
-
-- [ ] **D12. Heading (H) lines + 1P first-page indicator** — print once at
-      program start. Needs a 1P indicator + an output pass before the cycle.
-      ~1 hr.
-- [ ] **D13. Skip-before / skip-after** (cols 19–22) — line-number pagination,
-      form-feed on lower skip. Runtime helper + O-spec parse. ~1 hr.
-- [ ] **D14. PAGE / PAGE1–PAGE7 field** — auto-incrementing page counter
-      special fields. ~45 min.
-- [ ] **D15. Per-field conditioning indicators** on O-spec field lines
-      (cols 23–31) — gate individual fields, currently ignored. ~30 min.
-- [ ] **D16. Edit words** (cols 45–70 alternative to edit codes) — pattern-based
-      number formatting. ~2 hr.
+- [x] **B6. Tables (`TAB`-prefixed names)** — no direct indexing; a
+      "last-selected element" shadow (`rpgs_<name>`, 1-based, default 1) updated
+      by LOKUP. A bare table name in any operand resolves to the shadow-selected
+      element; a related table named in the result field advances in lockstep.
+      Detected by the TAB prefix (case-insensitive); indexed `TAB,ID` form still
+      works as an ordinary array ref.
+- [x] **B7. Prerun-time arrays/tables** — loaded from a file at program start
+      (cols 11–18 filename) via `rpg_rt_load_arrays`, emitted once at the top of
+      `main`'s entry block (before the cycle / calc chain).
+- [x] **B8. Alternating arrays** (cols 46–57) — a partner array/table named in
+      cols 46–51 is parsed and emitted as its own global; compile-time and
+      prerun-time data interleave on each record (A1 B1 A2 B2 …).
 
 ---
 
-## E. Input specs (I-spec) — finish Phase 3 gaps
+## C. Numeric data model — DONE
 
-- [ ] **E17. Record-identification codes** (cols 21–41) — multi-record-type
-      files, select record by content match. Currently single-record-type only.
-      ~2 hr.
-- [ ] **E18. Field indicators** (cols 65–70) — set indicator on +/−/0 or blank
-      per field at read time. ~1 hr.
-- [ ] **E19. Look-ahead fields** — read fields from the next record before
-      committing the current. Niche. ~2 hr.
+The stored representation stays a single signed `i32`, but it is now a *scaled
+integer* (stored = true × 10^decimals), so decimal arithmetic is exact with no
+new IR type.
+
+- [x] **C9. Packed-decimal (`P`) and binary (`B`) field storage** — I-spec col 43
+      is parsed (`P`/`B`/blank). `rpg_rt_get_packed` decodes BCD-with-sign-nibble;
+      `rpg_rt_get_binary` decodes big-endian int16/int32. The cycle extract
+      branches on the format. The decoded value flows into the existing i32 store
+      (the byte layout encodes the same scaled digits the zoned path would).
+      O-spec col 44 is parsed but treated as a no-op (DISK/ICF only).
+- [x] **C10. Numeric↔character MOVE with sign-overpunch** — `rpg_rt_overpunch_in`
+      (char→numeric) and `rpg_rt_overpunch_out` (numeric→char) implement the
+      zone-sign convention: A–I = positive digits 1–9, J–R = negative digits 1–9,
+      plain 0–9 = positive. Wired into `emit_move` for both directions.
+- [x] **C11. Decimal scaling** — ADD/SUB align operands to `max(dec1,dec2)`;
+      MULT's result scale is `dec1+dec2`; DIV scales the numerator up to retain
+      precision; all adjust to the result field's decimals (col 52). Half-adjust
+      (col 53 = `H`) rounds at the first dropped digit. Z-ADD/Z-SUB rescale.
+      Output is decimal-aware (`rpg_rt_line_put_num_dec`, `rpg_rt_edit_dec`).
+
+---
+
+## D. Output specs (O-spec) — finish Phase 7 gaps — DONE
+
+- [x] **D12. Heading (H) lines + 1P first-page indicator** — the `1P` indicator
+      (reserved index -11, an `rpg_1p` i1 global on at start) gates a heading
+      pass run once before the cycle; it prints all H records (plus any
+      1P-conditioned detail), then turns 1P off.
+- [x] **D13. Skip-before / skip-after** (cols 19–22) — parsed into `skip_before`
+      / `skip_after` (line numbers; `01-99`, `A0-A9`, `B0-B2` decoded).
+      `rpg_rt_skip` advances to the line and form-feeds + bumps the page counter
+      when skipping to a lower line (new page). Emitted before/after the line.
+- [x] **D14. PAGE / PAGE1–PAGE7 field** — the reserved output field names print
+      the per-file page counter via `rpg_rt_page` (page 1 on the first page;
+      PAGE1-7 select the nth-opened file's counter).
+- [x] **D15. Per-field conditioning indicators** on O-spec field lines
+      (cols 23–31) — each field is gated by its own conditions; a field whose
+      conditions don't hold is omitted while the rest of the line prints.
+- [x] **D16. Edit words** (cols 45–70) — a numeric field with a quoted pattern
+      and blank col 38 is formatted by `rpg_rt_edit_word` (replaceable blanks,
+      first `0`/`*` suppression stop, `-`/`CR` sign, `&` forced blank).
+
+---
+
+## E. Input specs (I-spec) — finish Phase 3 gaps — DONE
+
+- [x] **E17. Record-identification codes** (cols 21–41) — each record type
+      carries up to three 7-column code-sets (position / Not / C-Z-D / char),
+      with AND/OR continuation lines. At read time the record buffer is matched
+      against each type's codes; the matching type's record-identifying
+      indicator (cols 19–20) turns on, and non-matching records are skipped. A
+      field's field-record-relation (cols 63–64) gates extraction to a type.
+- [x] **E18. Field indicators** (cols 65–70) — plus/minus/zero indicators fire
+      at read time when a numeric field is >0 / <0 / ==0 (alphameric fields fire
+      the zero indicator on all-blank). Mirrors the arithmetic +/−/0 latch.
+- [x] **E19. Look-ahead fields** — a `**` record-id line marks the following
+      field lines as look-ahead; they decode from the next record via
+      `rpg_rt_peek_next` (a per-file one-record peek cache) and fill with 9s at
+      end-of-file.
 
 ---
 
@@ -120,11 +152,12 @@ state: 31 tests passing across Phases 1–10.
 
 ## Recommended sequencing
 
-1. **Quick wins first**: A1 (Z-SUB), A2 (DO), A5 (TESTZ/TESTB), D15 (per-field
-   O-spec indicators), H27 (GOTO boundary checks) — small, round out the common
-   opcode set.
-2. **High-impact middle**: A3 (CASxx), A4 (EXCPT), D12 (H-lines/1P), B6 (tables),
-   D13/D14 (skip/PAGE) — make output and selection complete.
-3. **Heavy lifting**: C9 (packed/binary), C11 (decimal scaling), F20/F21
-   (matching records + secondary files), G24 (indexed access) — where "any RPG
-   II program" fully lands.
+1. **Quick wins first**: H27 (GOTO boundary checks) — small, rounds out the
+   common opcode set. *(Section A's quick wins — Z-SUB, DO, TESTZ/TESTB — are
+   done; D15 per-field O-spec indicators too.)*
+2. **High-impact middle**: output is now complete (D12 headings/1P, D13 skip,
+   D14 PAGE, D16 edit words all done). *(B6 tables, B7 prerun-time, and B8
+   alternating arrays from this band are done too.)*
+3. **Heavy lifting**: F20/F21 (matching records + secondary files), G24 (indexed
+   access) — where "any RPG II program" fully lands. *(C9 packed/binary, C10
+   sign-overpunch, and C11 decimal scaling from this band are done.)*

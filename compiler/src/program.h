@@ -20,6 +20,7 @@ struct Program {
     std::vector<FSpec>      files;
     std::vector<ISpecRec>   in_records;
     std::vector<ISpecField> in_fields;
+    std::vector<ISpecField> lookahead_fields;   // look-ahead fields (E19)
     std::vector<CSpec>      calcs;
     std::vector<ORecord>    outputs;
     std::vector<ESpecArray> arrays;

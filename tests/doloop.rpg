@@ -1,0 +1,5 @@
+     C* DO 1..5 (default increment): sum index = 15
+     C                     Z-ADD0         RPGRET
+     C           1         DO   5         IDX
+     C                     ADD  IDX       RPGRET
+     C                     END

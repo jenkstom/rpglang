@@ -1,0 +1,8 @@
+     C* D16: edit word formatting.
+     FEDATA   IP  F    80              DISK
+     FEOUT    O   F    132             PRINTER
+     IEDATA       AA
+     I                                     1   1   0DUMMY
+     C                     Z-ADD1234      VAL      0
+     OEOUT    D  1
+     O                         VAL     20   '   ,   '

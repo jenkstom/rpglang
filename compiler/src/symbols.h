@@ -33,6 +33,11 @@ struct FieldInfo {
     int decimals = -1;              // -1 = unspecified
     llvm::GlobalVariable *gv = nullptr;
     int array_count = 0;            // number of elements (Array kind)
+    // Tables (TAB-prefixed arrays) carry a hidden 1-based "current element"
+    // index global, updated by LOKUP. A bare table name resolves to the
+    // element this index selects. Section B.
+    bool is_table = false;
+    llvm::GlobalVariable *shadow_gv = nullptr;
 };
 
 class SymbolTable {
@@ -42,14 +47,24 @@ public:
     /* Declare a numeric field (i32 global, zero-init). Idempotent. */
     llvm::Value *get_or_create_field(const std::string &name);
 
+    /* Record the decimal-position count for a numeric field (Section C: the
+     * stored i32 is a scaled integer, value = true * 10^decimals). Idempotent;
+     * creates the field if needed. */
+    void set_numeric_attrs(const std::string &name, int decimals);
+
+    /* Decimal positions of a field (0 for integer/undeclared fields). */
+    int field_decimals(const std::string &name) const;
+
     /* Declare a character field of `length` bytes ([length x i8], space-init).
      * Idempotent. */
     llvm::Value *get_or_create_char_field(const std::string &name, int length);
 
     /* Declare a numeric array of `count` i32 elements, initialised from
-     * `init` (zeros if empty). Idempotent. */
+     * `init` (zeros if empty). When `is_table` the array is a table and also
+     * gets a hidden current-element index global (default 1). Idempotent. */
     llvm::Value *get_or_create_array(const std::string &name, int count,
-                                     const std::vector<long> &init);
+                                     const std::vector<long> &init,
+                                     bool is_table = false);
 
     bool has_field(const std::string &name) const {
         return fields_.find(name) != fields_.end();
@@ -61,6 +76,10 @@ public:
     bool is_array(const std::string &name) const {
         auto it = fields_.find(name);
         return it != fields_.end() && it->second.kind == FieldKind::Array;
+    }
+    bool is_table(const std::string &name) const {
+        auto it = fields_.find(name);
+        return it != fields_.end() && it->second.is_table;
     }
     const FieldInfo *info(const std::string &name) const {
         auto it = fields_.find(name);
@@ -75,6 +94,15 @@ public:
                          std::string &idx_token) const;
 
     llvm::Value *load_field(const std::string &name);
+
+    /* For a table name, return a pointer to the element selected by the
+     * table's current-element shadow index (1-based). Returns nullptr if
+     * `name` is not a table. */
+    llvm::Value *table_elem_ptr(const std::string &name);
+
+    /* Return the shadow-index global for a table (the i32 holding the 1-based
+     * current element), or nullptr if `name` is not a table. */
+    llvm::GlobalVariable *table_shadow(const std::string &name);
 
     /* Resolve a factor token to an i32 value (numeric operand). Numeric literal
      * -> ConstantInt; numeric field -> load; character field/array -> nullptr

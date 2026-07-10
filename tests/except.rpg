@@ -1,0 +1,9 @@
+     C* EXCPT: write E-record RLINE per input record
+     FXDATA   IP  F    80              DISK
+     FXOUT    O   F    132             PRINTER
+     IXDATA   AA  01
+     I                                     1   2   NNMBR
+     C                     EXCPTRLINE
+     OXOUT    E  1             RLINE
+     O                                 5    'N='
+     O                         NMBR    10

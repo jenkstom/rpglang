@@ -1,0 +1,9 @@
+     C* Section B8: alternating tables TABKEY/TABVAL.
+     C* TABKEY=[10,20,30] TABVAL=[100,200,300] (alternating).
+     C* LOKUP 20 in TABKEY, result TABVAL; read TABVAL => 200.
+     E                    TABKEY  3   3  2 0ATABVAL3   0
+     C                     Z-ADD20        KEY
+     C           KEY       LOKUPTABKEY    TABVAL         10
+     C  10                 Z-ADDTABVAL    RPGRET
+** 
+101002020030300

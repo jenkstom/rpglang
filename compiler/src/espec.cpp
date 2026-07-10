@@ -17,6 +17,13 @@ std::string upper(std::string s) {
 }
 } // namespace
 
+bool is_table_name(const std::string &name) {
+    return name.size() >= 3 &&
+           std::toupper((unsigned char)name[0]) == 'T' &&
+           std::toupper((unsigned char)name[1]) == 'A' &&
+           std::toupper((unsigned char)name[2]) == 'B';
+}
+
 std::vector<ESpecArray> parse_especs(const std::vector<SourceLine> &src) {
     std::vector<ESpecArray> out;
     for (const auto &sl : src) {
@@ -47,6 +54,20 @@ std::vector<ESpecArray> parse_especs(const std::vector<SourceLine> &src) {
         else
             a.load = a.from_file.empty() ? ArrayLoad::CompileTime
                                          : ArrayLoad::PreRunTime;
+
+        // Alternating partner (cols 46-57). Only meaningful when a name is
+        // present in 46-51; the remaining sub-columns mirror 40/44/45.
+        a.alt_name = col_trim(sl.text, 46, 51);
+        if (!a.alt_name.empty()) {
+            std::string ael = col_trim(sl.text, 52, 54);
+            if (!ael.empty()) { try { a.alt_entry_len = std::stoi(ael); }
+                                 catch (...) {} }
+            std::string adec = col_trim(sl.text, 56, 56);
+            if (!adec.empty() && std::isdigit((unsigned char)adec[0]))
+                a.alt_decimals = adec[0] - '0';
+            std::string aseq = upper(col_trim(sl.text, 57, 57));
+            a.alt_ascending = (aseq == "A");
+        }
 
         out.push_back(std::move(a));
     }
@@ -79,6 +100,27 @@ void load_compile_time_data(const std::vector<SourceLine> &src,
 
     // The line at `i` is the first "** ". Skip it and assign data to the first
     // compile-time array.
+    auto notspace = [](unsigned char ch){ return !std::isspace(ch); };
+    // Pull one fixed-width numeric field out of `t` at byte `pos` (width w),
+    // appending the decoded value to `out`. Returns the new position, or -1 if
+    // the field no longer fits on the line.
+    auto take_field = [&](const std::string &t, int pos, int w,
+                          std::vector<long> &out) -> int {
+        while (pos < (int)t.size() && std::isspace((unsigned char)t[pos])) ++pos;
+        if (w < 1) w = 1;
+        if (pos + w > (int)t.size()) return -1;
+        std::string field = t.substr(pos, w);
+        auto a = std::find_if(field.begin(), field.end(), notspace);
+        auto b = std::find_if(field.rbegin(), field.rend(), notspace).base();
+        if (a < b) {
+            try { out.push_back(std::stol(std::string(a, b))); }
+            catch (...) { out.push_back(0); }
+        } else {
+            out.push_back(0);
+        }
+        return pos + w;
+    };
+
     ++i;
     ESpecArray *cur = next_ct();
     for (; i < src.size(); ++i) {
@@ -90,26 +132,20 @@ void load_compile_time_data(const std::vector<SourceLine> &src,
         if (!cur) break;
         if (cur->decimals < 0) continue;   // alphanumeric arrays: deferred
 
-        // Parse the data line as a sequence of fixed-width numeric fields.
-        // Element width = entry_len. Entries are packed across lines.
-        int w = cur->entry_len > 0 ? cur->entry_len : 1;
-        for (int pos = 0; pos < (int)t.size() && (int)cur->init_data.size() < cur->entries; ) {
-            // skip leading blanks
-            while (pos < (int)t.size() && std::isspace((unsigned char)t[pos])) ++pos;
-            if (pos + w > (int)t.size()) break;
-            std::string field = t.substr(pos, w);
-            // trim
-            auto notspace = [](unsigned char ch){ return !std::isspace(ch); };
-            auto a = std::find_if(field.begin(), field.end(), notspace);
-            auto b = std::find_if(field.rbegin(), field.rend(), notspace).base();
-            if (a < b) {
-                std::string num(a, b);
-                try { cur->init_data.push_back(std::stol(num)); }
-                catch (...) {}
-            } else {
-                cur->init_data.push_back(0);
-            }
-            pos += w;
+        int wA = cur->entry_len > 0 ? cur->entry_len : 1;
+        bool alt = !cur->alt_name.empty() && cur->alt_decimals >= 0;
+        int wB = alt ? (cur->alt_entry_len > 0 ? cur->alt_entry_len : 1) : 0;
+
+        // Parse the data line as fixed-width numeric fields. For alternating
+        // arrays/tables the partner's element follows each primary element on
+        // the same record: A1 B1 A2 B2 ...
+        int pos = 0;
+        while (pos >= 0 &&
+               (int)cur->init_data.size() < cur->entries &&
+               (!alt || (int)cur->alt_init_data.size() < cur->entries)) {
+            pos = take_field(t, pos, wA, cur->init_data);
+            if (alt && (int)cur->init_data.size() <= cur->entries)
+                pos = take_field(t, pos, wB, cur->alt_init_data);
         }
     }
 
@@ -117,6 +153,9 @@ void load_compile_time_data(const std::vector<SourceLine> &src,
     for (auto &a : arrays) {
         if (a.load != ArrayLoad::CompileTime) continue;
         while ((int)a.init_data.size() < a.entries) a.init_data.push_back(0);
+        if (!a.alt_name.empty())
+            while ((int)a.alt_init_data.size() < a.entries)
+                a.alt_init_data.push_back(0);
     }
 }
 

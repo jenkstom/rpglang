@@ -1,0 +1,12 @@
+     C* CASxx: A=7, 7<10 so SUB2 runs -> RPGRET=2
+     C                     Z-ADD7         A
+     C                     Z-ADD0         RPGRET
+     C           A         CASGE10        SUB1
+     C           A         CASLT10        SUB2
+     C                     END
+     C           SUB1      BEGSR
+     C                     Z-ADD1         RPGRET
+     C                     ENDSR
+     C           SUB2      BEGSR
+     C                     Z-ADD2         RPGRET
+     C                     ENDSR

@@ -18,11 +18,23 @@
 
 namespace rpgc {
 
+/* One character-match in a record-identification code (E17). A record-id
+ * line carries up to three of these; an AND/OR continuation line adds more.
+ * `pos` is the 1-based record position; 0 marks an unused set. */
+struct RecCodeSet {
+    int  pos = 0;        // cols 21-24 / 28-31 / 35-38 (record position)
+    bool negate = false; // cols 25 / 32 / 39 == 'N'
+    char czd = 'C';      // cols 26 / 33 / 40: C=char, Z=zone, D=digit
+    char ch = ' ';       // cols 27 / 34 / 41: the literal character to match
+};
+
 /* Record-identification line. */
 struct ISpecRec {
     int         lineno = 0;
     std::string name;                 // cols 7-14 (the owning file)
     int         rec_indicator = 0;    // cols 19-20 (01-99); 0 if blank/special
+    std::vector<RecCodeSet> codes;    // cols 21-41 record-identification codes (E17)
+    bool is_lookahead = false;        // cols 19-20 == '**' (look-ahead marker, E19)
 };
 
 /* Field-description line. */
@@ -32,13 +44,19 @@ struct ISpecField {
     int         from = 0;             // cols 44-47 (1-based record position)
     int         to   = 0;             // cols 48-51
     int         decimals = -1;        // col 52 (-1 = alphameric)
+    char        data_format = 0;      // col 43: 0=blank(zoned), 'P'=packed, 'B'=binary
     std::string name;                 // cols 53-58
     std::string control_level;        // cols 59-60 (L1-L9)
+    int         record_id = 0;        // cols 63-64: record-identifying indicator (E17)
+    int         plus_ind  = 0;        // cols 65-66: field indicator on + (E18)
+    int         minus_ind = 0;        // cols 67-68: field indicator on - (E18)
+    int         zero_ind  = 0;        // cols 69-70: field indicator on 0/blank (E18)
 };
 
 struct ISpecs {
     std::vector<ISpecRec>   records;
     std::vector<ISpecField> fields;
+    std::vector<ISpecField> lookahead_fields;   // fields under a '**' line (E19)
 };
 
 /* Parse all I-specs. Maintains the "current file" as record-identification

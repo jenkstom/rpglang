@@ -1,0 +1,4 @@
+     C* C11: decimal scaling + half-adjust.
+     C* 100 DIV 7 with 2 decimals + half-adjust -> 14.29 (scaled 1429).
+     C           100       DIV  7         Q        2H
+     C                     Z-ADDQ         RPGRET   2

@@ -182,6 +182,105 @@ else
     bad "edit: did not compile"
 fi
 
+# --- Section A: missing operation codes (Z-SUB, DO, CASxx, EXCPT, TESTZ/B) ---
+hr; echo "Section A: Z-SUB, DO, CASxx, EXCPT, TESTZ/TESTB"; hr
+run_test zsub     251  zsub.rpg      # Z-SUB 5 -> -5 -> exit 251 (-5 & 0xFF)
+run_test doloop    15  doloop.rpg    # DO 1..5 sum index = 15
+run_test cas        2  cas.rpg       # CASxx: 7<10 dispatches SUB2 -> 2
+run_test testz      2  testz.rpg     # TESTZ 'J' minus zone -> LO ind
+run_test testb      1  testb.rpg     # TESTB bit0 off in 'C' -> HI ind
+# EXCPT: per-record exception output. Reads XDATA, writes XOUT.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_except "$ROOT/tests/except.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_except ]]; then
+    ( cd "$ROOT/tests" && rm -f XOUT && /tmp/rpgc_except >/dev/null 2>&1 )
+    if [[ -f "$ROOT/tests/XOUT" ]] \
+       && /usr/bin/grep -q "N=   12" "$ROOT/tests/XOUT" \
+       && /usr/bin/grep -q "N=   34" "$ROOT/tests/XOUT" \
+       && /usr/bin/grep -q "N=   56" "$ROOT/tests/XOUT"; then
+        ok "except: EXCPT writes 3 E-lines (12/34/56)"
+    else
+        bad "except: output wrong"; cat "$ROOT/tests/XOUT"
+    fi
+    rm -f "$ROOT/tests/XOUT" /tmp/rpgc_except
+else
+    bad "except: did not compile"
+fi
+
+# --- Section B: tables, prerun-time arrays, alternating arrays ----------------
+hr; echo "Section B: tables, prerun-time arrays, alternating arrays"; hr
+run_test table     30  table.rpg     # table LOKUP selects current element
+run_test altarr   200  altarr.rpg    # alternating tables; related-table LOKUP
+# Prerun-time array: loaded from PDATA at program start; XFOOT = 60.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_prerun "$ROOT/tests/prerun.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_prerun ]]; then
+    ( cd "$ROOT/tests" && /tmp/rpgc_prerun ); got=$?
+    if [[ "$got" -eq 60 ]]; then ok "prerun: prerun-time array XFOOT, exit $got (expected 60)"
+    else bad "prerun: exit $got (expected 60)"; fi
+    rm -f /tmp/rpgc_prerun
+else
+    bad "prerun: did not compile"
+fi
+
+# --- Section C: numeric data model (decimals, packed, sign-overpunch) ---------
+hr; echo "Section C: decimal scaling, packed input, sign-overpunch"; hr
+run_test dec       149  dec.rpg       # C11: 100/7 -> 14.29 (scaled 1429), half-adjust
+run_test ovrpunch  251  ovrpunch.rpg  # C10: char 000N -> numeric -5
+# Packed-decimal input: BDATA holds packed 8191 -> exit 255.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_packed "$ROOT/tests/packed.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_packed ]]; then
+    ( cd "$ROOT/tests" && /tmp/rpgc_packed ); got=$?
+    if [[ "$got" -eq 255 ]]; then ok "packed: packed-decimal 8191, exit $got (expected 255)"
+    else bad "packed: exit $got (expected 255)"; fi
+    rm -f /tmp/rpgc_packed
+else
+    bad "packed: did not compile"
+fi
+
+# --- Section D: output spec gaps (headings, skip, PAGE, edit words) ----------
+hr; echo "Section D: headings/1P, skip, PAGE, edit words, per-field indicators"; hr
+# Helper: compile an output-producing program, run it in tests/, check output.
+run_out_test() {
+    local name="$1" rpg="$2" outfile="$3" check="$4"
+    "$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_${name} "$ROOT/tests/${rpg}" >/dev/null 2>&1
+    if [[ ! -x /tmp/rpgc_${name} ]]; then bad "${name}: did not compile"; return; fi
+    ( cd "$ROOT/tests" && rm -f "${outfile}" && /tmp/rpgc_${name} >/dev/null 2>&1 )
+    if [[ -f "$ROOT/tests/${outfile}" ]] && eval "$check"; then
+        ok "${name}: output ok"
+    else
+        bad "${name}: output wrong"; cat "$ROOT/tests/${outfile}" 2>/dev/null
+    fi
+    rm -f /tmp/rpgc_${name}
+}
+# D12: heading line (1P) prints once before detail.
+run_out_test heading heading.rpg HOUT \
+    '(($(grep -c "MY REPORT" "$ROOT/tests/HOUT")==1)) && grep -q "^        10" "$ROOT/tests/HOUT"'
+# D13: skip-after emits a form-feed.
+run_out_test skip skip.rpg SOUT \
+    'grep -q $'"'"'\f'"'"' "$ROOT/tests/SOUT"'
+# D14: PAGE field prints the page counter (1 on the first page).
+run_out_test pgfield pgfield.rpg GOUT 'grep -q "PAGE= 1" "$ROOT/tests/GOUT"'
+# D16: edit word formats a number with a comma.
+run_out_test edword edword.rpg EOUT 'grep -q "1,234" "$ROOT/tests/EOUT"'
+# D15: per-field conditioning — YES prints, NO suppressed.
+run_out_test pfield pfield.rpg PFOUT \
+    'grep -q "YES" "$ROOT/tests/PFOUT" && ! grep -q "NO" "$ROOT/tests/PFOUT"'
+
+# --- Section E: input spec gaps (record-ID, field indicators, look-ahead) -----
+hr; echo "Section E: record-identification, field indicators, look-ahead"; hr
+# Helper: compile a cycle program that reads a data file, run it in tests/, check exit.
+run_cycle_test() {
+    local name="$1" expected="$2" rpg="$3"
+    "$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_${name} "$ROOT/tests/${rpg}" >/dev/null 2>&1
+    if [[ ! -x /tmp/rpgc_${name} ]]; then bad "${name}: did not compile"; return; fi
+    ( cd "$ROOT/tests" && /tmp/rpgc_${name} ); got=$?
+    if [[ "$got" -eq "$expected" ]]; then ok "${name}: exit $got (expected $expected)"
+    else bad "${name}: exit $got (expected $expected)"; fi
+    rm -f /tmp/rpgc_${name}
+}
+run_cycle_test fldind    1  fldind.rpg     # E18: zero field fires indicator
+run_cycle_test recid    30  recid.rpg      # E17: record-ID selects type-2 fields
+run_cycle_test lookahead 30  lookahead.rpg # E19: look-ahead reads next record
+
 # --- Phase 5: end-to-end pipeline + optimization -----------------------------
 hr; echo "Phase 5: pipeline & end-to-end"; hr
 # Combined test: cycle reads TRANS, COMP+GOTO selectively sums values > 4.

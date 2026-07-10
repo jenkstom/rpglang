@@ -1,0 +1,10 @@
+     C* D14: PAGE field prints the page counter.
+     FGDATA   IP  F    80              DISK
+     FGOUT    O   F    132             PRINTER
+     IGDATA       AA
+     I                                     1   1   0DUMMY
+     OGOUT    H  1  01
+     O                                 10   'PAGE='
+     O                         PAGE    12
+     OGOUT    D  1  01
+     O                                 10   'REC'

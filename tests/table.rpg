@@ -1,0 +1,9 @@
+     C* Section B6: table LOKUP + current-element access.
+     C* TABNUM=[10,20,30,40,50]; LOKUP 30 sets EQ ind 10, selects elem 3.
+     C* A bare table name reads its current element => 30.
+     E                    TABNUM  5   5  2 0A
+     C                     Z-ADD30        KEY
+     C           KEY       LOKUPTABNUM                   10
+     C  10                 Z-ADDTABNUM    RPGRET
+** 
+1020304050

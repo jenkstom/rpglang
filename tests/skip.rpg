@@ -1,0 +1,7 @@
+     C* D13: skip-after to new page emits a form-feed.
+     FSDATA   IP  F    80              DISK
+     FSOUT    O   F    132             PRINTER
+     ISDATA       AA
+     I                                     1   2   0N
+     OSOUT    D  1  01
+     O                         N       10

@@ -1,0 +1,10 @@
+     C* D15: per-field conditioning. Indicator 10 is never set,
+     C* so a field gated by N10 (always-on via negation) prints,
+     C* while a field gated by 10 (off) is suppressed.
+     FPFDATA  IP  F    80              DISK
+     FPFOUT   O   F    132             PRINTER
+     IPFDATA      AA
+     I                                     1   1   0DUMMY
+     OPFOUT   D  1
+     O                N10              10   'YES'
+     O                10               20   'NO'

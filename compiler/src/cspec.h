@@ -31,6 +31,7 @@ enum class Op {
     Unknown,
     ADD,    // r = f1 ? f1+f2 : r+f2
     ZADD,   // r = f2
+    ZSUB,   // r = -f2 (zero and subtract)
     SETON,  // turn on indicators named in result slots
     SETOF,  // turn off indicators named in result slots
     // Phase 4:
@@ -45,17 +46,22 @@ enum class Op {
     DIV,    // r = f1/f2 quotient (f1 optional: r = r/f2)
     MVR,    // r = remainder of the immediately preceding DIV
     // Phase 6b structured ops:
-    IF, DOW, DOU, ELSE, END, CAS,  // with .cmp holding the xx operator
+    IF, DOW, DOU, DO, ELSE, END, CAS,  // with .cmp holding the xx operator
     // Phase 8b subroutines:
     EXSR,   // call subroutine named in factor2
     BEGSR,  // begin subroutine (factor1 = name)
     ENDSR,  // end subroutine (return)
+    // Exception output:
+    EXCPT,  // write type-E O-records named in factor2 (blank => unnamed E lines)
     // Phase 9b array operations:
     XFOOT,  // sum array (factor2) into result
     SQRT,   // square root of factor2 into result
     // Phase 10:
     LOKUP,  // search array (factor2) for factor1; set HI/LO/EQ
     MOVEA,  // move array <-> field (left-justified)
+    // Compare/test (zone & bit):
+    TESTZ,  // test zone of leftmost char of result; set HI/LO/EQ
+    TESTB,  // test bits of result field per factor2 mask; set HI/LO/EQ
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks

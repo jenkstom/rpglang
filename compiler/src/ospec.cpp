@@ -19,6 +19,25 @@ std::string upper(std::string s) {
                    [](unsigned char c){ return std::toupper(c); });
     return s;
 }
+
+/* Decode an O-spec skip code (cols 19-20 or 21-22) into an absolute line
+ * number. Returns 0 for blank. Encoding (manual p.455): 01-99 = line 1-99;
+ * A0-A9 = 100-109; B0-B2 = 110-112. */
+int decode_skip(const std::string &s) {
+    if (s.empty()) return 0;
+    char c0 = s[0];
+    if (std::isdigit((unsigned char)c0)) {
+        if (s.size() >= 2 && std::isdigit((unsigned char)s[1]))
+            return (c0 - '0') * 10 + (s[1] - '0');
+        return c0 - '0';
+    }
+    char cu = std::toupper((unsigned char)c0);
+    if (cu == 'A' && s.size() >= 2 && std::isdigit((unsigned char)s[1]))
+        return 100 + (s[1] - '0');
+    if (cu == 'B' && s.size() >= 2 && std::isdigit((unsigned char)s[1]))
+        return 110 + (s[1] - '0');
+    return 0;
+}
 } // namespace
 
 /* Parse the three conditioning groups (cols 23-31). Each group is 3 cols.
@@ -44,6 +63,7 @@ static std::vector<CondInd> parse_o_conditions(const std::string &line) {
 std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
     std::vector<ORecord> out;
     ORecord *current = nullptr;   // record line that subsequent field lines attach to
+    std::string last_file;        // carries forward across continuation record lines
 
     for (const auto &sl : src) {
         if (sl.comment) continue;
@@ -60,7 +80,13 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
         if (is_record) {
             ORecord rec;
             rec.lineno = sl.lineno;
-            rec.file   = col_trim(t, 7, 14);
+            // Filename (cols 7-14): present on the first record line per file;
+            // may be omitted on later record lines and carries forward. We
+            // remember the last named file so blank-file continuation lines
+            // (including type-E EXCPT lines) inherit it.
+            std::string fname = col_trim(t, 7, 14);
+            if (!fname.empty()) last_file = fname;
+            rec.file = last_file;
             switch (typech[0]) {
                 case 'H': rec.type = OType::Heading;   break;
                 case 'D': rec.type = OType::Detail;    break;
@@ -74,12 +100,19 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
             std::string sa = col_trim(t, 18, 18);
             if (!sa.empty() && std::isdigit((unsigned char)sa[0])) {
                 rec.space_after = sa[0] - '0';
-            } else if (col_trim(t,17,22).empty()) {
-                rec.space_after = 1;   // all blank => single-space after
+            } else if (col_trim(t,17,18).empty()) {
+                rec.space_after = 1;   // cols 17-18 blank => single-space after
             } else {
                 rec.space_after = 0;
             }
+            // Skip before/after (cols 19-22): absolute line number to skip to.
+            rec.skip_before = decode_skip(col_trim(t, 19, 20));
+            rec.skip_after  = decode_skip(col_trim(t, 21, 22));
             rec.conditions = parse_o_conditions(t);
+            // EXCPT name (cols 32-37) is only meaningful for type-E records.
+            if (rec.type == OType::Exception) {
+                rec.except_name = col_trim(t, 32, 37);
+            }
             out.push_back(std::move(rec));
             current = &out.back();
             continue;
@@ -96,27 +129,40 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
         fld.lineno = sl.lineno;
         fld.conditions = parse_o_conditions(t);
 
+        // Edit code (col 38) — parsed early so we can tell an edit word (blank
+        // col 38 + field name + quoted cols 45-70) from a plain constant.
+        std::string ec = col_trim(t, 38, 38);
+        if (!ec.empty()) fld.edit_code = ec[0];
+
         // Constant? Look for a leading apostrophe in cols 45-70.
         std::string conArea = col(t, 45, 70);
         std::string nameArea = col_trim(t, 32, 37);
-        if (!conArea.empty() && conArea[0] == '\'') {
-            // Strip surrounding apostrophes; collapse '' -> '.
-            std::string raw = conArea;
-            // take from first ' to the last ' on the line region
+        bool quoted = (!conArea.empty() && conArea[0] == '\'');
+        // Strip apostrophes / collapse '' -> ' from the quoted region.
+        auto unquote = [&](const std::string &region) -> std::string {
+            std::string raw = region;
             auto last = raw.find_last_of('\'');
-            if (last != std::string::npos && last != 0) {
+            if (last != std::string::npos && last != 0)
                 raw = raw.substr(1, last - 1);
-            } else {
+            else
                 raw = raw.substr(1);
-            }
             std::string outc;
             for (size_t i = 0; i < raw.size(); ++i) {
                 if (raw[i] == '\'' && i + 1 < raw.size() && raw[i+1] == '\'') {
                     outc += '\''; ++i;
                 } else outc += raw[i];
             }
+            return outc;
+        };
+        if (quoted && !nameArea.empty() && fld.edit_code == 0) {
+            // Edit word (D16): a numeric field with a quoted pattern in
+            // cols 45-70 and no edit code.
+            fld.name = nameArea;
+            fld.edit_word = unquote(conArea);
+        } else if (quoted) {
+            // Plain constant.
             fld.is_const = true;
-            fld.text = outc;
+            fld.text = unquote(conArea);
         } else if (!nameArea.empty()) {
             fld.name = nameArea;
         } else {
@@ -132,9 +178,6 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
         // Blank after (col 39).
         std::string ba = upper(col_trim(t, 39, 39));
         fld.blank_after = (ba == "B");
-        // Edit code (col 38).
-        std::string ec = col_trim(t, 38, 38);
-        if (!ec.empty()) fld.edit_code = ec[0];
 
         current->fields.push_back(std::move(fld));
     }

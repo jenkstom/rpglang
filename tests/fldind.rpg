@@ -1,0 +1,6 @@
+     C* E18: field indicator (zero) fires when a numeric field is 0.
+     FFLDATA  IP  F    80              DISK
+     FFLOUT   O   F    132             PRINTER
+     IFLDATA      AA
+     I                                     1   2   0N               20
+     C  20                 Z-ADD1         RPGRET

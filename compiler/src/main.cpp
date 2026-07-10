@@ -224,6 +224,7 @@ int main(int argc, char **argv) {
     rpgc::ISpecs is = rpgc::parse_ispecs(src);
     prog.in_records = std::move(is.records);
     prog.in_fields  = std::move(is.fields);
+    prog.lookahead_fields = std::move(is.lookahead_fields);
     prog.calcs      = rpgc::parse_cspecs(src);
     prog.outputs    = rpgc::parse_ospecs(src);
     prog.arrays     = rpgc::parse_especs(src);

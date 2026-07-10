@@ -1,0 +1,10 @@
+     C* E19: look-ahead field reads the next record's value.
+     C* When CUR=20, the look-ahead NEXT should be 30.
+     FLADATA  IP  F    80              DISK
+     FLAOUT   O   F    132             PRINTER
+     ILADATA      AA
+     I                                     1   2   0CUR
+     I        AA  **
+     I                                     1   2   0NEXT
+     C           CUR       COMP 20                       10
+     C  10                 Z-ADDNEXT      RPGRET

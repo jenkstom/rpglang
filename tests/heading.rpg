@@ -1,0 +1,9 @@
+     C* D12: heading line (1P) prints once before detail.
+     FHDATA   IP  F    80              DISK
+     FHOUT    O   F    132             PRINTER
+     IHDATA       AA
+     I                                     1   2   0N
+     OHOUT    H  1    1P
+     O                                 20   'MY REPORT'
+     OHOUT    D  1
+     O                         N       10

@@ -35,6 +35,7 @@ int ind_token(const std::string &raw) {
 
     if (s == "LR") return -1;
     if (s == "L0") return 0;   // L0 is always-on; not storable
+    if (s == "1P") return -11; // first-page indicator (Section D, D12)
     if (s.size() == 2 && s[0] == 'L' && s[1] >= '1' && s[1] <= '9')
         return -1 - (s[1] - '0');   // L1 -> -2, L2 -> -3, ... L9 -> -10
     if (s.size() == 2 && std::isdigit((unsigned char)s[0])
@@ -75,6 +76,8 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "ADD")   return Op::ADD;
     if (u == "Z-ADD") return Op::ZADD;
     if (u == "ZADD")  return Op::ZADD;   // tolerate no-dash
+    if (u == "Z-SUB") return Op::ZSUB;
+    if (u == "ZSUB")  return Op::ZSUB;   // tolerate no-dash
     if (u == "SETON") return Op::SETON;
     if (u == "SETOF") return Op::SETOF;
     // Phase 4:
@@ -109,16 +112,21 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (starts("DOW")) { suffix(3); return Op::DOW; }
     if (starts("DOU")) { suffix(3); return Op::DOU; }
     if (starts("CAS")) { suffix(3); return Op::CAS; }
+    // DO (counted loop) must come after DOW/DOU so it doesn't shadow them.
+    if (u == "DO")     return Op::DO;
     if (u == "ELSE")   return Op::ELSE;
     if (u == "END")    return Op::END;
     if (u == "EXSR")   return Op::EXSR;
     if (u == "BEGSR")  return Op::BEGSR;
     if (u == "ENDSR")  return Op::ENDSR;
+    if (u == "EXCPT")  return Op::EXCPT;
     // Phase 9b array operations:
     if (u == "XFOOT")  return Op::XFOOT;
     if (u == "SQRT")   return Op::SQRT;
     if (u == "LOKUP" || u == "LOOKUP") return Op::LOKUP;
     if (u == "MOVEA")  return Op::MOVEA;
+    if (u == "TESTZ")  return Op::TESTZ;
+    if (u == "TESTB")  return Op::TESTB;
     return Op::Unknown;
 }
 

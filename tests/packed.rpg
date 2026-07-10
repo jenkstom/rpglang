@@ -1,0 +1,6 @@
+     C* C9: packed-decimal input (I-spec col 43 = P).
+     C* BDATA holds packed 8191 (0x08 0x19 0x1F) -> exit 255.)
+     FBDATA   IP  F    80              DISK
+     IBDATA       AA
+     I                                    P1   3   0PK
+     C                     Z-ADDPK        RPGRET

@@ -1,0 +1,5 @@
+     C* TESTZ: CF='J' minus zone -> LO ind 02 -> RPGRET=2
+     C                     MOVE 'J'       CF    1
+     C                     TESTZ          CF         010203
+     C                     Z-ADD0         RPGRET
+     C  02                 Z-ADD2         RPGRET
