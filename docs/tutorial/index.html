@@ -69,49 +69,9 @@
       onto RPG II's (often unfamiliar) vocabulary and mechanics.</p>
     </blockquote>
 
-    <p>This audience targeting should guide <strong>all future writing and
-    editing</strong> of every chapter in this tutorial. Specifically:</p>
-
-    <ul>
-      <li><strong>Use language-agnostic conceptual examples.</strong> When
-        illustrating an idea, draw on constructs common to all three languages
-        — e.g. "an integer variable," "a <code>while</code> loop," "a
-        <code>switch</code>/<code>case</code> statement," "a function that
-        takes no arguments," "a fixed-length record." Do <strong>not</strong>
-        show Python, C#, or Java syntax. The reader is expected to supply the
-        modern analogy internally.</li>
-      <li><strong>Name the modern concept, then introduce the RPG II
-        equivalent.</strong> Each new topic should open with "you already know
-        X; RPG II does this via Y."</li>
-      <li><strong>Call out the three paradigm shocks early and often.</strong>
-        RPG II differs from modern languages in three fundamental ways, and the
-        tutorial must keep returning to them:
-        <ol>
-          <li><strong>Column-based source.</strong> Meaning lives in fixed
-            character <em>positions</em>, not in tokens separated by
-            whitespace. There are (almost) no braces, keywords as you know
-            them, or statement terminators.</li>
-          <li><strong>The implicit program cycle.</strong> A program does not
-            explicitly "read a record, process it, loop." The language supplies
-            an invisible outer loop that reads every record automatically; your
-            code is the <em>body</em> of that loop.</li>
-          <li><strong>Indicators.</strong> A flat set of global, persistent
-            boolean flags — not boolean variables you declare — drive
-            conditional execution and record the outcome of operations.</li>
-        </ol>
-      </li>
-      <li><strong>Favor the conceptual over the historical.</strong> Explain
-        <em>what</em> a construct does and <em>when you would use it</em>, not
-        the 1960s batch-mainframe lineage, except where the history genuinely
-        aids understanding (e.g. why columns exist).</li>
-      <li><strong>Keep it practical.</strong> Every concept should connect to a
-        realistic business-programming task: reading a file of transactions,
-        accumulating totals, producing a printed report, looking up a value in
-        a table.</li>
-      <li><strong>Cross-reference, don't duplicate.</strong> Concepts like
-        indicators and the cycle appear throughout; each chapter should link to
-        its foundational chapter rather than re-explaining from scratch.</li>
-    </ul>
+    <p>The rest of this tutorial unpacks each of those ideas in detail.
+    Here is a visual overview of the three paradigm shifts before you dive
+    in:</p>
 
     <!-- ── SVG: The three paradigm shifts ─────────────────────── -->
     <div class="svg-container">
@@ -175,25 +135,6 @@
         <text x="680" y="180" text-anchor="middle" font-size="10" font-family="monospace" fill="#2a8a2a">"COMP sets HI / LO / EQ"</text>
       </svg>
     </div>
-  </div>
-
-  <!-- ═════════════════════════════════════════════════════════════ -->
-  <h2>How this tutorial is organized</h2>
-
-  <div class="callout">
-    <p><strong>Partially written.</strong> Chapters in <strong>Part&nbsp;I</strong>,
-    <strong>Part&nbsp;II</strong>, <strong>Part&nbsp;III</strong>, and
-    <strong>Part&nbsp;IV</strong> are fully written. The remaining chapters
-    (Part&nbsp;V) are still <strong>scaffolds</strong>: each contains</p>
-    <ol>
-      <li>A <strong>summary</strong> — what the chapter covers and why it
-        matters.</li>
-      <li>A <strong>detailed outline</strong> — the sections, sub-topics, and
-        example programs that should be written into it.</li>
-    </ol>
-    <p>The summaries and outlines are the blueprint for those chapters: they
-    define scope, ordering, and the examples to build, so that future writing
-    can fill each one in consistently with the completed chapters.</p>
   </div>
 
   <!-- ═════════════════════════════════════════════════════════════ -->
@@ -333,6 +274,18 @@
   </table>
 
   <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Appendix</h2>
+
+  <table>
+    <tr><th>#</th><th>Page</th><th>What you'll find</th></tr>
+    <tr>
+      <td>A</td>
+      <td><a href="appendix-cheat-sheet.html">Specification Cheat Sheet</a></td>
+      <td>Visual punched-card layouts for every spec type (F, I, C, O, E) with column-by-column field labels and worked examples.</td>
+    </tr>
+  </table>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
   <h2>Suggested reading order</h2>
 
   <p><strong>Newcomers:</strong> read Parts I–II in order — the cycle and
@@ -342,8 +295,10 @@
   F-specs.</p>
 
   <p><strong>Quick reference:</strong> jump straight to the spec chapter you
-  need (F/I/C/O) or to the operation index in
-  <a href="09-calc-specs.html">Chapter 9</a>.</p>
+  need (F/I/C/O), to the operation index in
+  <a href="09-calc-specs.html">Chapter 9</a>, or to the
+  <a href="appendix-cheat-sheet.html">specification cheat sheet</a> for a
+  visual column-layout card of each spec type.</p>
 
   <!-- ═════════════════════════════════════════════════════════════ -->
   <h2>Conventions used in this tutorial</h2>
