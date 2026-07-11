@@ -158,7 +158,18 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "CHAIN")  return Op::CHAIN;
     if (u == "SETLL")  return Op::SETLL;
     if (u == "READE")  return Op::READE;
+    if (u == "READP")  return Op::READP;
     if (u == "READ")   return Op::READ;
+    // Group C: additional operation codes.
+    if (u == "BITON")  return Op::BITON;
+    if (u == "BITOF")  return Op::BITOF;
+    if (u == "DEFN")   return Op::DEFN;
+    if (u == "SORTA")  return Op::SORTA;
+    if (u == "TIME")   return Op::TIME;
+    if (u == "MHHZO")  return Op::MHHZO;
+    if (u == "MHLZO")  return Op::MHLZO;
+    if (u == "MLHZO")  return Op::MLHZO;
+    if (u == "MLLZO")  return Op::MLLZO;
     return Op::Unknown;
 }
 
@@ -236,6 +247,61 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
         if (c.op == Op::GOTO && c.factor2.empty()) {
             report("input", sl.lineno, 33, DiagKind::Error,
                    "GOTO requires a target label in factor 2");
+        }
+        if (c.op == Op::DEFN) {
+            // *LIKE DEFN: factor1 must literally be "*LIKE"; conditioning and
+            // resulting indicators are not permitted (manual 106341-106375).
+            if (upper(c.factor1) != "*LIKE") {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "DEFN requires '*LIKE' in factor 1");
+            }
+            if (c.factor2.empty() || c.result.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "*LIKE DEFN requires a source field in factor 2 and a "
+                       "new field name in the result field");
+            }
+            if (!c.conditions.empty()) {
+                report("input", sl.lineno, 9, DiagKind::Error,
+                       "*LIKE DEFN cannot have conditioning indicators");
+                c.conditions.clear();
+            }
+            if (c.hi.indicator || c.lo.indicator || c.eq.indicator) {
+                report("input", sl.lineno, 54, DiagKind::Error,
+                       "*LIKE DEFN cannot have resulting indicators");
+            }
+        }
+        if (c.op == Op::SORTA) {
+            // SORTA: only factor2 (the array name) is used; factor1 and the
+            // result/half-adjust/resulting-indicator columns must be blank
+            // (manual 124481-124515).
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "SORTA requires an array name in factor 2");
+            }
+            if (!c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "SORTA factor 1 must be blank");
+            }
+            if (!c.result.empty() || c.half_adjust ||
+                c.hi.indicator || c.lo.indicator || c.eq.indicator) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "SORTA result field, half-adjust, and resulting "
+                       "indicators must be blank");
+            }
+        }
+        if ((c.op == Op::BITON || c.op == Op::BITOF)) {
+            // BITON/BITOF: factor1, decimal positions, and half-adjust must
+            // be blank (manual 105336-105362, 105207-105233).
+            const char *nm = c.op == Op::BITON ? "BITON" : "BITOF";
+            if (!c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       std::string(nm) + " factor 1 must be blank");
+            }
+            if (c.factor2.empty() || c.result.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       std::string(nm) + " requires a bit mask in factor 2 and "
+                       "a result field");
+            }
         }
 
         out.push_back(std::move(c));

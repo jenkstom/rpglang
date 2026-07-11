@@ -1,0 +1,12 @@
+     C* C4: SORTA sorts TABS [50,10,40,20,30] ascending -> [10,20,30,40,50].
+     C* XFOOT-style manual checks via LOKUP: element 1 must be 10, element
+     C* 5 must be 50. Exit 1 if both hold.
+     E                    TABS    5   5  2 0A
+     C                     SORTATABS                       
+     C                     Z-ADDTABS,1    FIRST            
+     C                     Z-ADDTABS,5    LAST             
+     C           FIRST     COMP 10                       10
+     C           LAST      COMP 50                       11
+     C  10 11              Z-ADD1         RPGRET           
+** 
+5010402030

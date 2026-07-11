@@ -1,0 +1,7 @@
+     C* C5: TIME stores hhmmss into TOD (0 decimals, always 0..235959).
+     C* Exit 1 if TOD is in range (sanity check only -- non-deterministic
+     C* value can't be exactly asserted).
+     C                     TIME           TOD              
+     C           TOD       COMP 0                      10  
+     C           TOD       COMP 235959               11    
+     C  N10N11             Z-ADD1         RPGRET           

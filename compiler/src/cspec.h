@@ -67,6 +67,17 @@ enum class Op {
     SETLL,  // position f2 at key >= f1 (lower limit)
     READE,  // read next from f2 if key == f1; cols 58-59 = EOF/unequal indicator
     READ,   // read next from f2 (full-proc/demand); cols 58-59 = EOF indicator
+    READP,  // read prior from f2; cols 58-59 = beginning-of-file indicator
+    // Group C: additional operation codes.
+    BITON,  // set on bits named in factor2 within the result field
+    BITOF,  // set off bits named in factor2 within the result field
+    DEFN,   // *LIKE DEFN: define result with factor2's attributes (+/- len delta)
+    SORTA,  // sort array (factor2) in place per its E-spec sequence flag
+    TIME,   // store time-of-day (and optionally date) into result
+    MHHZO,  // move zone: leftmost byte of f2 -> leftmost byte of result
+    MHLZO,  // move zone: leftmost byte of f2 -> rightmost byte of result
+    MLHZO,  // move zone: rightmost byte of f2 -> leftmost byte of result
+    MLLZO,  // move zone: rightmost byte of f2 -> rightmost byte of result
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks

@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* -------------------------------------------------------------------------- */
 /* Phase 1 smoke-test.                                                        */
@@ -418,6 +419,36 @@ int rpg_rt_reade(int file_id, const char *key, int keylen, char *buf, size_t buf
     return ok;
 }
 
+/* Read the prior record relative to the current logical position (the SETLL/
+ * READ/READP cursor), moving it backward. Shares the same offset index as
+ * rpg_rt_read/rpg_rt_setll -- key order when a key is declared, file order
+ * otherwise -- so READP walks the mirror image of READ's direction. Returns
+ * 1 on record, 0 on beginning-of-file. */
+int rpg_rt_readp(int file_id, char *buf, size_t buflen) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return 0;
+    build_index(file_id);
+    int cnt = g_files[file_id].idx_count;
+    if (cnt == 0) return 0;
+    int i;
+    if (g_files[file_id].cur_off < 0) {
+        i = cnt - 1;   /* cursor past the end: prior record is the last one */
+    } else {
+        /* Lower bound: first index entry with offset >= cur_off; the record
+         * immediately before the cursor is the one before that. */
+        int lo = 0, hi = cnt;
+        while (lo < hi) {
+            int mid = (lo + hi) / 2;
+            if (g_files[file_id].idx_offs[mid] < g_files[file_id].cur_off) lo = mid + 1;
+            else hi = mid;
+        }
+        i = lo - 1;
+    }
+    if (i < 0) return 0;   /* beginning of file */
+    int ok = read_at(file_id, g_files[file_id].idx_offs[i], buf, buflen);
+    g_files[file_id].cur_off = g_files[file_id].idx_offs[i];
+    return ok;
+}
+
 void rpg_rt_set_reclen(int file_id, int reclen) {
     if (file_id < 0 || file_id >= RPG_RT_MAX_FILES) return;
     g_files[file_id].reclen = reclen;
@@ -604,6 +635,22 @@ int rpg_rt_lokup(long key, const int *arr, int count, int *idx, int ascending) {
     if (have_lo) { if (idx) *idx = lo_idx + 1; return -1; }
     if (idx) *idx = 1;   /* manual: unsuccessful search resets the index to 1 */
     return -2;
+}
+
+/* SORTA (Group C, C4): sort a numeric array in place, ascending or descending
+ * per its declared E-spec sequence flag. A plain insertion sort -- these
+ * arrays are small (E-spec-declared, compile-time element counts). */
+void rpg_rt_sorta(int *arr, int count, int ascending) {
+    for (int i = 1; i < count; ++i) {
+        int v = arr[i];
+        int j = i - 1;
+        if (ascending) {
+            while (j >= 0 && arr[j] > v) { arr[j + 1] = arr[j]; --j; }
+        } else {
+            while (j >= 0 && arr[j] < v) { arr[j + 1] = arr[j]; --j; }
+        }
+        arr[j + 1] = v;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1268,4 +1315,16 @@ void rpg_rt_close_all(void) {
         g_files[id].idx_count = 0;
         g_files[id].idx_built = 0;
     }
+}
+
+/* TIME (Group C, C5): current time-of-day as a 6-digit hhmmss integer
+ * (manual 124880-124913). This compiler represents numeric fields as plain
+ * 32-bit scaled integers with no separate digit-length attribute, so only
+ * the always-fitting 6-digit time-of-day form is produced; see the codegen
+ * comment on emit_time for the 12-digit time+date variant's limitation. */
+long rpg_rt_time(void) {
+    time_t t = time(NULL);
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    return (long)tmv.tm_hour * 10000 + (long)tmv.tm_min * 100 + (long)tmv.tm_sec;
 }

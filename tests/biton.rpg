@@ -1,0 +1,7 @@
+     C* C2: BITON sets bit0 in CF (space 0x20 -> 0xA0); TESTB confirms EQ
+     C* (ind10). BITOF clears it back off; TESTB confirms HI (ind20). Exit 1.
+     C                     BITON'0'       CF    1          
+     C                     TESTB'0'       CF             10
+     C                     BITOF'0'       CF               
+     C                     TESTB'0'       CF         20    
+     C  10 20              Z-ADD1         RPGRET           

@@ -1,0 +1,17 @@
+     C* C3: *LIKE DEFN. SRC has 2 decimals; NEWF *LIKE SRC must inherit
+     C* them -- printed with edit code '1', proving NEWF's decimals equal
+     C* SRC's 2 (not a wrong default of 0). CSRC is 5 bytes; NEWC *LIKE
+     C* CSRC +2 must be 7 bytes (length delta), holding a distinct fill.
+     FDNDATA  IP  F      80            DISK
+     FDNOUT   O   F    132             PRINTER
+     IDNDATA      AA
+     I                                     1   1   0DUMMY
+     C                     Z-ADD12345     SRC      2
+     C           *LIKE     DEFN SRC       NEWF
+     C                     Z-ADD12345     NEWF
+     C                     MOVE 'HELLO'   CSRC  5
+     C           *LIKE     DEFN CSRC      NEWC  +2
+     C                     MOVEA'ABCDEFG' NEWC
+     ODNOUT   D  1
+     O                         NEWF  1   20
+     O                         NEWC      27

@@ -1,0 +1,15 @@
+     C* C6: move-zone family. SRC='A9' (zone 0x40 + digit 0x09 as raw
+     C* bytes 'A','9'). MHHZO copies SRC's leftmost zone into DST1's
+     C* leftmost byte; MLLZO copies SRC's rightmost zone into DST2's
+     C* rightmost byte, preserving the untouched digit nibble. Exit 1 if
+     C* both land as expected.
+     C                     MOVE 'AB'      SRC   2          
+     C                     MOVE '12'      DST1  2          
+     C                     MHHZOSRC       DST1             
+     C                     MOVE '12'      DST2  2          
+     C                     MLLZOSRC       DST2             
+     C                     MOVELDST1      D1B0  1          
+     C           D1B0      COMP 'A'                      10
+     C                     MOVE DST2      D2B1  1          
+     C           D2B1      COMP 'B'                      11
+     C  10 11              Z-ADD1         RPGRET           

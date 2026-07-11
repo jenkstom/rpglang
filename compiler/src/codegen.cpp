@@ -532,6 +532,14 @@ private:
         reade_ = Function::Create(
             FunctionType::get(i32, {i32, ptr, i32, ptr, i64}, false),
             Function::ExternalLinkage, "rpg_rt_reade", mod_.get());
+        readp_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr, i64}, false),
+            Function::ExternalLinkage, "rpg_rt_readp", mod_.get());
+
+        // Group C: TIME (self-contained runtime call, no file/array args).
+        time_fn_ = Function::Create(
+            FunctionType::get(i64, false),
+            Function::ExternalLinkage, "rpg_rt_time", mod_.get());
 
         get_decimal_ = Function::Create(
             FunctionType::get(i64, {ptr, i32, i32, i32}, false),
@@ -2747,6 +2755,17 @@ private:
             case Op::SETLL: emit_setll(c);  return false;
             case Op::READ:  emit_read(c);   return false;
             case Op::READE: emit_reade(c);  return false;
+            case Op::READP: emit_readp(c);  return false;
+            // Group C: additional operation codes.
+            case Op::BITON: emit_bit_set(c, true);  return false;
+            case Op::BITOF: emit_bit_set(c, false); return false;
+            case Op::DEFN:  emit_defn(c);  return false;
+            case Op::SORTA: emit_sorta(c); return false;
+            case Op::TIME:  emit_time(c);  return false;
+            case Op::MHHZO: emit_movezone(c, true,  true,  "MHHZO"); return false;
+            case Op::MHLZO: emit_movezone(c, true,  false, "MHLZO"); return false;
+            case Op::MLHZO: emit_movezone(c, false, true,  "MLHZO"); return false;
+            case Op::MLLZO: emit_movezone(c, false, false, "MLLZO"); return false;
             default:
                 // Structured ops (IF/DOU/DOW/ELSE/END/CAS) are handled at the
                 // chain level, not as individual op bodies. Unknown ops were
@@ -3523,7 +3542,8 @@ private:
             report("input", c.lineno, 33, DiagKind::Error,
                    std::string(c.op == Op::CHAIN ? "CHAIN" :
                                c.op == Op::SETLL ? "SETLL" :
-                               c.op == Op::READE ? "READE" : "READ")
+                               c.op == Op::READE ? "READE" :
+                               c.op == Op::READP ? "READP" : "READ")
                    + " file '" + fname + "' is not a keyed/random input file");
             return nullptr;
         }
@@ -3694,6 +3714,37 @@ private:
         builder_.SetInsertPoint(after);
         if (c.eq.indicator)
             inds_.store_resolved(c.eq.indicator, builder_.CreateNot(got, "reade_ne"));
+    }
+
+    /* READP: read the prior record from file (factor2), moving the read
+     * cursor backward -- the mirror image of READ (manual 123813-123840). On
+     * success decode the file's fields; cols 58-59 indicator (c.eq) turns on
+     * when no prior record exists (beginning-of-file). */
+    void emit_readp(const CSpec &c) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i64 = Type::getInt64Ty(ctx);
+        Function *fn = builder_.GetInsertBlock()->getParent();
+        Value *fid = resolve_input_file(c, c.factor2);
+        if (!fid) return;
+        int rlen = 80;
+        if (files_) for (const auto &f : *files_) if (f.name == c.factor2) rlen = f.reclen > 0 ? f.reclen : 80;
+        Value *buf = builder_.CreateAlloca(Type::getInt8Ty(ctx),
+            ConstantInt::get(i32, rlen + 1, false), "readp_buf");
+        Value *got = builder_.CreateCall(readp_,
+            {fid, buf, ConstantInt::get(i64, rlen + 1, false)}, "readp_got");
+        got = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "readp_ok");
+        BasicBlock *doDec = BasicBlock::Create(ctx, "readp_dec", fn);
+        BasicBlock *after = BasicBlock::Create(ctx, "readp_after", fn);
+        builder_.CreateCondBr(got, doDec, after);
+        builder_.SetInsertPoint(doDec);
+        decode_file_fields(c.factor2, buf, rlen);
+        builder_.CreateBr(after);
+        builder_.SetInsertPoint(after);
+        // Beginning-of-file indicator (cols 58-59): on when no prior record.
+        if (c.eq.indicator)
+            inds_.store_resolved(c.eq.indicator, builder_.CreateNot(got, "readp_bof"));
     }
 
     /* Decode the I-spec fields belonging to `file` from record buffer `buf`
@@ -3906,10 +3957,37 @@ private:
         }
     }
 
+    /* Build the i32 bit mask named in factor2, shared by TESTB/BITON/BITOF:
+     * either a bit-number literal '025' (digits 0-7, 0 = leftmost/high bit)
+     * or the ON bits of a 1-position alphameric field. Returns nullptr (and
+     * reports) if factor2 is neither. */
+    llvm::Value *emit_bit_mask(const CSpec &c, const char *opname) {
+        using namespace llvm;
+        auto *i8  = Type::getInt8Ty(mod_->getContext());
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        if (!c.factor2.empty() && c.factor2.front() == '\'') {
+            // Bit-number literal: each digit 0-7 names a bit (0=leftmost=0x80).
+            std::string lit = c.factor2.substr(1);
+            if (!lit.empty() && lit.back() == '\'') lit.pop_back();
+            unsigned m = 0;
+            for (char d : lit) {
+                if (d >= '0' && d <= '7') m |= (0x80 >> (d - '0'));
+            }
+            return ConstantInt::get(i32, m);
+        }
+        Value *fp; int flen;
+        if (syms_.resolve_char_operand(c.factor2, fp, flen)) {
+            Value *fb = builder_.CreateLoad(i8, fp, "bm_f");
+            return builder_.CreateZExt(fb, i32, "bm_mv");
+        }
+        report("input", c.lineno, 33, DiagKind::Error,
+               std::string(opname) +
+               " requires a bit-number literal or character field in factor 2");
+        return nullptr;
+    }
+
     /* TESTB: test the bits named in factor2 against the corresponding bits of
-     * the 1-position result field. Factor2 is either a bit-number literal
-     * '025' (digits 0-7, 0 = leftmost/high bit) or a 1-position alphameric
-     * field whose ON bits form the mask. Sets:
+     * the 1-position result field. Sets:
      *   HI: every tested bit is OFF in the result
      *   LO: the tested bits are of MIXED status (some on, some off)
      *   EQ: every tested bit is ON in the result  (also set if mask==0) */
@@ -3934,27 +4012,8 @@ private:
         Value *rb = builder_.CreateLoad(i8, rp, "tb_r");
         Value *resVal = builder_.CreateZExt(rb, i32, "tb_rv");
 
-        // Build the mask: either from a bit-number literal in factor2 ('025')
-        // or from the ON bits of a 1-position field in factor2.
-        Value *mask = nullptr;
-        Value *fp; int flen;
-        if (!c.factor2.empty() && c.factor2.front() == '\'') {
-            // Bit-number literal: each digit 0-7 names a bit (0=leftmost=0x80).
-            std::string lit = c.factor2.substr(1);
-            if (!lit.empty() && lit.back() == '\'') lit.pop_back();
-            unsigned m = 0;
-            for (char d : lit) {
-                if (d >= '0' && d <= '7') m |= (0x80 >> (d - '0'));
-            }
-            mask = ConstantInt::get(i32, m);
-        } else if (syms_.resolve_char_operand(c.factor2, fp, flen)) {
-            Value *fb = builder_.CreateLoad(i8, fp, "tb_f");
-            mask = builder_.CreateZExt(fb, i32, "tb_mv");
-        } else {
-            report("input", c.lineno, 33, DiagKind::Error,
-                   "TESTB requires a bit-number literal or character field in factor 2");
-            return;
-        }
+        Value *mask = emit_bit_mask(c, "TESTB");
+        if (!mask) return;
 
         // tested = resVal & mask  (bits we care about, with their result status)
         // The manual compares only the bits named in the mask.
@@ -3976,6 +4035,180 @@ private:
         set(c.hi, allOff);
         set(c.lo, mixed);
         set(c.eq, allOn);
+    }
+
+    /* BITON/BITOF: set on (BITON) or off (BITOF) each bit named in factor2's
+     * mask within the 1-position result field; bits not named are unaffected
+     * (manual 105336-105362, 105207-105233). Factor1/decimals/half-adjust/
+     * resulting indicators are validated blank in cspec.cpp. */
+    void emit_bit_set(const CSpec &c, bool on) {
+        using namespace llvm;
+        const char *nm = on ? "BITON" : "BITOF";
+        if (c.result.empty()) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   std::string(nm) + " requires a result field");
+            return;
+        }
+        if (!syms_.is_char_field(c.result))
+            syms_.get_or_create_char_field(c.result, 1);
+        Value *rp; int rlen;
+        if (!syms_.resolve_char_operand(c.result, rp, rlen)) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   std::string(nm) + " result field must be alphameric");
+            return;
+        }
+        Value *mask = emit_bit_mask(c, nm);
+        if (!mask) return;
+        auto *i8 = Type::getInt8Ty(mod_->getContext());
+        Value *rb = builder_.CreateLoad(i8, rp, "bs_r");
+        Value *m8 = builder_.CreateTrunc(mask, i8, "bs_m");
+        Value *nv = on
+            ? builder_.CreateOr(rb, m8, "bs_or")
+            : builder_.CreateAnd(rb, builder_.CreateNot(m8, "bs_notm"), "bs_and");
+        builder_.CreateStore(nv, rp);
+    }
+
+    /* *LIKE DEFN: define a new field (result) with the attributes of an
+     * existing field (factor2). Unlike every other op, columns 49-51 (parsed
+     * into c.result_len) are a signed length DELTA, not an absolute length --
+     * a blank field parses to 0, which already means "no change" here, so no
+     * special-casing is needed. Decimals always copy from factor2 verbatim
+     * (manual 106341-106375). Numeric fields in this compiler carry no
+     * separate digit-length attribute (see symbols.h), so the length delta
+     * only has an effect for a character source field. */
+    void emit_defn(const CSpec &c) {
+        if (c.factor2.empty() || c.result.empty()) return;  // reported in cspec.cpp
+        if (syms_.has_field(c.result)) return;  // idempotent, like get_or_create_*
+        const FieldInfo *fi = syms_.info(c.factor2);
+        if (!fi) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "*LIKE DEFN factor 2 '" + c.factor2 +
+                   "' is not a declared field");
+            return;
+        }
+        if (fi->kind == FieldKind::Character) {
+            int len = fi->length + c.result_len;
+            if (len < 1) len = 1;
+            syms_.get_or_create_char_field(c.result, len);
+        } else if (fi->kind == FieldKind::Numeric) {
+            syms_.set_numeric_attrs(c.result, fi->decimals < 0 ? 0 : fi->decimals);
+        } else {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "*LIKE DEFN factor 2 '" + c.factor2 +
+                   "' must be a simple numeric or character field");
+        }
+    }
+
+    /* SORTA: sort the array named in factor2 in place, per its E-spec
+     * ascending/descending sequence flag (B2). Numeric arrays only, matching
+     * LOKUP's existing restriction (A9) -- there is no byte-compare sort.
+     * Factor1/result/half-adjust/resulting-indicators are validated blank in
+     * cspec.cpp. */
+    void emit_sorta(const CSpec &c) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        if (c.factor2.empty()) return;  // reported in cspec.cpp
+        const std::string &an = c.factor2;
+        if (!syms_.is_array(an)) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "SORTA requires an array in factor 2");
+            return;
+        }
+        const FieldInfo *fi = syms_.info(an);
+        if (fi && fi->is_char_array) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "SORTA against an alphameric array/table is not supported");
+            return;
+        }
+        if (!sorta_fn_) {
+            sorta_fn_ = Function::Create(
+                FunctionType::get(Type::getVoidTy(ctx),
+                    {PointerType::get(ctx, 0), i32, i32}, false),
+                Function::ExternalLinkage, "rpg_rt_sorta", mod_.get());
+        }
+        auto *arrTy = ArrayType::get(i32, (unsigned)fi->array_count);
+        Value *arrp = builder_.CreateConstInBoundsGEP2_32(arrTy,
+            cast<GlobalVariable>(fi->gv), 0, 0, an + "_sp");
+        // B2: default ascending when the array has no declared sequence.
+        bool ascending = true;
+        if (arrays_) {
+            for (const auto &a : *arrays_) {
+                if (a.name == an) { ascending = a.ascending; break; }
+                if (a.alt_name == an) { ascending = a.alt_ascending; break; }
+            }
+        }
+        builder_.CreateCall(sorta_fn_,
+            {arrp, ConstantInt::get(i32, fi->array_count, true),
+             ConstantInt::get(i32, ascending ? 1 : 0, true)});
+    }
+
+    /* TIME: store the current time-of-day into the numeric result field
+     * (manual 124880-124913). This compiler represents numeric fields as
+     * native 32-bit scaled integers with no separate digit-length attribute
+     * (see symbols.h), so only the always-fitting 6-digit hhmmss form is
+     * produced; the manual's 12-digit time+date variant needs a wider field
+     * representation than exists here. */
+    void emit_time(const CSpec &c) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        if (c.result.empty()) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "TIME requires a result field");
+            return;
+        }
+        Value *t64 = builder_.CreateCall(time_fn_, {}, "tm_v");
+        Value *t32 = builder_.CreateTrunc(t64, i32, "tm_v32");
+        Value *rp = resolve_result_ptr(c);
+        if (!rp) return;
+        builder_.CreateStore(t32, rp);
+    }
+
+    /* MHHZO/MHLZO/MLHZO/MLLZO: move the "zone" (high nibble) of one byte of
+     * factor2 into the corresponding byte of the result, leaving the digit
+     * (low) nibble of that result byte untouched. `src_high`/`dst_high`
+     * select the leftmost (true) or rightmost (false) byte of factor2/result
+     * respectively (manual 113217-113347). This compiler stores numeric
+     * fields as native i32s rather than zoned-decimal bytes (symbols.h), so
+     * -- like TESTZ/TESTB's own result field -- only alphameric operands are
+     * supported on either side, narrower than the manual's numeric-capable
+     * cases. */
+    void emit_movezone(const CSpec &c, bool src_high, bool dst_high,
+                       const char *opname) {
+        using namespace llvm;
+        if (c.factor2.empty() || c.result.empty()) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   std::string(opname) + " requires factor 2 and a result field");
+            return;
+        }
+        Value *sp; int slen;
+        if (!syms_.resolve_char_operand(c.factor2, sp, slen)) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   std::string(opname) + " factor 2 must be alphameric");
+            return;
+        }
+        if (!syms_.is_char_field(c.result))
+            syms_.get_or_create_char_field(c.result, slen);
+        Value *dp; int dlen;
+        if (!syms_.resolve_char_operand(c.result, dp, dlen)) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   std::string(opname) + " result field must be alphameric");
+            return;
+        }
+        auto &ctx = mod_->getContext();
+        auto *i8  = Type::getInt8Ty(ctx);
+        auto *i32 = Type::getInt32Ty(ctx);
+        int soff = src_high ? 0 : slen - 1;
+        int doff = dst_high ? 0 : dlen - 1;
+        Value *sbp = builder_.CreateInBoundsGEP(i8, sp, ConstantInt::get(i32, soff), "mz_sp");
+        Value *dbp = builder_.CreateInBoundsGEP(i8, dp, ConstantInt::get(i32, doff), "mz_dp");
+        Value *sb = builder_.CreateLoad(i8, sbp, "mz_sb");
+        Value *db = builder_.CreateLoad(i8, dbp, "mz_db");
+        Value *szone = builder_.CreateAnd(sb, ConstantInt::get(i8, 0xF0), "mz_sz");
+        Value *ddig  = builder_.CreateAnd(db, ConstantInt::get(i8, 0x0F), "mz_dd");
+        Value *nv    = builder_.CreateOr(szone, ddig, "mz_nv");
+        builder_.CreateStore(nv, dbp);
     }
 
     /* Like resolve_result_ptr but takes a raw token (for LOKUP index fields). */
@@ -4001,6 +4234,8 @@ private:
     llvm::Function               *setll_        = nullptr;
     llvm::Function               *read_op_      = nullptr;
     llvm::Function               *reade_        = nullptr;
+    llvm::Function               *readp_        = nullptr;  // Group C (C1)
+    llvm::Function               *time_fn_      = nullptr;  // Group C (C5)
     // Section G (G25) update files.
     llvm::Function               *open_update_  = nullptr;
     llvm::Function               *write_rec_    = nullptr;
@@ -4064,6 +4299,8 @@ private:
     llvm::Function *cmp_str_ = nullptr;
     // rpg_rt_lokup (Phase 10 array search).
     llvm::Function *lokup_fn_ = nullptr;
+    // rpg_rt_sorta (Group C, C4 array sort).
+    llvm::Function *sorta_fn_ = nullptr;
     // True if the most recent op was a DIV whose remainder is available for a
     // following MVR. Cleared by any intervening op or by MVR itself.
     bool last_remainder_ = false;

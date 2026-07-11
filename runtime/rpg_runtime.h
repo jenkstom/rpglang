@@ -85,6 +85,12 @@ int rpg_rt_read(int file_id, char *buf, size_t buflen);
  * (unequal / EOF) without advancing past the non-matching record. */
 int rpg_rt_reade(int file_id, const char *key, int keylen, char *buf, size_t buflen);
 
+/* Read the prior record relative to the current position (READP), moving the
+ * cursor backward. Returns 1 on record, 0 on beginning-of-file (no prior
+ * record) -- per the manual, the file must then be repositioned with SETLL
+ * or CHAIN before further reads. */
+int rpg_rt_readp(int file_id, char *buf, size_t buflen);
+
 /* ----- Section G (G25): update files -------------------------------------- */
 
 /* Open an update file (type U): read+write in place, no truncate. */
@@ -164,6 +170,14 @@ int rpg_rt_cmp_str(const char *a, int alen, const char *b, int blen);
  * which end of a scan run is "nearest" -- see B2 for where this flag is read
  * from the E-spec parse. Phase 10 / A11. */
 int rpg_rt_lokup(long key, const int *arr, int count, int *idx, int ascending);
+
+/* SORTA (Group C, C4): sort a numeric array of `count` elements in place.
+ * `ascending` nonzero for E-spec column 45 == 'A' (or unspecified), zero for
+ * 'D' -- the same flag rpg_rt_lokup reads (B2). */
+void rpg_rt_sorta(int *arr, int count, int ascending);
+
+/* TIME (Group C, C5): current time-of-day as a 6-digit hhmmss integer. */
+long rpg_rt_time(void);
 
 /* Format a numeric value into `out` (capacity out_cap) using an RPG II edit
  * code (codes '1'-'4', 'A'-'D', 'J'-'M', 'N', 'O'). Returns the string length.

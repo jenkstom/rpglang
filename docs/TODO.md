@@ -251,36 +251,91 @@ has no string ops (CAT/SCAN/CHECK/CHECKR/SUBST) and no date-duration ops
 (ADDDUR/SUBDUR/EXTRCT) — those are RPG III/400 additions and are correctly
 absent, not a gap.
 
-- [ ] **C1. `READP`** (Read Prior Record, manual 123813) — sequential
+- [x] **C1. `READP`** (Read Prior Record, manual 123813) — sequential
       backward read through a keyed DISK file, a natural companion to the
       already-implemented `SETLL`/`READE`/`READ` family (`codegen.cpp`
       ~3160-3220, `runtime/rpg_runtime.c`'s indexed-file helpers). Contained:
       same shape as `READ`, opposite direction.
+      Fixed: `emit_readp` (`codegen.cpp`) mirrors `emit_read`, calling a new
+      `rpg_rt_readp` that walks the same offset index `rpg_rt_read`/
+      `rpg_rt_setll` already build, backward from the current cursor (or from
+      the last record when the cursor is past EOF). Cols 58-59 turn on at
+      beginning-of-file. Regression test: `tests/readp.rpg`.
 
-- [ ] **C2. `BITON` / `BITOF`** (105336, 105207) — set/clear individual bits
+- [x] **C2. `BITON` / `BITOF`** (105336, 105207) — set/clear individual bits
       in a character field by bit-number literal, the writer half of the
       already-implemented `TESTB` reader (`codegen.cpp:3438-3501`). Without
       these, `TESTB` has nothing that can legitimately set the bits it
       tests.
+      Fixed: factored TESTB's mask-building (bit-number literal or field) out
+      into `emit_bit_mask`, reused by a new `emit_bit_set(c, on)` that
+      OR's (BITON) or AND-NOTs (BITOF) the mask into the result byte in
+      place — no runtime call needed. Regression test: `tests/biton.rpg`.
 
-- [ ] **C3. `*LIKE DEFN`** (106341) — define a new field with the length/
+- [x] **C3. `*LIKE DEFN`** (106341) — define a new field with the length/
       decimals of an existing field. Common idiom; its absence forces every
       program to duplicate length/decimal literals by hand. Fits into the
       existing field-declaration path in `symbols.cpp`.
+      Fixed: `emit_defn` (`codegen.cpp`) validates factor1 == `*LIKE` (in
+      `cspec.cpp`, along with the no-conditioning/no-resulting-indicators
+      rule) and declares the result field from factor2's `FieldInfo` —
+      decimals copied verbatim for a numeric source, length adjusted by the
+      cols 49-51 *signed delta* (not an absolute length, unlike every other
+      op) for a character source. Numeric fields in this compiler carry no
+      separate digit-length attribute, so the delta only affects character
+      fields. Regression test: `tests/defn.rpg` (checked via O-spec edit-code
+      print, since a decimal-aligned COMP can't externally distinguish a
+      copied-correctly decimals value from a wrong default — both self-
+      normalize to the same logical value).
 
-- [ ] **C4. `SORTA`** (124481) — sort an array in place, ascending or
+- [x] **C4. `SORTA`** (124481) — sort an array in place, ascending or
       descending per its E-spec sequence flag (ties into B2).
+      Fixed: `emit_sorta` reads the array's `ascending`/`alt_ascending` flag
+      the same way `emit_lokup` already does (B2) and calls a new
+      `rpg_rt_sorta` (in-place insertion sort). Numeric arrays only, matching
+      LOKUP's existing alphameric-array restriction. Regression test:
+      `tests/sorta.rpg`.
 
-- [ ] **C5. `TIME`** (124880) — retrieve time-of-day into a result field.
+- [x] **C5. `TIME`** (124880) — retrieve time-of-day into a result field.
       Self-contained runtime call.
+      Fixed: new `rpg_rt_time` (`<time.h>`-based) returns the current time as
+      a 6-digit `hhmmss` integer, stored via `emit_time`. This compiler
+      represents numeric fields as native 32-bit scaled integers with no
+      separate digit-length attribute (`symbols.h`), so only the
+      always-fitting 6-digit time-of-day form is implemented; the manual's
+      12-digit time+date variant would need a wider field representation
+      than exists anywhere else in this compiler either. Regression test:
+      `tests/time_op.rpg`.
 
-- [ ] **C6. `MHHZO`/`MHLZO`/`MLHZO`/`MLLZO`** (113217-113324) — move-zone
+- [x] **C6. `MHHZO`/`MHLZO`/`MLHZO`/`MLLZO`** (113217-113324) — move-zone
       operations for packed/zoned sign manipulation. Narrower use case than
       C1-C5; needed for programs doing manual sign-nibble manipulation.
+      Fixed: a shared `emit_movezone(c, src_high, dst_high, opname)` moves
+      the high nibble of factor2's leftmost/rightmost byte into the
+      corresponding byte of the result, ANDed with that byte's existing low
+      (digit) nibble — pure IR, no runtime call. Like TESTZ/TESTB's own
+      result field, only alphameric operands are supported on either side;
+      the manual's numeric-capable cases (MHLZO's result, MLHZO's factor2)
+      aren't reachable because this compiler's numeric fields are native
+      i32s, not zoned-decimal bytes. Regression test: `tests/movezone.rpg`.
 
 - [ ] **C7. `DEBUG`, `RLABL`, `SET`** (106221, 123972, 124243) — lower
       priority; `DEBUG` is a conditional trace/dump aid, `RLABL` and `SET`
       are edge-case linkage/console operations.
+      Investigated but deliberately left unimplemented: each one's manual
+      text makes it a no-op or meaningless without a *different* unimplemented
+      prerequisite, so implementing the opcode itself in isolation would be
+      dead code with no honest test. `DEBUG` requires H-spec column 15 = `1`
+      to be active at all ("if this entry is not made, the DEBUG operation
+      code ... [is] treated as a comment") and H-spec parsing doesn't exist
+      (D1). `RLABL` only has meaning "specified immediately after the EXIT
+      operation that refers to the subroutine" — it's part of the C8
+      CALL/PARM/PLIST/RETRN/EXIT linkage family, not independently useful.
+      `SET` is documented as usable "only with input files assigned to the
+      device KEYBORD, or with a CONSOLE file" — WORKSTN/CONSOLE-only, out of
+      this compiler's documented scope cut. Revisit each alongside its actual
+      prerequisite (D1, C8, or a WORKSTN effort) rather than stubbing it in
+      now.
 
 - [ ] **C8. Program-linkage family: `CALL`, `PARM`, `PLIST`, `RETRN`,
       `EXIT`** (105441, 123455, 123562, 123924, 110996) — without these, no
@@ -429,14 +484,16 @@ absent, not a gap.
 3. **Group E/F (F/E/O-spec gaps)** — mostly small, independent parser
    additions; E8 (device validation) is a cheap, high-value addition since
    it converts a silent miscompile into a clear error.
-4. **Group C1-C7 (contained opcodes)** — READP, BITON/BITOF, *LIKE DEFN,
-   SORTA, TIME are each self-contained additions to the existing opcode
-   dispatch.
+4. **Group C1-C6 (contained opcodes) — done.** READP, BITON/BITOF, *LIKE
+   DEFN, SORTA, TIME, and the MHHZO/MHLZO/MLHZO/MLLZO move-zone family are
+   implemented and regression-tested. C7 (DEBUG/RLABL/SET) is deliberately
+   still open — each depends on a prerequisite from Group C8 or D below, not
+   on more opcode-dispatch work.
 5. **Group C8 (CALL/PARM/PLIST/RETRN)** and **Group D (H-spec, Data
    Structures, Auto Report)** are the large items — each needs its own
    design pass before implementation, not just a bugfix-sized change. Take
    these one at a time, starting with whichever a real target program
-   actually needs.
+   actually needs. Landing C8 or D1 also unblocks C7's RLABL/DEBUG.
 
 Every item above cites a manual line range and a source location; re-derive
 neither from memory when implementing — read both before changing code.

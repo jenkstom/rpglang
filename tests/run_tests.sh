@@ -405,6 +405,26 @@ run_test seton_restrict 1  seton_restrict.rpg
 # and must be a hard compile error, not a silent key_start=0.
 expect_compile_fail neg_extk neg_extk.rpg
 
+# --- Section J: TODO Group C missing operation codes -------------------------
+hr; echo "Section J: READP, BITON/BITOF, *LIKE DEFN, SORTA, TIME, move-zone"; hr
+# C1: READP walks a keyed file backward from past-EOF; 3 reads then BOF.
+run_cycle_test readp     3  readp.rpg
+# C2: BITON sets a bit on (TESTB confirms EQ), BITOF clears it back off
+# (TESTB confirms HI).
+run_test biton        1  biton.rpg
+# C3: *LIKE DEFN copies a numeric field's decimals (verified via edit-code
+# print, since decimal-aligned COMP alone can't distinguish a wrong default)
+# and applies a character field's signed length delta.
+run_out_test defn defn.rpg DNOUT \
+    'grep -q "12,345.00" "$ROOT/tests/DNOUT" && grep -q "ABCDEFG" "$ROOT/tests/DNOUT"'
+# C4: SORTA sorts a numeric array in place per its E-spec ascending flag.
+run_test sorta        1  sorta.rpg
+# C5: TIME stores hhmmss (0..235959) into a numeric result field.
+run_test time_op      1  time_op.rpg
+# C6: MHHZO/MLLZO move a byte's zone nibble without disturbing the digit
+# nibble already in the destination.
+run_test movezone     1  movezone.rpg
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

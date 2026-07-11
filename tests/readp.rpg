@@ -1,0 +1,16 @@
+     C* C1: READP walks SRFILE (keys 02,02,03) backward from past-EOF.
+     C* Expect 3 successful reads then BOF. Exit 3.
+     FSRTX    IP  F      80            DISK
+     FSRFILE  IF  F      80  2AI     1 DISK
+     ISRTX       01
+     I                                        1   20STKEY
+     ISRFILE     02
+     I                                        1   20SKEY
+     C           '99'      SETLLSRFILE                     
+     C           RPL       TAG                             
+     C                     READPSRFILE                   99
+     C  99                 GOTO DONE                       
+     C                     ADD  1         CNT              
+     C                     GOTO RPL                        
+     C           DONE      TAG                             
+     CLR                   Z-ADDCNT       RPGRET           
