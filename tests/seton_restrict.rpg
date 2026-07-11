@@ -1,0 +1,5 @@
+     C* B5: SETOF must not clear LR (manual 104980-104982). LR is set on,
+     C* then an attempted SETOF LR must be a no-op; exit code (= LR, since
+     C* no RPGRET) should still be 1.
+     C                     SETON                     LR
+     C                     SETOF                     LR

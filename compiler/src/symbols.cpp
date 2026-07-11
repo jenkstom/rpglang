@@ -105,6 +105,51 @@ llvm::Value *SymbolTable::get_or_create_array(const std::string &name, int count
     return gv;
 }
 
+llvm::Value *SymbolTable::get_or_create_char_array(
+        const std::string &name, int count, int entry_len,
+        const std::vector<std::string> &init, bool is_table) {
+    auto it = fields_.find(name);
+    if (it != fields_.end()) return it->second.gv;
+    if (count < 1) count = 1;
+    if (entry_len < 1) entry_len = 1;
+    auto &ctx = mod_.getContext();
+    auto *i8 = llvm::Type::getInt8Ty(ctx);
+    auto *elemTy = llvm::ArrayType::get(i8, (unsigned)entry_len);
+    auto *arrTy = llvm::ArrayType::get(elemTy, (unsigned)count);
+    std::vector<llvm::Constant *> elems;
+    for (int i = 0; i < count; ++i) {
+        std::string s = (i < (int)init.size()) ? init[i] : std::string();
+        if ((int)s.size() < entry_len) s.resize((size_t)entry_len, ' ');
+        else if ((int)s.size() > entry_len) s.resize((size_t)entry_len);
+        std::vector<llvm::Constant *> bytes;
+        bytes.reserve(entry_len);
+        for (char c : s)
+            bytes.push_back(llvm::ConstantInt::get(i8, (uint8_t)c));
+        elems.push_back(llvm::ConstantArray::get(elemTy, bytes));
+    }
+    auto *gv = new llvm::GlobalVariable(
+        mod_, arrTy, /*isConstant=*/false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantArray::get(arrTy, elems), "rpgca_" + name);
+    FieldInfo fi;
+    fi.kind = FieldKind::Array;
+    fi.array_count = count;
+    fi.length = entry_len;
+    fi.is_char_array = true;
+    fi.gv = gv;
+    if (is_table) {
+        auto *i32 = llvm::Type::getInt32Ty(ctx);
+        fi.is_table = true;
+        fi.shadow_gv = new llvm::GlobalVariable(
+            mod_, i32, /*isConstant=*/false,
+            llvm::GlobalValue::InternalLinkage,
+            llvm::ConstantInt::get(i32, 1), "rpgs_" + name);
+        fi.shadow_gv->setAlignment(llvm::Align(4));
+    }
+    fields_[name] = fi;
+    return gv;
+}
+
 bool SymbolTable::parse_array_ref(const std::string &token,
                                   std::string &arr_name,
                                   std::string &idx_token) const {
@@ -141,6 +186,10 @@ llvm::GlobalVariable *SymbolTable::table_shadow(const std::string &name) {
 llvm::Value *SymbolTable::table_elem_ptr(const std::string &name) {
     auto it = fields_.find(name);
     if (it == fields_.end() || !it->second.is_table) return nullptr;
+    // A9: this path assumes i32 elements; an alphameric table's current
+    // element isn't addressable this way (no numeric LOKUP/element ops on
+    // char arrays yet -- see emit_lokup's explicit rejection).
+    if (it->second.is_char_array) return nullptr;
     auto *i32   = llvm::Type::getInt32Ty(mod_.getContext());
     auto *arrTy = llvm::ArrayType::get(i32, (unsigned)it->second.array_count);
     // current index is 1-based; subtract one for the 0-based GEP.
@@ -163,6 +212,9 @@ llvm::Value *SymbolTable::resolve_operand(const std::string &token) {
     if (parse_array_ref(token, an, it_tok)) {
         auto *i32 = llvm::Type::getInt32Ty(mod_.getContext());
         const FieldInfo *fi = info(an);
+        // A9: an alphameric array has no numeric element form; the caller
+        // (e.g. eval_cmp_op) should fall back to resolve_char_operand.
+        if (!fi || fi->is_char_array) return nullptr;
         auto *arrTy = llvm::ArrayType::get(i32, (unsigned)fi->array_count);
         // Index is 1-based in RPG.
         llvm::Value *idx;
@@ -232,6 +284,26 @@ bool SymbolTable::resolve_char_operand(const std::string &token,
         ptr = builder_.CreateConstInBoundsGEP2_32(arrTy, it->second.gv, 0, 0,
                                                   token + "_p");
         length = it->second.length;
+        return true;
+    }
+    // A9: a bare alphameric array/table name used as a character operand (the
+    // common MOVEA-into-a-table idiom) is addressed as one flat contiguous
+    // byte buffer -- [count x [entry_len x i8]] storage is laid out exactly
+    // that way in memory.
+    if (it != fields_.end() && it->second.kind == FieldKind::Array &&
+        it->second.is_char_array) {
+        auto &ctx = mod_.getContext();
+        auto *i32 = llvm::Type::getInt32Ty(ctx);
+        auto *elemTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx),
+                                            (unsigned)it->second.length);
+        auto *arrTy = llvm::ArrayType::get(elemTy, (unsigned)it->second.array_count);
+        llvm::Value *idx[] = {
+            llvm::ConstantInt::get(i32, 0),
+            llvm::ConstantInt::get(i32, 0),
+            llvm::ConstantInt::get(i32, 0),
+        };
+        ptr = builder_.CreateInBoundsGEP(arrTy, it->second.gv, idx, token + "_cap");
+        length = it->second.array_count * it->second.length;
         return true;
     }
     return false;

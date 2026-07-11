@@ -317,6 +317,94 @@ fi
     && ok "IR contains [100 x i1] indicator array" \
     || bad "IR missing indicator array"
 
+# --- Section F: cycle & matching (MR, secondary, overflow, first-cycle) -------
+hr; echo "Section F: matching records, secondary files, overflow, first-cycle"; hr
+# F20: matching records (MR indicator, M1 match field). Primary MRPRIM keys
+# 1,2,3 (vals 10,20,30), secondary MRSEC keys 2,4 (vals 5,5). ind01 ADD VAL
+# (60), ind02 ADD SVAL (10), MR ADD 1 (1 match) -> exit 71.
+run_cycle_test mr        71  mr.rpg
+# F21: secondary file with no match fields. Primary SNPRIM drains fully
+# (1,2,3 -> 6), then secondary SNSC (10,20 -> 30) -> exit 36.
+run_cycle_test secnofm   36  secnofm.rpg
+# F22: overflow. Printer OA with OFL=3; 5 detail lines cross the overflow line
+# and the OA-conditioned heading "OVERFLOW" reprints. Output file is OVDOUT.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_ovflow "$ROOT/tests/ovflow.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_ovflow ]]; then
+    ( cd "$ROOT/tests" && rm -f OVDOUT && /tmp/rpgc_ovflow >/dev/null 2>&1 )
+    if [[ -f "$ROOT/tests/OVDOUT" ]] \
+       && [[ $(/usr/bin/grep -c "OVERFLOW" "$ROOT/tests/OVDOUT") -ge 1 ]]; then
+        ok "ovflow: OA heading reprints on overflow"
+    else
+        bad "ovflow: no overflow heading"; cat "$ROOT/tests/OVDOUT"
+    fi
+    rm -f "$ROOT/tests/OVDOUT" /tmp/rpgc_ovflow
+else
+    bad "ovflow: did not compile"
+fi
+# F23: first-cycle total correctness. Control field KEY, groups [1,1,2,2];
+# L1 ADD 1 CNT counts breaks. One real break (1->2) + LR = 2. Without the
+# first-cycle fix the baseline record spuriously fires L1.
+run_cycle_test fstcycle   2  fstcycle.rpg
+
+# --- Section G: file handling (keyed/random access, update files) ------------
+hr; echo "Section G: CHAIN/SETLL/READE/READ, ADD, UPDATE"; hr
+run_cycle_test chain     20  chain.rpg       # G24: keyed CHAIN (hit key 02 -> 20)
+run_cycle_test rrn       33  rrn.rpg         # G24: CHAIN by RRN (3rd record -> 33)
+run_cycle_test setllrd    2  setllrd.rpg     # G24: SETLL+READE counts 2 equal keys
+# G25: O-spec ADD appends records to an output DISK file.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_addrec "$ROOT/tests/addrec.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_addrec ]]; then
+    ( cd "$ROOT/tests" && rm -f AOUT && /tmp/rpgc_addrec >/dev/null 2>&1 )
+    if [[ -f "$ROOT/tests/AOUT" ]] && /usr/bin/grep -qx "10" "$ROOT/tests/AOUT" \
+       && /usr/bin/grep -qx "20" "$ROOT/tests/AOUT" \
+       && /usr/bin/grep -qx "30" "$ROOT/tests/AOUT"; then
+        ok "addrec: ADD appends 10/20/30 to AOUT"
+    else bad "addrec: AOUT wrong"; cat "$ROOT/tests/AOUT"; fi
+    rm -f "$ROOT/tests/AOUT" /tmp/rpgc_addrec
+else bad "addrec: did not compile"; fi
+# G25: CHAIN + UPDATE rewrites a record in place (value 20 -> 25).
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_updfile "$ROOT/tests/updfile.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_updfile ]]; then
+    printf '0110\n0220\n0330\n' > "$ROOT/tests/UDATA"
+    ( cd "$ROOT/tests" && /tmp/rpgc_updfile >/dev/null 2>&1 )
+    # The 2nd record's value (cols 3-4) was 20, +5 -> 25; rewritten in place.
+    if /usr/bin/grep -q "25" "$ROOT/tests/UDATA"; then
+        ok "updfile: CHAIN+UPDATE rewrites value in place"
+    else bad "updfile: UDATA not updated"; cat "$ROOT/tests/UDATA"; fi
+    rm -f "$ROOT/tests/UDATA" /tmp/rpgc_updfile
+else bad "updfile: did not compile"; fi
+
+# --- Section H: tooling & hardening (GOTO, recursion, diagnostics, sample) ---
+hr; echo "Section H: GOTO boundaries, recursion, integration sample"; hr
+# H27/H28: negative tests that must FAIL to compile (expect a non-zero rc).
+expect_compile_fail() {
+    local name="$1" rpg="$2"
+    "$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_${name} "$ROOT/tests/${rpg}" >/dev/null 2>&1
+    local rc=$?
+    if [[ $rc -ne 0 ]]; then ok "${name}: correctly rejected (rc=$rc)"
+    else bad "${name}: should have failed to compile"; fi
+    rm -f /tmp/rpgc_${name}
+}
+expect_compile_fail neg_gotosub   neg_gotosub.rpg     # H27: GOTO into subroutine
+expect_compile_fail neg_recursion neg_recursion.rpg   # H28: recursive subroutine
+# H31: the integration sample (cycle + control breaks + array + sub + CHAIN).
+run_cycle_test big       41  big.rpg
+
+# --- Section I: TODO Group B deviation fixes ---------------------------------
+hr; echo "Section I: sign-blind match fields, alpha look-ahead, SETON/OF, EXTK"; hr
+# B3: match-field comparison ignores sign (manual 52317-52319): packed -5 in
+# SBPRIM must match packed +5 in SBSEC, firing MR -> RPGRET = 1.
+run_cycle_test signblind     1  signblind.rpg
+# B4: alphameric look-ahead fields 9-fill at EOF, same as numeric ones
+# (manual 83344-83346), instead of being left unchanged.
+run_cycle_test la_alpha_eof  1  la_alpha_eof.rpg
+# B5: SETOF must not clear LR (manual 104980-104982); exit code (= LR, no
+# RPGRET) must stay 1 despite the attempted SETOF LR.
+run_test seton_restrict 1  seton_restrict.rpg
+# B6: F-spec cols 35-38 "EXTK" (composite/noncontiguous key) is unimplemented
+# and must be a hard compile error, not a silent key_start=0.
+expect_compile_fail neg_extk neg_extk.rpg
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

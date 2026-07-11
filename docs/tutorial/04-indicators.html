@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 4 — Indicators</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; color: #7aa2f7; padding-bottom: .3rem; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; color: #7dcfff; padding-bottom: .2rem; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 4 — Indicators</h1>
+
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>Indicators are RPG&nbsp;II's most distinctive mechanism and the one
+    that feels most alien to a modern programmer. An indicator is a
+    <strong>global, persistent boolean flag</strong> — you never declare it;
+    it simply exists. Indicators serve two roles simultaneously:
+    <strong>conditions</strong> (gate whether a calculation runs, like an
+    <code>if</code> test) and <strong>results</strong> (operations set them to
+    record outcomes, like a function return value). There are 99 general
+    indicators (01–99) plus special-named ones (LR, L1–L9, OA–OG, and others).
+    This chapter covers what indicators are, how to turn them on and off, how
+    to use them to condition (gate) operations, and how operations set them as
+    results. Mastering indicators is the key to reading and writing RPG&nbsp;II
+    fluently.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.1 What is an indicator?</h2>
+
+  <p>Imagine a programming language where, instead of declaring
+  <code>bool found = false;</code> and later writing
+  <code>if (found) { … }</code>, you are handed a pre-existing pool of 99
+  boolean slots numbered 01 through 99. You cannot declare new ones and you
+  cannot rename them — they exist by convention, ready to use. To turn slot
+  10 on you write <code>SETON 10</code>; to turn it off you write
+  <code>SETOF 10</code>; and to run a calculation only when slot 10 is on you
+  write the indicator's number in a fixed set of columns on that calculation
+  line. <em>That</em> is an indicator.</p>
+
+  <div class="callout">
+    <p><strong>You already know this — almost.</strong> An indicator is a
+    boolean flag, just like any <code>bool</code> you have used. The difference
+    is entirely in <em>how you spell it</em>: there is no declaration, no
+    assignment operator, and no <code>if</code> keyword. Instead the flag's
+    number is written into fixed columns, and the column you write it in
+    determines whether you are <em>testing</em> the flag (conditioning) or
+    <em>setting</em> it (resulting).</p>
+  </div>
+
+  <p>Three properties make indicators behave differently from the boolean
+  variables you are used to:</p>
+
+  <ul>
+    <li><strong>Global.</strong> Every calculation line can see and modify
+      every indicator. There is no scope, no locality, and no passing of
+      arguments — indicator&nbsp;47 means the same flag everywhere.</li>
+    <li><strong>Persistent.</strong> An indicator stays ON or OFF until
+      something explicitly changes it. It does <em>not</em> reset at the end of
+      a loop iteration, a subroutine call, or a cycle. Whatever value an
+      indicator holds at the end of one record carries straight through to the
+      start of the next.</li>
+    <li><strong>Two roles.</strong> The <em>same</em> indicator can be tested
+      as a condition on one line and set as a result on another. A single flag
+      number threads through your program as both input and output.</li>
+  </ul>
+
+  <p>That last property — two roles, one mechanism — is the heart of
+  indicators, and the diagram below shows both sides of it. On the left, an
+  indicator in the <em>conditioning columns</em> gates a calculation; on the
+  right, an operation in the <em>resulting columns</em> records its outcome.
+  The same numbered flag does both jobs.</p>
+
+  <!-- SVG: Indicator concept -->
+  <div class="svg-container">
+    <svg width="820" height="320" viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#004488">Indicators: Two Roles, One Mechanism</text>
+
+      <!-- Left: Conditioning (as a condition) -->
+      <rect x="20" y="40" width="370" height="260" rx="12" fill="#eef3f8" stroke="#004488" stroke-width="2"/>
+      <text x="205" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#004488">Role 1: Conditioning (the "if")</text>
+
+      <!-- C-spec line with highlighted cols 9-17 -->
+      <text x="40" y="90" font-size="10" fill="#888">cols:</text>
+      <text x="80" y="90" font-size="9" fill="#888">6</text>
+      <text x="110" y="90" font-size="9" fill="#004488" font-weight="bold">9-17</text>
+      <text x="190" y="90" font-size="9" fill="#888">28-32</text>
+
+      <rect x="38" y="98" width="335" height="24" fill="none" stroke="#ccc"/>
+      <rect x="78" y="98" width="6" height="24" fill="#ffd700" opacity="0.7"/>
+      <rect x="84" y="98" width="36" height="24" fill="#90ee90" opacity="0.7"/>
+      <rect x="180" y="98" width="50" height="24" fill="#ffb6c1" opacity="0.7"/>
+      <text x="42" y="115" font-family="monospace" font-size="12">     C  10          ADD  AMT    TOTAL</text>
+
+      <line x1="120" y1="98" x2="120" y2="85" stroke="#004488" stroke-width="1"/>
+      <text x="120" y="80" text-anchor="middle" font-size="9" fill="#004488" font-weight="bold">ind 10 gates this line</text>
+
+      <text x="205" y="145" text-anchor="middle" font-size="11" fill="#555">Means: "ADD AMT to TOTAL</text>
+      <text x="205" y="160" text-anchor="middle" font-size="11" fill="#555">only if indicator 10 is ON"</text>
+      <text x="205" y="190" text-anchor="middle" font-size="11" fill="#004488" font-weight="bold">≡ if (ind[10]) { total += amt }</text>
+
+      <!-- Negation example -->
+      <rect x="38" y="215" width="335" height="24" fill="none" stroke="#ccc"/>
+      <rect x="84" y="215" width="36" height="24" fill="#ffcccc" opacity="0.7"/>
+      <text x="42" y="232" font-family="monospace" font-size="12">     C N10          ADD  AMT    TOTAL</text>
+      <text x="205" y="265" text-anchor="middle" font-size="11" fill="#cc0000" font-weight="bold">N = negation: "if indicator 10 is OFF"</text>
+      <text x="205" y="285" text-anchor="middle" font-size="11" fill="#004488" font-weight="bold">≡ if (!ind[10]) { total += amt }</text>
+
+      <!-- Right: Resulting (as a result) -->
+      <rect x="410" y="40" width="390" height="260" rx="12" fill="#f0f7f0" stroke="#2a8a2a" stroke-width="2"/>
+      <text x="605" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#2a8a2a">Role 2: Resulting (the "return")</text>
+
+      <!-- C-spec line with highlighted cols 54-59 -->
+      <text x="430" y="90" font-size="10" fill="#888">cols:</text>
+      <text x="470" y="90" font-size="9" fill="#888">6</text>
+      <text x="500" y="90" font-size="9" fill="#888">28-32</text>
+      <text x="570" y="90" font-size="9" fill="#2a8a2a" font-weight="bold">54-59</text>
+
+      <rect x="428" y="98" width="355" height="24" fill="none" stroke="#ccc"/>
+      <rect x="468" y="98" width="6" height="24" fill="#ffd700" opacity="0.7"/>
+      <rect x="495" y="98" width="50" height="24" fill="#ffb6c1" opacity="0.7"/>
+      <rect x="555" y="98" width="12" height="24" fill="#d4edda" opacity="0.8"/>
+      <rect x="567" y="98" width="12" height="24" fill="#fff8ee" opacity="0.8"/>
+      <rect x="579" y="98" width="12" height="24" fill="#eef3f8" opacity="0.8"/>
+      <text x="432" y="115" font-family="monospace" font-size="12">     C     AMT    COMP 10        20 21 22</text>
+
+      <line x1="573" y1="98" x2="573" y2="85" stroke="#2a8a2a" stroke-width="1"/>
+      <text x="573" y="80" text-anchor="middle" font-size="9" fill="#2a8a2a" font-weight="bold">result indicators</text>
+
+      <text x="605" y="145" text-anchor="middle" font-size="11" fill="#555">COMP compares AMT to 10, then sets:</text>
+      <text x="605" y="162" text-anchor="middle" font-size="10" font-family="monospace" fill="#2a8a2a">ind 20 ON if AMT &gt; 10  (HI)</text>
+      <text x="605" y="176" text-anchor="middle" font-size="10" font-family="monospace" fill="#2a8a2a">ind 21 ON if AMT &lt; 10  (LO)</text>
+      <text x="605" y="190" text-anchor="middle" font-size="10" font-family="monospace" fill="#2a8a2a">ind 22 ON if AMT = 10  (EQ)</text>
+
+      <text x="605" y="225" text-anchor="middle" font-size="11" fill="#555">Then use them as conditions:</text>
+      <rect x="448" y="235" width="315" height="22" fill="none" stroke="#ccc"/>
+      <text x="452" y="251" font-family="monospace" font-size="12">     C  20          ADD  AMT    BIGTOT</text>
+      <text x="605" y="280" text-anchor="middle" font-size="11" fill="#2a8a2a" font-weight="bold">Result on one line → condition on the next</text>
+    </svg>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.2 The indicator pool</h2>
+
+  <p>Although there are 99 general-purpose indicators, RPG&nbsp;II reserves
+  certain indicator <em>names</em> for built-in purposes. You can use the
+  general ones (01–99) for anything; the named ones are wired to specific
+  events by the language. You will meet most of the named indicators in later
+  chapters — the table below is a map so you know what the acronyms mean when
+  you encounter them.</p>
+
+  <table>
+    <tr><th>Category</th><th>Indicators</th><th>Purpose</th></tr>
+    <tr><td>General</td><td>01–99</td><td>Free-form boolean flags — use these for your own logic.</td></tr>
+    <tr><td>Control level</td><td>L0–L9</td><td>Turn on when a group key changes; drive report subtotals (<a href="14-control-levels.html">Ch.&nbsp;15</a>). L0 is always on at total time.</td></tr>
+    <tr><td>Last record</td><td>LR</td><td>Turns on at end-of-file; signals the cycle to finish (<a href="03-program-cycle.html">Ch.&nbsp;3</a>).</td></tr>
+    <tr><td>Overflow</td><td>OA–OG, OV</td><td>Printer page-overflow detection — fires when output reaches the bottom of a page.</td></tr>
+    <tr><td>Matching</td><td>MR</td><td>On when records from multiple files share the same match key (<a href="19-multifile.html">Ch.&nbsp;19</a>).</td></tr>
+    <tr><td>First page</td><td>1P</td><td>On for the first page only, then off — used to print report headings once.</td></tr>
+    <tr><td>External</td><td>U1–U8</td><td>Switches set from outside the program (e.g. by a calling job).</td></tr>
+    <tr><td>Halt</td><td>H1–H9</td><td>Error-halt indicators — when on, the program stops.</td></tr>
+    <tr><td>Function keys</td><td>KA–KY</td><td>Interactive input — which function key a workstation user pressed.</td></tr>
+  </table>
+
+  <p>For this chapter and the next several, you only need the <strong>general
+  indicators (01–99)</strong> and <strong>LR</strong>. The rest are listed so
+  the acronyms do not surprise you later.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.3 Turning indicators on and off</h2>
+
+  <p>Two operations change an indicator's value directly:
+  <code>SETON</code> turns indicators ON, and <code>SETOF</code> turns them
+  OFF. You name the indicators to affect in the <em>resulting-indicator
+  columns</em> (54–59) — the same columns other operations use to record
+  outcomes. Up to three indicators can be named on one line (one per HI/LO/EQ
+  slot), but a single indicator per line is most common:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     SETON                     47
+     C                     SETOF                     47
+     C                     SETON                     LR</code></pre>
+
+  <p>Read the first line as "turn indicator&nbsp;47 on." The number
+  <code>47</code> sits in columns&nbsp;54–55; the operation
+  <code>SETON</code> sits in its own column range (28–32). There is no equals
+  sign and no argument list — the flag number in the resulting column
+  <em>is</em> the argument.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> <code>SETON 47</code> is
+    <code>ind[47] = true;</code>; <code>SETOF 47</code> is
+    <code>ind[47] = false;</code>. That is the entire mechanism.</p>
+  </div>
+
+  <p>Because <code>SETON</code> and <code>SETOF</code> are themselves
+  calculations, they can be <em>conditioned</em> by other indicators (section&nbsp;4.4).
+  That lets you write "turn indicator&nbsp;47 on only if indicator&nbsp;12 is
+  on" — one flag flipping another. We will see this compound pattern after we
+  cover conditioning.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.4 Conditioning indicators (gating execution)</h2>
+
+  <p>Columns&nbsp;9–17 of a C-spec hold up to three <strong>conditioning
+  indicators</strong>. These are the <code>if</code> tests of RPG&nbsp;II: a
+  calculation line runs only when its conditioning indicators are satisfied.
+  The nine columns are divided into three 3-column groups
+  (9–11, 12–14, 15–17), and the three groups are <strong>ANDed</strong>
+  together — <em>all</em> non-blank groups must hold for the line to execute.</p>
+
+  <p>Each group is written as <code>[N]II</code>: an optional <code>N</code>
+  for negation, followed by the 2-character indicator ID. With no negation,
+  the indicator is written in the first two columns of its group:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  10                 ADD  AMT       TOTAL      ← only if ind 10 ON
+     C  N10                ADD  AMT       TOTAL      ← only if ind 10 OFF
+     C  10 20              ADD  AMT       TOTAL      ← only if ind 10 AND ind 20 ON</code></pre>
+
+  <p>Count the columns carefully. On the first line, <code>10</code> occupies
+  columns&nbsp;9–10 (the first group, 9–11). On the second line,
+  <code>N10</code> occupies columns&nbsp;9–11: the <code>N</code> in
+  column&nbsp;9, the <code>10</code> in columns&nbsp;10–11. On the third line,
+  <code>10</code> is in group&nbsp;1 (9–10) and <code>20</code> is in
+  group&nbsp;2 (12–13), so the line runs only when <em>both</em> are on.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> The three ANDed groups are a
+    compound boolean condition — <code>if (ind[10] &amp;&amp; ind[20])
+    { … }</code> — but expressed by <em>position</em>, not by syntax. There is
+    no <code>&amp;&amp;</code> token; the AND is implicit in the fixed column
+    layout.</p>
+  </div>
+
+  <p>One important limit: there is <strong>no OR within a single line</strong>.
+  The three groups are always ANDed. To express "indicator&nbsp;10 OR
+  indicator&nbsp;20", either repeat the calculation on two lines (each
+  conditioned on one indicator) or have both conditions <code>SETON</code> a
+  shared indicator and then condition the real work on that shared flag.</p>
+
+  <!-- SVG: Conditioning indicator groups -->
+  <div class="svg-container">
+    <svg width="700" height="200" viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+      <text x="350" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#004488">Conditioning Indicator Groups (C-spec cols 9–17)</text>
+
+      <!-- Three groups -->
+      <rect x="100" y="40" width="120" height="80" rx="8" fill="#eef3f8" stroke="#004488" stroke-width="2"/>
+      <text x="160" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#004488">Group 1</text>
+      <text x="160" y="78" text-anchor="middle" font-size="10" font-family="monospace" fill="#555">cols 9-11</text>
+      <text x="160" y="95" text-anchor="middle" font-size="12" font-family="monospace" fill="#1a1a1a">[N] II</text>
+      <text x="160" y="112" text-anchor="middle" font-size="9" fill="#999">e.g. "10" or "N10"</text>
+
+      <text x="240" y="85" text-anchor="middle" font-size="16" font-weight="bold" fill="#004488">AND</text>
+
+      <rect x="270" y="40" width="120" height="80" rx="8" fill="#eef3f8" stroke="#004488" stroke-width="2"/>
+      <text x="330" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#004488">Group 2</text>
+      <text x="330" y="78" text-anchor="middle" font-size="10" font-family="monospace" fill="#555">cols 12-14</text>
+      <text x="330" y="95" text-anchor="middle" font-size="12" font-family="monospace" fill="#1a1a1a">[N] II</text>
+      <text x="330" y="112" text-anchor="middle" font-size="9" fill="#999">e.g. "20" or "N20"</text>
+
+      <text x="410" y="85" text-anchor="middle" font-size="16" font-weight="bold" fill="#004488">AND</text>
+
+      <rect x="440" y="40" width="120" height="80" rx="8" fill="#eef3f8" stroke="#004488" stroke-width="2"/>
+      <text x="500" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#004488">Group 3</text>
+      <text x="500" y="78" text-anchor="middle" font-size="10" font-family="monospace" fill="#555">cols 15-17</text>
+      <text x="500" y="95" text-anchor="middle" font-size="12" font-family="monospace" fill="#1a1a1a">[N] II</text>
+      <text x="500" y="112" text-anchor="middle" font-size="9" fill="#999">e.g. "LR" or blank</text>
+
+      <!-- Result -->
+      <line x1="160" y1="120" x2="330" y2="150" stroke="#888" stroke-width="1" stroke-dasharray="3 2"/>
+      <line x1="330" y1="120" x2="330" y2="150" stroke="#888" stroke-width="1" stroke-dasharray="3 2"/>
+      <line x1="500" y1="120" x2="330" y2="150" stroke="#888" stroke-width="1" stroke-dasharray="3 2"/>
+
+      <rect x="230" y="150" width="200" height="30" rx="6" fill="#fff8ee" stroke="#e88a00" stroke-width="2"/>
+      <text x="330" y="170" text-anchor="middle" font-size="12" fill="#e88a00" font-weight="bold">Line executes only if ALL hold</text>
+    </svg>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.5 Resulting indicators (recording outcomes)</h2>
+
+  <p>The mirror image of conditioning is <strong>resulting</strong>:
+  columns&nbsp;54–59 of a C-spec hold up to three indicators that an operation
+  <em>sets</em> to record what happened. They are arranged in three fixed
+  2-column slots: <strong>HI</strong> (54–55), <strong>LO</strong> (56–57),
+  and <strong>EQ</strong> (58–59). Which slot means what depends on the
+  operation:</p>
+
+  <ul>
+    <li><code>COMP</code> — compares Factor&nbsp;1 to Factor&nbsp;2. Sets HI if
+      F1&nbsp;&gt;&nbsp;F2, LO if F1&nbsp;&lt;&nbsp;F2, EQ if equal.</li>
+    <li><code>ADD</code>/<code>SUB</code>/<code>MULT</code>/<code>DIV</code> —
+      set HI if the <em>result</em> is positive, LO if negative, EQ if zero.</li>
+    <li><code>LOKUP</code> — sets HI/LO/EQ based on whether a higher, lower, or
+      exact array element was found (<a href="15-arrays-tables.html">Ch.&nbsp;16</a>).</li>
+    <li><code>CHAIN</code>/<code>READ</code> — use the HI/LO slots for
+      no-record-found / end-of-file (<a href="18-file-access.html">Ch.&nbsp;18</a>).</li>
+  </ul>
+
+  <p>The classic example is <code>COMP</code>. The line below compares a field
+  <code>A</code> (Factor&nbsp;1, col&nbsp;18) to a field <code>B</code>
+  (Factor&nbsp;2, col&nbsp;33), and writes the outcome into indicator&nbsp;10
+  in the <strong>LO</strong> slot (cols&nbsp;56–57):</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           A         COMP B                      10</code></pre>
+
+  <p>After this line runs, indicator&nbsp;10 is ON precisely when
+  <code>A&nbsp;&lt;&nbsp;B</code>. (The <code>10</code> is in the LO columns,
+  56–57, so it records the "less-than" outcome.) Arithmetic works the same way,
+  but on the <em>sign of the result</em>. The next line adds <code>5</code>
+  into <code>T</code> and sets indicator&nbsp;50 in the <strong>HI</strong>
+  slot (cols&nbsp;54–55) when the result is positive:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  5         T          50</code></pre>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> A resulting indicator is like a
+    function that writes its outcome into a shared global variable that other
+    code can read — except the "variable" is an indicator, and the "write site"
+    is fixed by column position rather than by a return statement.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.6 The set-then-test pattern</h2>
+
+  <p>Because indicators are <em>both</em> conditions and results, the most
+  common RPG&nbsp;II idiom is a two-step dance: <strong>one operation sets an
+  indicator, and the next line is conditioned on that indicator.</strong>
+  Before structured <code>IFxx</code> operations existed (covered in
+  <a href="10-conditional-logic.html">Chapter&nbsp;11</a>), this was the
+  <em>only</em> way to branch. It is still everywhere in RPG&nbsp;II code, so
+  you must read it fluently.</p>
+
+  <p>The flow is always: compare or compute → an indicator reflects the
+  outcome → subsequent lines test that indicator. Conceptually:</p>
+
+  <ol>
+    <li><code>COMP A B</code> with result indicator 10 in the HI slot — sets
+      indicator&nbsp;10 ON when <code>A&nbsp;&gt;&nbsp;B</code>.</li>
+    <li>A line conditioned on <code>10</code> runs only in the "greater"
+      case.</li>
+    <li>A line conditioned on <code>N10</code> runs only in the "not greater"
+      case — the implicit <code>else</code>.</li>
+  </ol>
+
+  <p>Here is that pattern as real RPG&nbsp;II. We set <code>VALUE</code> to
+  150, compare it against 100, and route large values into <code>BIGTOT</code>
+  and everything else into <code>SMLTOT</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD150       VALUE
+     C           VALUE     COMP 100                  10
+     C  10                 ADD  VALUE     BIGTOT
+     C  N10                ADD  VALUE     SMLTOT</code></pre>
+
+  <p>Line by line: <code>Z-ADD</code> assigns 150 to <code>VALUE</code>. The
+  <code>COMP</code> compares <code>VALUE</code> to 100 and puts indicator&nbsp;10
+  in the HI slot (cols&nbsp;54–55), so it turns ON when
+  <code>VALUE&nbsp;&gt;&nbsp;100</code> — which, for 150, it does. The next line
+  (condition <code>10</code>) therefore runs and adds to <code>BIGTOT</code>.
+  The line after it (condition <code>N10</code>) is skipped. Swap the value to
+  50 and the two conditioned lines swap roles. This <em>is</em> an
+  <code>if/else</code> — just spread across three lines and expressed entirely
+  in column positions.</p>
+
+  <div class="callout">
+    <p><strong>The key mental shift.</strong> In a modern language the test and
+    the branches live inside one <code>if</code> statement. In RPG&nbsp;II the
+    test is a <em>separate line</em> whose only job is to set an indicator, and
+    the branches are independent lines that happen to read that indicator. The
+    "block" structure is implicit — it exists only because the same flag number
+    appears in the resulting column of one line and the conditioning column of
+    the next.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.7 Indicators on other spec types</h2>
+
+  <p>So far we have only used indicators on C-specs, but they appear on every
+  spec type. The same numbered flag can be <em>set</em> on an I-spec,
+  <em>tested</em> on a C-spec, and <em>used to condition</em> an O-spec — all
+  in one program. That cross-spec reach is the source of both their power and
+  their cognitive load.</p>
+
+  <p><strong>I-spec field indicators (cols&nbsp;65–70).</strong> When a
+  numeric input field is read, RPG&nbsp;II can automatically set indicators
+  based on the field's sign: a "plus" indicator (cols&nbsp;65–66) turns on if
+  the field is positive, a "minus" indicator (67–68) if negative, and a "zero"
+  indicator (69–70) if zero. You then test those indicators in your
+  calculations — no explicit comparison needed.</p>
+
+  <p><strong>O-spec conditioning indicators (cols&nbsp;23–31).</strong>
+  Output lines and individual fields can be conditioned on indicators, exactly
+  as C-specs are. This is how you suppress a field that should only print under
+  certain conditions, or how <code>LR</code> triggers the grand-total line to
+  print once at the very end (you saw this in the
+  <a href="02-source-layout.html">Chapter&nbsp;2</a> walkthrough).</p>
+
+  <p>You do not need the column details of I-specs and O-specs yet — they get
+  their own chapters (<a href="08-input-specs.html">Ch.&nbsp;8</a> and
+  <a href="16-output-specs.html">Ch.&nbsp;16–17</a>). The takeaway is that an
+  indicator is a single global flag, however and wherever you set or test
+  it.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.8 Putting it together</h2>
+
+  <p>The short program below brings the pieces together. It uses
+  <code>SETON</code>, conditioning, the <code>COMP</code>→condition
+  branching pattern, and the <code>LR</code> indicator to signal the end. There
+  are no input files here — the value is assigned directly — so you can focus
+  entirely on the indicator logic. (In a real program, <code>VALUE</code> would
+  come from an input record read by the cycle.)</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C* Branch on a comparison: big orders vs small orders.
+     C                     Z-ADD150       VALUE
+     C           VALUE     COMP 100                  10
+     C  10                 ADD  VALUE     BIGTOT
+     C  N10                ADD  VALUE     SMLTOT
+     C           BIGTOT    ADD  SMLTOT    RPGRET
+     C                     SETON                     LR</code></pre>
+
+  <p>Walking through the indicator logic: <code>Z-ADD</code> sets
+  <code>VALUE</code> to 150 (in a real program this would come from an input
+  record). The <code>COMP</code> line sets indicator&nbsp;10 in its resulting
+  column (HI slot) whenever <code>VALUE&nbsp;&gt;&nbsp;100</code>. The next two
+  lines test that same indicator&nbsp;10 — one with <code>10</code>, one with
+  <code>N10</code> — forming an <code>if/else</code> that routes the value into
+  <code>BIGTOT</code> or <code>SMLTOT</code>. The penultimate line adds the two
+  accumulators into <code>RPGRET</code>. The final line uses
+  <code>SETON</code> to turn on <code>LR</code>, the last-record indicator,
+  which tells the cycle to stop. Every one of those actions is expressed purely
+  by which columns a flag number is written into.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>4.9 Common pitfalls</h2>
+
+  <ul>
+    <li><strong>Indicators persist — they do not auto-reset.</strong> An
+      indicator you turn on stays on until you explicitly turn it off. A
+      classic bug: an indicator set during one record is still on for the next
+      record, so a conditioned line runs when you did not expect it to. When in
+      doubt, <code>SETOF</code> at the start of the cycle.</li>
+    <li><strong>Conditioning columns (9–17) vs. resulting columns
+      (54–59).</strong> Writing an indicator number in the wrong block inverts
+      its meaning entirely: in cols&nbsp;9–10 it <em>tests</em> the flag; in
+      cols&nbsp;54–55 it <em>sets</em> the flag. Always check which block you
+      are writing in.</li>
+    <li><strong>Negation lives in the group's first column.</strong>
+      <code>N10</code> means "indicator&nbsp;10 is OFF", not "indicator&nbsp;N10"
+      (there is no indicator N10). The <code>N</code> is a modifier on the
+      number that follows it.</li>
+    <li><strong>No OR on one line.</strong> The three conditioning groups are
+      ANDed. If you need OR, use two lines or a shared indicator (section&nbsp;4.4).</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now understand indicators as both conditions and results, and the
+  set-then-test pattern that RPG&nbsp;II uses for branching. Before we can do
+  anything interesting <em>with</em> indicators, though, we need data for them
+  to act on. The next chapter steps back to RPG&nbsp;II's data model: the
+  difference between numeric and character fields, how decimal positions work,
+  and why there is no floating point.</p>
+
+  <p>That is <a href="05-data-fields.html">Chapter&nbsp;5 — Data Types and
+  Fields</a>.</p>
+
+  <div class="nav">
+    <a href="03-program-cycle.html">← Chapter 3: The Program Cycle</a>
+    <a href="05-data-fields.html">Chapter 5: Data Types and Fields →</a>
+  </div>
+
+</body>
+</html>

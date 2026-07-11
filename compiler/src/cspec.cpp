@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace rpgc {
@@ -20,9 +21,21 @@ std::string upper(std::string s) {
 
 /* Parse a 2-character indicator token into an index:
  *   "01".."99" -> 1..99
- *   "LR"       -> -1 (last record; resolved at codegen)
+ *   "LR"       -> -1  (last record; resolved at codegen)
  *   "L1".."L9" -> -2..-10 (control levels; resolved at codegen)
+ *   "1P"       -> -11 (first-page indicator, Section D)
+ *   "MR"       -> -12 (matching-record indicator, Section F)
+ *   "OA".."OG" -> -13..-19 (overflow indicators, Section F)
+ *   "OV"       -> -20 (overflow indicator, Section F)
+ *   "U1".."U8" -> -21..-28 (external indicators)
+ *   "H1".."H9" -> -29..-37 (halt indicators)
+ *   "KA".."KY" -> -38..-62 (function-key indicators)
  *   anything else -> 0 (not present / unsupported in this phase).
+ *
+ * U1-U8/H1-H9/KA-KY must resolve to a real (nonzero) index so that a calc
+ * conditioned solely on one of them still participates in the AND-chain
+ * (A4): parse_conditions drops any condition whose index is 0, which would
+ * otherwise silently turn "condition on U1" into "unconditional".
  */
 int ind_token(const std::string &raw) {
     std::string s = upper(raw);
@@ -36,14 +49,28 @@ int ind_token(const std::string &raw) {
     if (s == "LR") return -1;
     if (s == "L0") return 0;   // L0 is always-on; not storable
     if (s == "1P") return -11; // first-page indicator (Section D, D12)
+    if (s == "MR") return -12; // matching-record indicator (Section F, F20)
+    // Overflow indicators OA-OG, OV (Section F, F22).
+    if (s.size() == 2 && s[0] == 'O' && s[1] >= 'A' && s[1] <= 'G')
+        return -13 - (s[1] - 'A');   // OA -> -13, ... OG -> -19
+    if (s == "OV") return -20;
     if (s.size() == 2 && s[0] == 'L' && s[1] >= '1' && s[1] <= '9')
         return -1 - (s[1] - '0');   // L1 -> -2, L2 -> -3, ... L9 -> -10
+    // External indicators U1-U8 (H-spec/F-spec-set switches).
+    if (s.size() == 2 && s[0] == 'U' && s[1] >= '1' && s[1] <= '8')
+        return -21 - (s[1] - '1');   // U1 -> -21, ... U8 -> -28
+    // Halt indicators H1-H9.
+    if (s.size() == 2 && s[0] == 'H' && s[1] >= '1' && s[1] <= '9')
+        return -29 - (s[1] - '1');   // H1 -> -29, ... H9 -> -37
+    // Function-key indicators KA-KY.
+    if (s.size() == 2 && s[0] == 'K' && s[1] >= 'A' && s[1] <= 'Y')
+        return -38 - (s[1] - 'A');   // KA -> -38, ... KY -> -62
     if (s.size() == 2 && std::isdigit((unsigned char)s[0])
                       && std::isdigit((unsigned char)s[1])) {
         int v = (s[0]-'0')*10 + (s[1]-'0');
         if (v >= 1 && v <= 99) return v;
     }
-    return 0; // unsupported indicator for now (H1.., etc.)
+    return 0; // unsupported indicator token
 }
 
 /* Parse the three conditioning groups (cols 9-17). Each group is 3 cols wide:
@@ -127,6 +154,11 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "MOVEA")  return Op::MOVEA;
     if (u == "TESTZ")  return Op::TESTZ;
     if (u == "TESTB")  return Op::TESTB;
+    // Section G (G24) file access:
+    if (u == "CHAIN")  return Op::CHAIN;
+    if (u == "SETLL")  return Op::SETLL;
+    if (u == "READE")  return Op::READE;
+    if (u == "READ")   return Op::READ;
     return Op::Unknown;
 }
 
@@ -177,11 +209,12 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
 
         if (c.op == Op::Unknown) {
             // Report only if there actually is an op token -- blanks are fine.
+            // An unknown but present operation is an error (H29): silently
+            // dropping a calculation hides bugs.
             if (!optext.empty()) {
                 report(sl.text.empty() ? "<rpgc>" : "input", sl.lineno, 28,
-                       DiagKind::Warning,
-                       "unsupported or unknown operation '" + optext +
-                       "' (ignored)");
+                       DiagKind::Error,
+                       "unsupported or unknown operation '" + optext + "'");
             }
             continue;
         }
@@ -208,15 +241,62 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
         out.push_back(std::move(c));
     }
 
-    // Cross-check: every GOTO target must have a matching TAG.
-    std::unordered_set<std::string> tags;
-    for (const auto &c : out)
-        if (c.op == Op::TAG) tags.insert(upper(c.factor1));
-    for (const auto &c : out) {
-        if (c.op == Op::GOTO && !c.factor2.empty()
-                              && tags.find(upper(c.factor2)) == tags.end()) {
+    // Cross-check: every GOTO target must have a matching TAG, and GOTO must
+    // not cross a subroutine or control-level boundary (H27). A GOTO may only
+    // target a TAG in the same scope: same subroutine (or both in the main
+    // body), and a compatible control-level timing.
+    //
+    // First compute each spec's scope: the subroutine it lives in ("" = main
+    // body) by scanning BEGSR..ENDSR ranges.
+    std::vector<std::string> sub_of(out.size());
+    {
+        std::string cur_sub;
+        for (size_t i = 0; i < out.size(); ++i) {
+            if (out[i].op == Op::BEGSR) cur_sub = upper(out[i].factor1);
+            sub_of[i] = cur_sub;
+            if (out[i].op == Op::ENDSR) cur_sub.clear();
+        }
+    }
+    // Map each TAG name to its scope {subroutine, control_level}. A duplicate
+    // TAG name in the same scope is allowed (last wins for resolution); for the
+    // boundary check any in-scope TAG satisfies the GOTO.
+    struct TagScope { std::string sub; std::string level; };
+    std::unordered_map<std::string, TagScope> tag_scope;
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (out[i].op == Op::TAG && !out[i].factor1.empty())
+            tag_scope[upper(out[i].factor1)] = { sub_of[i], out[i].control_level };
+    }
+    // Control-level "kind": detail (blank/L0) vs total (L1-L9) vs LR. A GOTO
+    // must not jump between detail and total/LR timing.
+    auto level_kind = [](const std::string &lv) -> char {
+        if (lv.empty() || lv == "L0") return 'D';   // detail
+        if (lv == "LR") return 'R';                 // last record
+        return 'T';                                 // L1-L9 total
+    };
+    for (size_t i = 0; i < out.size(); ++i) {
+        const auto &c = out[i];
+        if (c.op != Op::GOTO || c.factor2.empty()) continue;
+        std::string tgt = upper(c.factor2);
+        auto it = tag_scope.find(tgt);
+        if (it == tag_scope.end()) {
             report("input", c.lineno, 33, DiagKind::Error,
                    "GOTO target '" + c.factor2 + "' has no matching TAG");
+            continue;
+        }
+        // Subroutine boundary: a GOTO may not jump into or out of a subroutine.
+        if (sub_of[i] != it->second.sub) {
+            std::string from = sub_of[i].empty() ? "main body" : "subroutine " + sub_of[i];
+            std::string to   = it->second.sub.empty() ? "main body" : "subroutine " + it->second.sub;
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "GOTO may not cross a subroutine boundary (" + from + " -> " + to + ")");
+        }
+        // Control-level timing: detail vs total vs LR must match.
+        char gk = level_kind(c.control_level);
+        char tk = level_kind(it->second.level);
+        if (gk != tk) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   std::string("GOTO may not cross a control-level boundary (")
+                   + std::string(1, gk) + " -> " + std::string(1, tk) + ")");
         }
     }
 

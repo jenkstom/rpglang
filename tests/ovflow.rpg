@@ -1,0 +1,10 @@
+     C* F22: overflow. Printer OA, OFL=3. 5 detail lines; OA heading OVERFLOW prints.
+     FOVDATA  IP  F      80            DISK
+     FOVDOUT  O   F     132     OA     PRINTER
+     LOVDOUT    5FL  3OL
+     IOVDATA
+     I                                        1   20N
+     OOVDOUT  H  1    OA
+     O                                   20 'OVERFLOW'
+     OOVDOUT  D  1
+     O                         N         10

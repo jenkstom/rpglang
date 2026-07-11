@@ -18,6 +18,7 @@ namespace rpgc {
 
 struct Program {
     std::vector<FSpec>      files;
+    std::unordered_map<std::string, LineCounter> line_counters;  // L-specs (F22)
     std::vector<ISpecRec>   in_records;
     std::vector<ISpecField> in_fields;
     std::vector<ISpecField> lookahead_fields;   // look-ahead fields (E19)

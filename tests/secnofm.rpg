@@ -1,0 +1,11 @@
+     C* F21: secondary file with NO match fields. Primary drains fully
+     C* (vals 1,2,3 -> 6), then secondary (vals 10,20 -> 30). RPGRET=36.
+     FSNPRIM  IP  F    80              DISK
+     FSNSC    IS  F    80              DISK
+     ISNPRIM      01
+     I                                        1   20PVAL
+     ISNSC        02
+     I                                        1   20SVAL
+     C  01                 ADD  PVAL      RPGRET
+     C  02                 ADD  SVAL      RPGRET
+     CLR                   SETOF

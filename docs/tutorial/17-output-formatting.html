@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 17 — Output Formatting</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 17 — Output Formatting</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>Summary</h2>
+    <p>RPG II formats numeric output through two mechanisms on the O-spec:
+    <strong>edit codes</strong> (a single-letter code in column 38 that selects
+    a predefined format for commas, decimal points, signs, and
+    zero-suppression) and <strong>edit words</strong> (a quoted template string
+    in columns 45–70 that gives you full control over the output picture). Edit
+    codes are quick — like choosing a format specifier. Edit words are
+    expressive — like writing a custom format template. This chapter covers all
+    edit codes (1–4, A–D, J–Q), edit word syntax (replaceable characters,
+    zero-suppression stop, check protection, sign suffixes), and the
+    zero-balance blank behavior that distinguishes adjacent code pairs.</p>
+  </div>
+
+  <h2>Outline</h2>
+
+  <h3>17.1 The "you already know" analogy</h3>
+  <ul class="outline">
+    <li><strong>Edit codes</strong> are like format specifiers —
+      <code>String.Format("{0:N2}", value)</code> or Python's
+      <code>f"{value:,.2f}"</code>. One code selects a whole formatting
+      pattern.</li>
+    <li><strong>Edit words</strong> are like custom format templates —
+      <code>"$#,###.00"</code> or <code>"__.__"</code>. You draw the picture;
+      the runtime fills in the digits.</li>
+  </ul>
+
+  <!-- SVG: Edit codes reference -->
+  <div class="svg-container">
+    <svg width="820" height="380" viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Edit Code Reference: Formatting the Same Value</text>
+
+      <text x="410" y="42" text-anchor="middle" font-size="11" fill="#565f89">Value: 1234567 stored as scaled integer (2 decimal places) = 12345.67</text>
+
+      <!-- Edit code table -->
+      <g font-family="monospace" font-size="10">
+        <!-- Header -->
+        <rect x="40" y="55" width="40" height="20" fill="#7aa2f7"/><text x="60" y="69" text-anchor="middle" fill="#1a1b26" font-weight="bold">Code</text>
+        <rect x="80" y="55" width="100" height="20" fill="#7aa2f7"/><text x="130" y="69" text-anchor="middle" fill="#1a1b26" font-weight="bold">Commas</text>
+        <rect x="180" y="55" width="100" height="20" fill="#7aa2f7"/><text x="230" y="69" text-anchor="middle" fill="#1a1b26" font-weight="bold">Decimals</text>
+        <rect x="280" y="55" width="100" height="20" fill="#7aa2f7"/><text x="330" y="69" text-anchor="middle" fill="#1a1b26" font-weight="bold">Sign</text>
+        <rect x="380" y="55" width="200" height="20" fill="#7aa2f7"/><text x="480" y="69" text-anchor="middle" fill="#1a1b26" font-weight="bold">Output for 12345.67</text>
+
+        <!-- 1 -->
+        <rect x="40" y="75" width="40" height="20" fill="#1f2335" stroke="#333653"/><text x="60" y="89" text-anchor="middle" fill="#9ece6a">1</text>
+        <rect x="80" y="75" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="130" y="89" text-anchor="middle" fill="#c0caf5">yes</text>
+        <rect x="180" y="75" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="230" y="89" text-anchor="middle" fill="#c0caf5">yes (.xx)</text>
+        <rect x="280" y="75" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="89" text-anchor="middle" fill="#c0caf5">none</text>
+        <rect x="380" y="75" width="200" height="20" fill="#24283b" stroke="#333653"/><text x="480" y="89" text-anchor="middle" fill="#e0af68">12,345.67</text>
+
+        <!-- 3 -->
+        <rect x="40" y="95" width="40" height="20" fill="#1f2335" stroke="#333653"/><text x="60" y="109" text-anchor="middle" fill="#9ece6a">3</text>
+        <rect x="80" y="95" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="130" y="109" text-anchor="middle" fill="#c0caf5">no</text>
+        <rect x="180" y="95" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="230" y="109" text-anchor="middle" fill="#c0caf5">yes (.xx)</text>
+        <rect x="280" y="95" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="109" text-anchor="middle" fill="#c0caf5">none</text>
+        <rect x="380" y="95" width="200" height="20" fill="#24283b" stroke="#333653"/><text x="480" y="109" text-anchor="middle" fill="#e0af68">12345.67</text>
+
+        <!-- J -->
+        <rect x="40" y="115" width="40" height="20" fill="#1f2335" stroke="#333653"/><text x="60" y="129" text-anchor="middle" fill="#9ece6a">J</text>
+        <rect x="80" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="130" y="129" text-anchor="middle" fill="#c0caf5">yes</text>
+        <rect x="180" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="230" y="129" text-anchor="middle" fill="#c0caf5">yes (.xx)</text>
+        <rect x="280" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="129" text-anchor="middle" fill="#c0caf5">trailing −</text>
+        <rect x="380" y="115" width="200" height="20" fill="#24283b" stroke="#333653"/><text x="480" y="129" text-anchor="middle" fill="#e0af68">12,345.67</text>
+
+        <!-- N -->
+        <rect x="40" y="135" width="40" height="20" fill="#1f2335" stroke="#333653"/><text x="60" y="149" text-anchor="middle" fill="#9ece6a">N</text>
+        <rect x="80" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="130" y="149" text-anchor="middle" fill="#c0caf5">yes</text>
+        <rect x="180" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="230" y="149" text-anchor="middle" fill="#c0caf5">yes (.xx)</text>
+        <rect x="280" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="149" text-anchor="middle" fill="#c0caf5">leading +/−</text>
+        <rect x="380" y="135" width="200" height="20" fill="#24283b" stroke="#333653"/><text x="480" y="149" text-anchor="middle" fill="#e0af68"> 12,345.67</text>
+      </g>
+
+      <!-- Zero-balance note -->
+      <rect x="40" y="175" width="540" height="40" rx="6" fill="#2a1f2e" stroke="#ff9e64"/>
+      <text x="55" y="193" font-size="10" font-weight="bold" fill="#ff9e64">Zero-balance behavior:</text>
+      <text x="55" y="208" font-size="10" fill="#c0caf5">Odd codes (1,3,J,N) print zero as "0.00"; even codes (2,4,K,O) blank it out entirely.</text>
+
+      <!-- Edit word section -->
+      <rect x="40" y="235" width="740" height="130" rx="8" fill="#1f2335" stroke="#9ece6a" stroke-width="2"/>
+      <text x="55" y="255" font-size="12" font-weight="bold" fill="#9ece6a">Edit Word: Custom Template</text>
+      <text x="55" y="275" font-size="10" fill="#565f89">Template: '   ,   .'  (blank = replaceable, comma and period = literals)</text>
+      <text x="55" y="293" font-family="monospace" font-size="11" fill="#9ece6a">     O            VAL      20   '   ,   .'</text>
+      <text x="55" y="310" font-size="10" fill="#7dcfff">Value 1234 → fills right-aligned into blanks: "  1,234"</text>
+      <text x="55" y="330" font-size="10" fill="#565f89">Blanks = replaceable (filled by source digits) · first 0 = stop zero-suppression · * = check protect</text>
+      <text x="55" y="348" font-size="10" fill="#565f89">Trailing − or CR = sign (shown only if negative) · &amp; = literal blank</text>
+    </svg>
+  </div>
+
+  <h3>17.2 Edit codes (col 38)</h3>
+  <table>
+    <tr><th>Code</th><th>Commas</th><th>Decimal pt</th><th>Sign</th><th>Zero prints as</th></tr>
+    <tr><td>1</td><td>yes</td><td>yes</td><td>none</td><td><code>0.00</code></td></tr>
+    <tr><td>2</td><td>yes</td><td>yes</td><td>none</td><td><em>blanks</em></td></tr>
+    <tr><td>3</td><td>no</td><td>yes</td><td>none</td><td><code>0.00</code></td></tr>
+    <tr><td>4</td><td>no</td><td>yes</td><td>none</td><td><em>blanks</em></td></tr>
+    <tr><td>A</td><td>yes</td><td>no</td><td>none</td><td><code>0</code></td></tr>
+    <tr><td>B</td><td>yes</td><td>no</td><td>none</td><td><em>blanks</em></td></tr>
+    <tr><td>C</td><td>no</td><td>no</td><td>none</td><td><code>0</code></td></tr>
+    <tr><td>D</td><td>no</td><td>no</td><td>none</td><td><em>blanks</em></td></tr>
+    <tr><td>J</td><td>yes</td><td>yes</td><td>trailing −</td><td><code>0.00</code></td></tr>
+    <tr><td>K</td><td>yes</td><td>yes</td><td>trailing −</td><td><em>blanks</em></td></tr>
+    <tr><td>L</td><td>no</td><td>yes</td><td>trailing −</td><td><code>0.00</code></td></tr>
+    <tr><td>M</td><td>no</td><td>yes</td><td>trailing −</td><td><em>blanks</em></td></tr>
+    <tr><td>N</td><td>yes</td><td>yes</td><td>leading +/−</td><td><code>0.00</code></td></tr>
+    <tr><td>O</td><td>yes</td><td>yes</td><td>leading +/−</td><td><em>blanks</em></td></tr>
+    <tr><td>P</td><td>no</td><td>yes</td><td>leading +/−</td><td><code>0.00</code></td></tr>
+    <tr><td>Q</td><td>no</td><td>yes</td><td>leading +/−</td><td><em>blanks</em></td></tr>
+  </table>
+
+  <div class="callout">
+    <p><strong>The pairing rule:</strong> adjacent codes differ only in
+    zero-balance behavior. Code 1 and 2 are identical except that 2 blanks out
+    a zero value. Same for 3/4, A/B, C/D, J/K, L/M, N/O, P/Q.</p>
+  </div>
+
+  <h3>17.3 Edit words (cols 45–70)</h3>
+  <ul class="outline">
+    <li>When column 38 is blank and columns 45–70 contain a quoted string, the
+      string is an <strong>edit word</strong> — a template the runtime fills
+      with the field's digits.</li>
+    <li>Edit word syntax:
+      <ul>
+        <li><strong>Blank</strong> = replaceable position (filled by source
+          digits, right-aligned, zero-suppressed).</li>
+        <li><strong>Comma, period, slash, etc.</strong> = literal characters
+          printed as-is.</li>
+        <li><strong>First <code>0</code></strong> = stops zero-suppression
+          (digits before it always print, even zeros).</li>
+        <li><strong>Asterisk <code>*</code></strong> = check protection
+          (replaces leading zeros with asterisks instead of blanks).</li>
+        <li><strong>Trailing <code>-</code> or <code>CR</code></strong> = sign
+          indicator (printed only if the value is negative; blank
+          otherwise).</li>
+        <li><strong><code>&amp;</code></strong> = forces a literal blank in the
+          output.</li>
+      </ul>
+    </li>
+    <li>Example: edit word <code>'   ,   .'</code> with value 1234 →
+      <code>"  1,234"</code> (digits filled right, comma inserted, leading
+      blanks suppressed).</li>
+  </ul>
+
+  <h3>17.4 When to use edit codes vs edit words</h3>
+  <ul class="outline">
+    <li><strong>Edit codes</strong> for standard formatting (commas, decimals,
+      optional sign). Quick — one letter does the job.</li>
+    <li><strong>Edit words</strong> when you need custom literal text
+      interspersed with digits — phone numbers, dates, currency symbols, or
+      non-standard separators.</li>
+  </ul>
+
+  <h2>What to write into this chapter</h2>
+  <ul class="outline">
+    <li>Include the edit code reference SVG showing the same value formatted
+      with different codes.</li>
+    <li>Show edit word examples: currency, check protection, date
+      formatting.</li>
+    <li>Include a "choosing the right edit code" decision guide.</li>
+    <li>Show zero-balance behavior with before/after examples.</li>
+    <li>Cross-reference <a href="16-output-specs.html">Chapter 10</a> for
+      where edit codes/words go on the O-spec.</li>
+  </ul>
+
+  <div class="nav">
+    <a href="16-output-specs.html">← Chapter 10: Output Specs</a>
+    <a href="18-file-access.html">Chapter 18: File Access →</a>
+  </div>
+
+</body>
+</html>

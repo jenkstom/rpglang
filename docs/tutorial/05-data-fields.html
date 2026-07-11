@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 5 — Data Types and Fields</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 5 — Data Types and Fields</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II has two fundamental data types: <strong>numeric fields</strong>
+    (signed values with a fixed number of decimal places) and
+    <strong>alphameric (character) fields</strong> (fixed-length byte strings).
+    There are no floating-point types, no dynamic strings, and no user-defined
+    types. Numeric fields are stored internally as <em>scaled integers</em> —
+    the field's decimal-position count determines where the implied decimal
+    point sits, and all arithmetic is exact. This chapter covers the numeric
+    and alphameric data models, field length and decimal positions, the
+    packed/binary/zoned encodings that govern how data is laid out on disk, and
+    the sign-overpunch convention for embedding a sign in a character
+    string.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>5.1 Numeric fields — the scaled-integer model</h2>
+
+  <p>In the languages you know, you choose among integer, floating-point, and
+  decimal types. RPG&nbsp;II offers only one numeric model: <strong>fixed-point
+  decimal</strong>. Think of it as a <code>decimal(p,&nbsp;s)</code> type that
+  is always exact — there is no floating point anywhere in the language, so
+  there are no floating-point rounding surprises.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> A numeric field is a fixed-point
+    decimal number: a fixed number of total digits, a fixed number of those
+    after the decimal point, and an optional sign. The only thing to learn is
+    how RPG&nbsp;II <em>stores</em> it.</p>
+  </div>
+
+  <p>Every numeric field has two defining attributes:</p>
+
+  <ul>
+    <li><strong>Length</strong> — the total number of digits (1–15), excluding
+      the sign.</li>
+    <li><strong>Decimal positions</strong> — how many of those digits fall
+      after the implied decimal point (0–9).</li>
+  </ul>
+
+  <p>Internally, values are stored as <strong>scaled integers</strong>. The
+  stored integer equals the true value multiplied by 10 raised to the number of
+  decimal positions. A field with length&nbsp;5 and 2&nbsp;decimal positions
+  stores the value 123.45 as the integer <code>12345</code>. The decimal point
+  is not stored anywhere — it is <em>implied</em> by the field's decimal-position
+  count, and the compiler inserts it whenever it formats output or aligns
+  arithmetic.</p>
+
+  <!-- SVG: Scaled integer model -->
+  <div class="svg-container">
+    <svg width="700" height="220" viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg">
+      <text x="350" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Scaled Integer Model: length=5, decimals=2</text>
+      <!-- True value -->
+      <rect x="200" y="40" width="300" height="40" rx="6" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="350" y="65" text-anchor="middle" font-size="16" font-family="monospace" fill="#9ece6a">True value: 123.45</text>
+      <!-- Arrow -->
+      <line x1="350" y1="80" x2="350" y2="105" stroke="#7dcfff" stroke-width="2" marker-end="url(#ad1)"/>
+      <text x="400" y="97" font-size="10" fill="#7dcfff">× 10² (scale by decimals)</text>
+      <!-- Stored value -->
+      <rect x="200" y="110" width="300" height="40" rx="6" fill="#24283b" stroke="#ff9e64" stroke-width="2"/>
+      <text x="350" y="135" text-anchor="middle" font-size="16" font-family="monospace" fill="#e0af68">Stored as integer: 12345</text>
+      <!-- Breakdown -->
+      <text x="350" y="175" text-anchor="middle" font-size="11" fill="#565f89">5 digits total, implied decimal after position 3</text>
+      <text x="350" y="195" text-anchor="middle" font-size="11" fill="#565f89">All arithmetic operates on the scaled integer</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs><marker id="ad1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker></defs>
+  </svg>
+
+  <p>The payoff of this model is that <strong>all arithmetic is exact</strong>.
+  Because there is no binary fraction involved, 0.10&nbsp;+&nbsp;0.20 is exactly
+  0.30 — never 0.30000000000000004. The trade-off is a hard ceiling of 15
+  digits, and the programmer's responsibility to size result fields large enough
+  to hold intermediate values (there is no automatic bignum).</p>
+
+  <p>Decimal positions are declared in <strong>column&nbsp;52</strong> of the
+  I-spec (0–9, or blank for alphameric). The next chapter
+  (<a href="06-arithmetic.html">Chapter&nbsp;6</a>) shows how the compiler uses
+  these counts to align decimal points between operands automatically.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>5.2 Alphameric (character) fields</h2>
+
+  <p>The second data type is the <strong>alphameric field</strong> — a
+  fixed-length string of bytes. This is your character data: names, addresses,
+  codes, free text.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> An alphameric field is a
+    fixed-length character array — a <code>char[N]</code> or a fixed-size byte
+    buffer — not a dynamic, growable string. Its length is its width in bytes,
+    and it never changes.</p>
+  </div>
+
+  <p>An alphameric field is defined by its length alone (the number of byte
+  positions it spans in the record). There are <em>no</em> decimal positions —
+  in fact, the way you tell RPG&nbsp;II a field is alphameric rather than
+  numeric is to <strong>leave column&nbsp;52 blank</strong>. A numeric field
+  always has a digit (often <code>0</code>) in column&nbsp;52; an alphameric
+  field has a blank there.</p>
+
+  <p>Here is an alphameric field <code>NAME</code> spanning record positions
+  11–30 (20 bytes), alongside a numeric field <code>PRICE</code> at positions
+  6–10 with 2 decimals. Notice that <code>PRICE</code> has a <code>2</code> in
+  column&nbsp;52, while <code>NAME</code> has nothing there:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                     6   10  2PRICE
+     I                                     11  30   NAME</code></pre>
+
+  <p>Character fields support <code>MOVE</code>/<code>MOVEL</code> (byte
+  copies), <code>COMP</code> (string comparison), and output. Quoted literals
+  like <code>'HELLO'</code> can be used directly as operands. These operations
+  are covered in <a href="13-field-operations.html">Chapter&nbsp;14</a>.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>5.3 Where fields are defined</h2>
+
+  <p>Unlike a modern language where you declare variables in one place, RPG&nbsp;II
+  lets you define a field in either of two locations — and once defined, the
+  field is globally visible everywhere. There is no local scope.</p>
+
+  <p><strong>1. The I-spec (input fields).</strong> This is the primary site.
+  An I-spec field-description line maps a range of byte positions in an input
+  record to a field name, and gives its length and decimal positions. For
+  example, a 3-digit numeric field <code>AMT</code> at record positions 1–3
+  with 0 decimals:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                     1   3   0AMT</code></pre>
+
+  <p>The columns that matter on a field-description line are:</p>
+
+  <table>
+    <tr><th>Columns</th><th>Meaning</th></tr>
+    <tr><td>43</td><td>Encoding: <code>P</code> (packed), <code>B</code> (binary), or blank (zoned). See 5.4.</td></tr>
+    <tr><td>44–47</td><td><strong>From</strong> — starting record position of the field.</td></tr>
+    <tr><td>48–51</td><td><strong>To</strong> — ending record position of the field.</td></tr>
+    <tr><td>52</td><td><strong>Decimal positions</strong> (0–9); blank means alphameric.</td></tr>
+    <tr><td>53–58</td><td><strong>Field name</strong>.</td></tr>
+  </table>
+
+  <p>So in the line above, the <code>1</code> in cols&nbsp;44–47 is the start
+  position, the <code>3</code> in cols&nbsp;48–51 is the end position, the
+  <code>0</code> in col&nbsp;52 means zero decimals (numeric), and
+  <code>AMT</code> in cols&nbsp;53–55 is the name. Field-description lines
+  always follow a record-identification line, which names the file and record
+  type — the full I-spec is covered in <a href="08-input-specs.html">Chapter&nbsp;8</a>.</p>
+
+  <p><strong>2. The C-spec result field (work fields).</strong> When a
+  calculation writes to a result-field name that did not come from an I-spec,
+  you define that field <em>inline</em> on the same line. Its length goes in
+  cols&nbsp;49–51 and its decimal positions in col&nbsp;52. For example, this
+  <code>ADD</code> defines <code>TOTAL</code> as a 7-digit field with 2 decimal
+  positions:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  AMT       TOTAL 7  2</code></pre>
+
+  <p>Here <code>TOTAL</code> is the result (cols&nbsp;43–48), <code>7</code> is
+  its length (cols&nbsp;49–51), and <code>2</code> is its decimal count
+  (col&nbsp;52). The full C-spec column layout is in
+  <a href="09-calc-specs.html">Chapter&nbsp;9</a>; the point here is simply that
+  work fields do not need an I-spec — they can be born on the calculation line
+  that first uses them.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>5.4 Disk encodings: zoned, packed, and binary</h2>
+
+  <p>So far we have talked about a field's <em>logical</em> value (a scaled
+  integer or a byte string). But when numeric data is stored in a file on disk,
+  those digits have to be laid out as actual bytes. RPG&nbsp;II supports three
+  <strong>encodings</strong>, and the I-spec's column&nbsp;43 selects which one
+  a field uses. The compiler handles all conversion automatically — you just
+  declare the encoding, and the field always appears as a normal scaled integer
+  inside your program.</p>
+
+  <table>
+    <tr><th>Encoding</th><th>Col 43</th><th>Layout</th><th>Sign handling</th></tr>
+    <tr><td>Zoned</td><td>blank</td><td>One byte per digit (ASCII characters)</td><td>Separate or overpunched on the last digit</td></tr>
+    <tr><td>Packed</td><td><code>P</code></td><td>Two digits per byte (BCD), plus a sign nibble</td><td>Sign nibble at the end (F = +, D = −)</td></tr>
+    <tr><td>Binary</td><td><code>B</code></td><td>A 2- or 4-byte big-endian integer</td><td>Two's complement</td></tr>
+  </table>
+
+  <h3>Zoned (the default)</h3>
+
+  <p>Leave column&nbsp;43 blank and the field is <strong>zoned</strong>: each
+  digit is one ASCII character. The value <code>12345</code> occupies five
+  bytes — <code>'1'</code>, <code>'2'</code>, <code>'3'</code>,
+  <code>'4'</code>', <code>'5'</code>. This is the simplest encoding and the
+  default; it is what you get when a file is plain text. You can even edit a
+  zoned file by hand in a text editor.</p>
+
+  <h3>Packed (column 43 = <code>P</code>)</h3>
+
+  <p>Write <code>P</code> in column&nbsp;43 and the field is <strong>packed
+  decimal</strong>: two digits per byte in BCD (binary-coded decimal), with a
+  sign <em>nibble</em> (half-byte) at the end. The value <code>12345</code>
+  (five digits) packs into three bytes, because five digit-nibbles plus one
+  sign nibble make six nibbles = three bytes:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                    P1   3   0AMT</code></pre>
+
+  <!-- SVG: Packed-decimal BCD layout -->
+  <div class="svg-container">
+    <svg width="720" height="280" viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg">
+      <text x="360" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Packed-Decimal Encoding: +12345 in 3 bytes</text>
+
+      <!-- True value -->
+      <text x="60" y="60" font-size="12" fill="#9ece6a" font-family="monospace">value: +12345  (5 digits, positive)</text>
+
+      <!-- 6 nibbles in a row -->
+      <text x="60" y="92" font-size="11" fill="#565f89">six nibbles:</text>
+      <g font-family="monospace" font-size="16">
+        <rect x="170" y="76" width="50" height="34" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+        <text x="195" y="99" text-anchor="middle" fill="#e0af68">1</text>
+        <rect x="220" y="76" width="50" height="34" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+        <text x="245" y="99" text-anchor="middle" fill="#e0af68">2</text>
+        <rect x="270" y="76" width="50" height="34" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+        <text x="295" y="99" text-anchor="middle" fill="#e0af68">3</text>
+        <rect x="320" y="76" width="50" height="34" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+        <text x="345" y="99" text-anchor="middle" fill="#e0af68">4</text>
+        <rect x="370" y="76" width="50" height="34" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+        <text x="395" y="99" text-anchor="middle" fill="#e0af68">5</text>
+        <rect x="420" y="76" width="50" height="34" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+        <text x="445" y="99" text-anchor="middle" fill="#ff9e64">F</text>
+      </g>
+      <text x="445" y="128" text-anchor="middle" font-size="10" fill="#ff9e64">sign nibble (F = +)</text>
+
+      <!-- arrows down grouping into bytes -->
+      <text x="60" y="160" font-size="11" fill="#565f89">three bytes:</text>
+      <g font-family="monospace" font-size="15">
+        <rect x="170" y="144" width="100" height="38" rx="4" fill="#1f2335" stroke="#7dcfff" stroke-width="2"/>
+        <text x="220" y="168" text-anchor="middle" fill="#7dcfff">0x12</text>
+        <rect x="270" y="144" width="100" height="38" rx="4" fill="#1f2335" stroke="#7dcfff" stroke-width="2"/>
+        <text x="320" y="168" text-anchor="middle" fill="#7dcfff">0x34</text>
+        <rect x="370" y="144" width="100" height="38" rx="4" fill="#1f2335" stroke="#7dcfff" stroke-width="2"/>
+        <text x="420" y="168" text-anchor="middle" fill="#7dcfff">0x5F</text>
+      </g>
+      <text x="220" y="200" text-anchor="middle" font-size="9" fill="#565f89">digits 1,2</text>
+      <text x="320" y="200" text-anchor="middle" font-size="9" fill="#565f89">digits 3,4</text>
+      <text x="420" y="200" text-anchor="middle" font-size="9" fill="#565f89">digit 5 + sign</text>
+
+      <!-- vs zoned -->
+      <rect x="60" y="224" width="600" height="40" rx="6" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="360" y="249" text-anchor="middle" font-size="12" fill="#ff9e64">Same value zoned = 5 bytes: '1' '2' '3' '4' '5'  →  packed saves space</text>
+    </svg>
+  </div>
+
+  <p>Packed decimal is used for dense numeric storage — it roughly halves the
+  byte cost of zoned data while staying exact (no binary-fraction conversion).
+  The sign nibble is conventionally <code>F</code> for positive and
+  <code>D</code> for negative.</p>
+
+  <h3>Binary (column 43 = <code>B</code>)</h3>
+
+  <p>Write <code>B</code> in column&nbsp;43 and the field is a
+  <strong>binary</strong> integer — a 2-byte or 4-byte big-endian value (think
+  int16 or int32). This is the most compact for large values. A binary field is
+  still a scaled integer logically; the encoding only changes how the raw bytes
+  are laid out on disk.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                    B1   4   0AMT</code></pre>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> These three encodings are just
+    <em>serialization formats</em> — like choosing between plain-text, BCD, and
+    raw binary for how you lay numbers into a byte stream. RPG&nbsp;II decodes
+    them into the same scaled-integer representation internally, so your
+    calculations never care which encoding a field uses. You declare it once on
+    the I-spec and forget it.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>5.5 Sign overpunch</h2>
+
+  <p>There is one more encoding convention you will meet, and it comes from the
+  punched-card era: <strong>sign overpunch</strong>. When a numeric value is
+  carried in a <em>character</em> string (a zoned or alphameric field), there
+  is no separate byte for a <code>+</code> or <code>−</code> sign. Instead, the
+  sign is <em>piggy-backed onto the last digit</em>: that final character
+  encodes both the digit value <em>and</em> the sign.</p>
+
+  <p>The mapping uses letters in place of the last digit:</p>
+
+  <table>
+    <tr><th>Digit</th><th>Positive character</th><th>Negative character</th></tr>
+    <tr><td>1</td><td><code>A</code></td><td><code>J</code></td></tr>
+    <tr><td>2</td><td><code>B</code></td><td><code>K</code></td></tr>
+    <tr><td>3</td><td><code>C</code></td><td><code>L</code></td></tr>
+    <tr><td>4</td><td><code>D</code></td><td><code>M</code></td></tr>
+    <tr><td>5</td><td><code>E</code></td><td><code>N</code></td></tr>
+    <tr><td>6</td><td><code>F</code></td><td><code>O</code></td></tr>
+    <tr><td>7</td><td><code>G</code></td><td><code>P</code></td></tr>
+    <tr><td>8</td><td><code>H</code></td><td><code>Q</code></td></tr>
+    <tr><td>9</td><td><code>I</code></td><td><code>R</code></td></tr>
+    <tr><td>0</td><td><code>0</code> (plain)</td><td><code>}</code></td></tr>
+  </table>
+
+  <p>Plain digits <code>0</code>–<code>9</code> in the last position mean a
+  positive value. The letters <code>A</code>–<code>I</code> mean positive
+  digits 1–9, and <code>J</code>–<code>R</code> mean negative digits 1–9. So
+  the string <code>000N</code> decodes to the value <strong>−5</strong>: the
+  three leading zeros give 000, the <code>N</code> supplies digit&nbsp;5 with a
+  negative sign, yielding 0005 negated. The string <code>123A</code> decodes to
+  <strong>+1231</strong>: digits 1, 2, 3, then <code>A</code> supplies
+  digit&nbsp;1 positively.</p>
+
+  <p>You rarely encode or decode overpunch by hand. The <code>MOVE</code>
+  operation between a character field and a numeric field applies overpunch
+  automatically in both directions (covered in
+  <a href="13-field-operations.html">Chapter&nbsp;14</a>). The reason to know
+  the table is so you can read legacy data files and debug why a value that
+  "looks" alphabetic is actually a signed number.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Sign overpunch is a compact
+    serialization trick: stash the sign in the last digit's character code
+    instead of spending a whole byte on it. It is the character-string analogue
+    of packed decimal's sign nibble — both fold the sign into the data to save
+    space.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>5.6 Putting it together</h2>
+
+  <p>The I-spec section below defines three fields of a customer record. Read
+  each field-description line by its columns: the <code>P</code>/<code>B</code>/blank
+  in column&nbsp;43, the from/to positions in 44–51, the decimal count in
+  column&nbsp;52, and the name in 53–58. (The first line is a
+  record-identification line, covered fully in
+  <a href="08-input-specs.html">Chapter&nbsp;8</a>.)</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     ICUST    AA  01
+     I                                     1   5    CUSTNO
+     I                                     6   10  2PRICE
+     I                                     11  30   NAME</code></pre>
+
+  <p>What does this declare?</p>
+  <ul>
+    <li><code>CUSTNO</code> — bytes 1–5, blank in column&nbsp;52, so it is
+      <strong>alphameric</strong>: a 5-character customer code.</li>
+    <li><code>PRICE</code> — bytes 6–10, a <code>2</code> in column&nbsp;52, so
+      it is <strong>numeric</strong> with 2 decimals: a 5-digit price like
+      999.99, stored internally as a scaled integer (99999).</li>
+    <li><code>NAME</code> — bytes 11–30, blank in column&nbsp;52, so it is
+      <strong>alphameric</strong>: a 20-character name.</li>
+  </ul>
+  <p>All three are zoned (column&nbsp;43 is blank) — plain text on disk. Once
+  read, <code>CUSTNO</code> and <code>NAME</code> are byte strings and
+  <code>PRICE</code> is a scaled integer, ready for arithmetic or output.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now know RPG&nbsp;II's entire data model: numeric fields as exact
+  scaled integers, alphameric fields as fixed byte strings, and the three disk
+  encodings that map between them and raw bytes. The natural next question is:
+  <strong>what can you <em>do</em> with a numeric field?</strong> The next
+  chapter covers the eight arithmetic operations — <code>ADD</code>,
+  <code>SUB</code>, <code>MULT</code>, <code>DIV</code>, and friends — and how
+  the scaled-integer model makes decimal-point alignment and rounding work.</p>
+
+  <p>That is <a href="06-arithmetic.html">Chapter&nbsp;6 — Arithmetic
+  Operations</a>.</p>
+
+  <div class="nav">
+    <a href="04-indicators.html">← Chapter 4: Indicators</a>
+    <a href="06-arithmetic.html">Chapter 6: Arithmetic Operations →</a>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,38 @@
+     C* big.rpg -- integration sample (H31). Mini sales summary exercising
+     C* the cycle, L1 control breaks, an array + XFOOT, a subroutine (EXSR),
+     C* MOVE, edit words, and CHAIN to a keyed master. Checked exit code.
+     C* BTX record: REGN(1-2,L1) REP(3-4) AMT(5-7). BMAST keyed col1.
+     FBTX     IP  F      80            DISK
+     FBMAST   IC  F      80  2AI     1 DISK
+     FBREP    O   F     132            PRINTER
+     E                    BQ          3  2 0
+     IBTX        01
+     I                                        1   20REGN  L1
+     I                                        3   40REP
+     I                                        5   70AMT
+     IBMAST      02
+     I                                        1   20MKEY
+     I                                        3   40MVAL
+     C  01       REGN      CHAINBMAST                99
+     C  99 01              GOTO NOQ
+     C                     ADD  MVAL      MASTER
+     C           NOQ       TAG
+     C                     ADD  AMT       GRAND
+     CL1                   EXSR BUMP
+     CLR                   XFOOTBQ        XSUM
+     CLR                   ADD  GRAND     RPGRET
+     CLR                   ADD  XSUM      RPGRET
+     CLR                   ADD  MASTER    RPGRET
+     CLR                   ADD  SUBCNT    RPGRET
+     C           BUMP      BEGSR
+     C                     ADD  1         SUBCNT
+     C                     ENDSR
+     OBREP    H  1
+     O                                   40 'SALES REPORT'
+     OBREP    D  1
+     O                         REGN      10
+     O                         AMT       20
+**
+10
+20
+30

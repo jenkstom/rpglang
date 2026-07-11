@@ -41,13 +41,29 @@ const char *rpg_rt_version(void) {
 static struct {
     FILE *fp;            /* stdio stream, NULL if slot free */
     int   is_input;      /* 1 = read, 0 = write              */
+    int   is_update;     /* 1 = update file (r+, in-place rewrite) */
     int   reclen;        /* declared fixed record length     */
     int   line;          /* current line on the page (output) */
     int   page;          /* current page number (output)      */
+    /* Printer overflow (Section F, F22). */
+    int   lines_per_page;/* page depth (default 66)           */
+    int   overflow_line; /* line at which overflow occurs (default 60) */
+    int   overflow_latched; /* 1 if overflow line was reached */
     /* Look-ahead peek cache (E19): one buffered record per file. */
     char  peek[1024];    /* the peeked record (NUL-terminated) */
     int   peek_len;      /* bytes in peek (0 = no record peeked) */
     int   peek_valid;    /* 1 = peek holds the next record */
+    /* Keyed/random access (Section G, G24). */
+    int   key_start;     /* 1-based record column where the key begins */
+    int   key_len;       /* key field length (0 = no key) */
+    long  last_rec_off;  /* byte offset of the most recently read record
+                            (for in-place UPDATE/DELETE, G25) */
+    long  cur_off;       /* logical position cursor (SETLL/READ) */
+    /* In-memory key index, built lazily on first keyed op. */
+    char **idx_keys;     /* sorted key strings (reclen-wide, space-padded) */
+    long  *idx_offs;     /* matching byte offsets */
+    int    idx_count;
+    int    idx_built;    /* 1 once the index has been built */
 } g_files[RPG_RT_MAX_FILES];
 
 int rpg_rt_open_input(const char *path) {
@@ -60,7 +76,16 @@ int rpg_rt_open_input(const char *path) {
             }
             g_files[id].fp       = fp;
             g_files[id].is_input = 1;
+            g_files[id].is_update = 0;
             g_files[id].reclen   = 0;   /* set per-program; 0 => unbounded */
+            g_files[id].key_start = 0;
+            g_files[id].key_len   = 0;
+            g_files[id].last_rec_off = 0;
+            g_files[id].cur_off   = 0;
+            g_files[id].idx_keys  = NULL;
+            g_files[id].idx_offs  = NULL;
+            g_files[id].idx_count = 0;
+            g_files[id].idx_built = 0;
             return id;
         }
     }
@@ -74,6 +99,9 @@ int rpg_rt_open_input(const char *path) {
 static int read_one(int file_id, char *buf, size_t buflen) {
     FILE *fp = g_files[file_id].fp;
     int   rl = g_files[file_id].reclen;
+
+    /* Remember where this record begins, for in-place UPDATE/DELETE (G25). */
+    g_files[file_id].last_rec_off = ftell(fp);
 
     if (rl <= 0) {
         /* Fallback: line-based read (no fixed width declared). */
@@ -166,6 +194,228 @@ int rpg_rt_peek_next(int file_id, char *buf, size_t buflen) {
     memcpy(buf, g_files[file_id].peek, n);
     buf[n] = '\0';
     return 1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Keyed / random access (Section G, G24).                                      */
+/*                                                                              */
+/* On an indexed DISK file the compiler calls rpg_rt_set_key once after open    */
+/* to declare the key's record position and length. The first keyed op then     */
+/* builds an in-memory index (sorted key -> byte offset) by scanning the file   */
+/* once. CHAIN does a binary search for a key; SETLL positions at the lower     */
+/* bound for sequential READ/READE. RRN access (no key set) uses the index's    */
+/* offset array directly: record N is the Nth stored offset (1-based).          */
+/* -------------------------------------------------------------------------- */
+
+/* Comparison for sorting/searching the key index: space-padded, memcmp-style. */
+static int key_cmp(const char *a, const char *b, int len) {
+    return memcmp(a, b, (size_t)len);
+}
+
+/* qsort helper: compare idx_keys entries (each key_len wide). The key length
+ * for the sort in progress is carried in s_sort_key_len. */
+struct IdxEntry { char *key; long off; };
+static int s_sort_key_len = 0;
+static int idx_qsort_cmp(const void *pa, const void *pb) {
+    const struct IdxEntry *a = (const struct IdxEntry *)pa;
+    const struct IdxEntry *b = (const struct IdxEntry *)pb;
+    int kl = s_sort_key_len > 0 ? s_sort_key_len : 1;
+    int c = memcmp(a->key, b->key, (size_t)kl);
+    /* Ties broken by file order (stable-ish): lower offset first. */
+    if (c == 0) return (a->off < b->off) ? -1 : (a->off > b->off ? 1 : 0);
+    return c;
+}
+
+void rpg_rt_set_key(int file_id, int key_start, int key_len) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES) return;
+    g_files[file_id].key_start = key_start;
+    g_files[file_id].key_len   = key_len;
+    g_files[file_id].idx_built = 0;   /* rebuild if key changed */
+}
+
+/* Scan the whole file once, recording each record's key bytes and byte offset.
+ * Leaves the stream positioned back at the start. */
+static void build_index(int file_id) {
+    if (g_files[file_id].idx_built) return;
+    int kl = g_files[file_id].key_len;
+    int ks = g_files[file_id].key_start;   /* 1-based */
+    int rl = g_files[file_id].reclen;
+    FILE *fp = g_files[file_id].fp;
+    if (!fp) return;
+
+    int cap = 64, n = 0;
+    struct IdxEntry *ents = (struct IdxEntry *)malloc(sizeof(struct IdxEntry) * cap);
+    if (!ents) return;
+
+    long save = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    char *line = (char *)malloc(1024);
+    if (!line) { fseek(fp, save, SEEK_SET); free(ents); return; }
+    while (read_one(file_id, line, 1024)) {
+        /* Extract the key slice [ks-1 .. ks-1+kl-1], space-padded to kl. */
+        if (n == cap) { cap *= 2; ents = (struct IdxEntry *)realloc(ents, sizeof(struct IdxEntry) * cap); if (!ents) { fseek(fp, save, SEEK_SET); return; } }
+        char *k = (char *)malloc((size_t)(kl > 0 ? kl : rl) + 1);
+        if (kl > 0 && ks > 0) {
+            int i;
+            for (i = 0; i < kl; ++i) {
+                int pos = ks - 1 + i;
+                k[i] = (pos < (int)strlen(line)) ? line[pos] : ' ';
+            }
+            k[kl] = '\0';
+        } else {
+            /* No key: use the whole record (RRN-only access relies on offset order). */
+            strncpy(k, line, (size_t)rl);
+            k[rl] = '\0';
+        }
+        ents[n].key = k;
+        /* last_rec_off was set by read_one to this record's start. */
+        ents[n].off = g_files[file_id].last_rec_off;
+        ++n;
+    }
+    /* Sort by key if a key is declared. */
+    if (kl > 0) {
+        s_sort_key_len = kl;
+        qsort(ents, (size_t)n, sizeof(struct IdxEntry), idx_qsort_cmp);
+        s_sort_key_len = 0;
+    }
+    /* Transfer into the per-file arrays. */
+    g_files[file_id].idx_keys = (char **)malloc(sizeof(char *) * (n > 0 ? n : 1));
+    g_files[file_id].idx_offs = (long *)malloc(sizeof(long) * (n > 0 ? n : 1));
+    for (int i = 0; i < n; ++i) {
+        g_files[file_id].idx_keys[i] = ents[i].key;
+        g_files[file_id].idx_offs[i] = ents[i].off;
+    }
+    g_files[file_id].idx_count = n;
+    g_files[file_id].idx_built = 1;
+    free(ents);
+    free(line);
+    fseek(fp, save, SEEK_SET);
+    g_files[file_id].last_rec_off = ftell(fp);
+}
+
+/* Read the record at byte offset `off` into buf (using read_one after seeking).
+ * Returns 1 on success. */
+static int read_at(int file_id, long off, char *buf, size_t buflen) {
+    FILE *fp = g_files[file_id].fp;
+    if (!fp) return 0;
+    fseek(fp, off, SEEK_SET);
+    return read_one(file_id, buf, buflen);
+}
+
+void rpg_rt_set_key_placeholder(void) {}  /* (kept for symbol symmetry) */
+
+/* Format `value` as a zero-padded decimal string of width `width` into `out`
+ * (right-justified, e.g. value=2 width=2 -> "02"). Used by CHAIN/SETLL/READE
+ * to build a numeric key buffer. Returns the width. (Section G, G24.) */
+int rpg_rt_fmt_key(long value, int width, char *out) {
+    if (width < 1) width = 1;
+    int neg = value < 0;
+    unsigned long uv = neg ? (unsigned long)(-value) : (unsigned long)value;
+    char tmp[24];
+    int n = 0;
+    if (uv == 0) tmp[n++] = '0';
+    while (uv > 0) { tmp[n++] = (char)('0' + uv % 10); uv /= 10; }
+    int pad = width - n - (neg ? 1 : 0);
+    int oi = 0;
+    if (neg && pad >= 0) out[oi++] = '-';
+    for (int i = 0; i < pad; ++i) out[oi++] = '0';
+    for (int i = n - 1; i >= 0; --i) out[oi++] = tmp[i];
+    out[oi] = '\0';
+    return width;
+}
+
+int rpg_rt_chain(int file_id, const char *key, int keylen, char *buf, size_t buflen) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return 0;
+    int kl = g_files[file_id].key_len;
+    if (kl > 0) {
+        /* Keyed access: binary-search the index. */
+        build_index(file_id);
+        int lo = 0, hi = g_files[file_id].idx_count - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            int c = key_cmp(key, g_files[file_id].idx_keys[mid], (size_t)kl);
+            if (c == 0) {
+                /* First matching offset (there may be duplicate keys). */
+                while (mid > 0 && key_cmp(key, g_files[file_id].idx_keys[mid-1], (size_t)kl) == 0) --mid;
+                return read_at(file_id, g_files[file_id].idx_offs[mid], buf, buflen);
+            }
+            if (c < 0) hi = mid - 1; else lo = mid + 1;
+        }
+        return 0;   /* not found */
+    }
+    /* RRN access: keylen bytes hold a numeric relative-record number. The
+     * compiler passes the RRN in `key` as a decimal string. Record N (1-based)
+     * = idx_offs[N-1]. (No key declared, so the index is in file order.) */
+    build_index(file_id);
+    long rrn = 0;
+    for (int i = 0; i < keylen; ++i) {
+        if (key[i] < '0' || key[i] > '9') break;
+        rrn = rrn * 10 + (key[i] - '0');
+    }
+    if (rrn < 1 || rrn > g_files[file_id].idx_count) return 0;
+    return read_at(file_id, g_files[file_id].idx_offs[rrn - 1], buf, buflen);
+}
+
+int rpg_rt_setll(int file_id, const char *key, int keylen) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return 0;
+    int kl = g_files[file_id].key_len;
+    build_index(file_id);
+    if (kl > 0) {
+        /* lower_bound: first index entry with key >= search key. */
+        int lo = 0, hi = g_files[file_id].idx_count;
+        while (lo < hi) {
+            int mid = (lo + hi) / 2;
+            if (key_cmp(g_files[file_id].idx_keys[mid], key, (size_t)kl) < 0) lo = mid + 1;
+            else hi = mid;
+        }
+        g_files[file_id].cur_off = (lo < g_files[file_id].idx_count)
+            ? g_files[file_id].idx_offs[lo] : -1;
+    } else {
+        g_files[file_id].cur_off = 0;   /* no key: position at start */
+    }
+    return 1;
+}
+
+/* Read the next record from the current logical position (SETLL cursor or the
+ * physical stream), advancing it. Returns 1 on record, 0 on EOF. */
+int rpg_rt_read(int file_id, char *buf, size_t buflen) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return 0;
+    int kl = g_files[file_id].key_len;
+    if (kl > 0) {
+        /* Keyed sequential read advances through the sorted index. */
+        build_index(file_id);
+        /* Find the index entry at/after cur_off. cur_off == -1 means exhausted. */
+        if (g_files[file_id].cur_off < 0) return 0;
+        int i;
+        for (i = 0; i < g_files[file_id].idx_count; ++i)
+            if (g_files[file_id].idx_offs[i] >= g_files[file_id].cur_off) break;
+        if (i >= g_files[file_id].idx_count) { g_files[file_id].cur_off = -1; return 0; }
+        int ok = read_at(file_id, g_files[file_id].idx_offs[i], buf, buflen);
+        g_files[file_id].cur_off = (i + 1 < g_files[file_id].idx_count)
+            ? g_files[file_id].idx_offs[i + 1] : -1;
+        return ok;
+    }
+    /* No key: plain sequential read from the physical stream. */
+    return read_one(file_id, buf, buflen);
+}
+
+/* Read the next record only if its key == search key; otherwise signal unequal
+ * (return 0) without consuming the non-matching record. */
+int rpg_rt_reade(int file_id, const char *key, int keylen, char *buf, size_t buflen) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return 0;
+    int kl = g_files[file_id].key_len;
+    if (kl <= 0) return rpg_rt_read(file_id, buf, buflen);  /* no key: behave as READ */
+    build_index(file_id);
+    if (g_files[file_id].cur_off < 0) return 0;
+    int i;
+    for (i = 0; i < g_files[file_id].idx_count; ++i)
+        if (g_files[file_id].idx_offs[i] >= g_files[file_id].cur_off) break;
+    if (i >= g_files[file_id].idx_count) { g_files[file_id].cur_off = -1; return 0; }
+    if (key_cmp(g_files[file_id].idx_keys[i], key, (size_t)kl) != 0) return 0;  /* unequal */
+    int ok = read_at(file_id, g_files[file_id].idx_offs[i], buf, buflen);
+    g_files[file_id].cur_off = (i + 1 < g_files[file_id].idx_count)
+        ? g_files[file_id].idx_offs[i + 1] : -1;
+    return ok;
 }
 
 void rpg_rt_set_reclen(int file_id, int reclen) {
@@ -307,21 +557,53 @@ int rpg_rt_cmp_str(const char *a, int alen, const char *b, int blen) {
     return 0;
 }
 
-/* LOKUP (Phase 10). Scans arr[0..count-1] for `key`. Updates *idx (1-based) on
- * a match. Returns 0=equal found, +1=higher found (ascending), -1=lower found,
- * -2=nothing. */
-int rpg_rt_lokup(long key, const int *arr, int count, int *idx) {
+/* LOKUP. Scans arr[0..count-1] for `key`. Updates *idx (1-based) on a match --
+ * an exact match, OR the nearest qualifying HI/LO element (manual 113147-
+ * 113162: "the entry ... nearest to ... the search word"), not just an exact
+ * match (A11). The array/table must be in the given sequence (manual
+ * 80417-80459, E-spec column 45; `ascending` nonzero = 'A', zero = 'D' or
+ * unspecified -- see B2) for HI/LO to mean anything:
+ *
+ *   ascending:  nearest lower  = the LAST element seen that is < key
+ *               (each later one seen is larger, so closer to key from below);
+ *               nearest higher = the FIRST element seen that is > key
+ *               (later ones only grow, so farther from key).
+ *   descending: mirror image -- nearest lower is the FIRST seen < key,
+ *               nearest higher is the LAST seen > key.
+ *
+ * Returns 0=equal found, +1=higher found, -1=lower found, -2=nothing. */
+int rpg_rt_lokup(long key, const int *arr, int count, int *idx, int ascending) {
     int start = (idx && *idx > 0) ? *idx - 1 : 0;
-    int found_hi = 0, found_lo = 0;
+    int have_hi = 0, have_lo = 0;
+    int hi_idx = -1, lo_idx = -1;
     for (int i = start; i < count; ++i) {
         if (arr[i] == key) {
             if (idx) *idx = i + 1;
             return 0;
         }
-        if (arr[i] > key) found_hi = 1;
-        else              found_lo = 1;
+        if (arr[i] > key) {
+            if (ascending) {
+                if (!have_hi) { have_hi = 1; hi_idx = i; }   /* first wins */
+            } else {
+                have_hi = 1; hi_idx = i;                     /* last wins */
+            }
+        } else {
+            if (ascending) {
+                have_lo = 1; lo_idx = i;                     /* last wins */
+            } else {
+                if (!have_lo) { have_lo = 1; lo_idx = i; }    /* first wins */
+            }
+        }
     }
-    return found_hi ? +1 : (found_lo ? -1 : -2);
+    /* Equal takes precedence (handled above); between HI/LO, HI wins if both
+     * indicators were assigned (manual: "if resulting indicators are assigned
+     * both to high and to low, the indicator assigned to low is ignored") --
+     * that policy is applied by the caller via which indicator it reads, so
+     * here we just report whichever nearest match(es) exist. */
+    if (have_hi) { if (idx) *idx = hi_idx + 1; return +1; }
+    if (have_lo) { if (idx) *idx = lo_idx + 1; return -1; }
+    if (idx) *idx = 1;   /* manual: unsuccessful search resets the index to 1 */
+    return -2;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -393,6 +675,58 @@ int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
     return stored;
 }
 
+/* Alphameric counterpart of rpg_rt_load_arrays (A9): copies raw fixed-width
+ * bytes instead of parsing a decimal value, so a prerun-time array/table
+ * declared alphanumeric (E-spec col 44 blank) loads its actual text instead
+ * of being silently skipped. Mirrors the numeric loader's line-skip and
+ * missing-partner handling. */
+int rpg_rt_load_char_arrays(const char *path, int len_a, int len_b,
+                            int total, char *out_a, char *out_b) {
+    if (!path || !out_a || total <= 0 || len_a <= 0) return 0;
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        fprintf(stderr, "rpg_rt: cannot open prerun-time array file '%s'\n", path);
+        return 0;
+    }
+    if (len_b < 0) len_b = 0;
+
+    char *buf = NULL;
+    size_t cap = 0, n = 0;
+    int ch;
+    while ((ch = fgetc(fp)) != EOF) {
+        if (n == cap) {
+            cap = cap ? cap * 2 : 256;
+            char *nb = (char *)realloc(buf, cap);
+            if (!nb) { free(buf); fclose(fp); return 0; }
+            buf = nb;
+        }
+        buf[n++] = (char)ch;
+    }
+    fclose(fp);
+
+    int stored = 0;
+    int i = 0;
+    int pair = 0;
+    while (stored < total && i + len_a <= (int)n) {
+        while (i < (int)n && (buf[i] == '\n' || buf[i] == '\r')) ++i;
+        if (i + len_a > (int)n) break;
+        memcpy(out_a + (size_t)stored * len_a, buf + i, (size_t)len_a);
+        stored++;
+        i += len_a;
+        if (len_b > 0 && out_b && pair < total) {
+            if (i + len_b <= (int)n) {
+                memcpy(out_b + (size_t)pair * len_b, buf + i, (size_t)len_b);
+                i += len_b;
+            } else {
+                memset(out_b + (size_t)pair * len_b, ' ', (size_t)len_b);
+            }
+            pair++;
+        }
+    }
+    free(buf);
+    return stored;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Edit codes (Phase 10). Format a number with zero-suppression, commas, a     */
 /* decimal point, and a sign. We implement the common subset:                  */
@@ -409,22 +743,32 @@ int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
 /* fractional part. rpg_rt_edit is the decimals=0 legacy entry point.         */
 /* -------------------------------------------------------------------------- */
 int rpg_rt_edit_dec(long value, char code, int width, int decimals,
-                    char *out, int out_cap) {
+                    char fill, char *out, int out_cap) {
     int neg = value < 0;
     unsigned long v = neg ? (unsigned long)(-value) : (unsigned long)value;
     if (decimals < 0) decimals = 0;
 
-    /* Determine formatting flags from the edit code. */
-    int use_comma = 0, use_decimal = 0, sign_style = 0; /* 0=CR, 1=trailing-, 2=leading */
+    /* Determine formatting flags from the edit code (Table 8, manual
+     * 62103-62330). Sign style: 1-4 print no sign at all; A-D print a
+     * trailing CR; J-M print a trailing minus; N-Q (not in this manual's
+     * table but a harmless AS/400-compatible extension) print a leading
+     * sign. Comma pairing is {1,2}/{A,B}/{J,K} = commas, {3,4}/{C,D}/{L,M} =
+     * no commas -- NOT tied to the odd/even code letter the way the old
+     * table mistakenly assumed. Zero-balance: the *second* code of each pair
+     * (2,4,B,D,K,M) blanks a zero value entirely instead of printing
+     * ".00"/"0" (A6). */
+    int use_comma = 0, use_decimal = 0, zero_blank = 0;
+    enum { SIGN_NONE = 0, SIGN_CR = 1, SIGN_MINUS = 2, SIGN_LEAD = 3 };
+    int sign_style = SIGN_NONE;
     char c = code;
-    /* J-M map to 1-4 with trailing minus; N-Q map to 1-4 with leading sign. */
-    if (c >= 'J' && c <= 'M') { sign_style = 1; c = (char)('1' + (c - 'J')); }
-    else if (c >= 'N' && c <= 'Q') { sign_style = 2; c = (char)('1' + (c - 'N')); }
+    if (c >= 'A' && c <= 'D') { sign_style = SIGN_CR;    c = (char)('1' + (c - 'A')); }
+    else if (c >= 'J' && c <= 'M') { sign_style = SIGN_MINUS; c = (char)('1' + (c - 'J')); }
+    else if (c >= 'N' && c <= 'Q') { sign_style = SIGN_LEAD;  c = (char)('1' + (c - 'N')); }
     switch (c) {
-        case '1': use_comma = 1; use_decimal = 1; break;
-        case '2': use_comma = 0; use_decimal = 1; break;
-        case '3': use_comma = 1; use_decimal = 0; break;
-        case '4': use_comma = 0; use_decimal = 0; break;
+        case '1': use_comma = 1; use_decimal = 1; zero_blank = 0; break;
+        case '2': use_comma = 1; use_decimal = 1; zero_blank = 1; break;
+        case '3': use_comma = 0; use_decimal = 0; zero_blank = 0; break;
+        case '4': use_comma = 0; use_decimal = 0; zero_blank = 1; break;
         default:
             /* Unknown code: plain decimal. */
             break;
@@ -432,6 +776,19 @@ int rpg_rt_edit_dec(long value, char code, int width, int decimals,
     /* When the field carries decimal positions, force a decimal point even if
      * the edit code (3/4) would normally omit it. */
     if (decimals > 0) use_decimal = 1;
+
+    /* Zero-balance blank rule (A6): the value (including any decimals) is
+     * exactly zero and this code's pairing calls for blanking rather than
+     * printing ".00"/"0". Render as pure blanks, padded to `width` like the
+     * normal path but with no digits at all. */
+    if (zero_blank && value == 0) {
+        int total = width > 0 ? width : 0;
+        if (total + 1 > out_cap) total = out_cap - 1;
+        int oi = 0;
+        for (int i = 0; i < total; ++i) out[oi++] = ' ';
+        out[oi] = '\0';
+        return oi;
+    }
 
     /* Build digits into a temp buffer (reversed), padded so the fractional
      * part always has `decimals` digits. */
@@ -445,7 +802,14 @@ int rpg_rt_edit_dec(long value, char code, int width, int decimals,
     /* Assemble the formatted string left-to-right. */
     char buf[64];
     int len = 0;
-    if (sign_style == 2) { buf[len++] = neg ? '-' : '+'; }
+    if (sign_style == SIGN_LEAD) { buf[len++] = neg ? '-' : '+'; }
+    /* A13: a floating fill character (O-spec cols 45-47 -- a currency symbol
+     * quoted like '$', or a bare '*') prints immediately to the left of the
+     * first digit (manual 62678-62762, Figures 166-168). Since this function
+     * never pads to a fixed width (A1: the caller right-aligns the natural-
+     * length result itself), "immediately left of the first digit" is simply
+     * "right here", after any leading sign and before the integer digits. */
+    if (fill) buf[len++] = fill;
     /* integer digits = everything above the decimal positions */
     int nint = nd - decimals;
     for (int i = nd - 1; i >= decimals; --i) {
@@ -465,9 +829,11 @@ int rpg_rt_edit_dec(long value, char code, int width, int decimals,
             for (int i = decimals - 1; i >= 0; --i) buf[len++] = digits[i];
         }
     }
-    /* trailing sign / CR */
-    if (sign_style == 1 && neg) buf[len++] = '-';
-    else if (sign_style == 0 && neg) { buf[len++] = 'C'; buf[len++] = 'R'; }
+    /* trailing sign / CR. SIGN_NONE (codes 1-4) prints no sign at all --
+     * the manual's own headline for edit codes: "all of them remove the
+     * sign of the field" except where the code explicitly adds one back. */
+    if (sign_style == SIGN_MINUS && neg) buf[len++] = '-';
+    else if (sign_style == SIGN_CR && neg) { buf[len++] = 'C'; buf[len++] = 'R'; }
 
     /* Right-justify into width. */
     int total = (width > len) ? width : len;
@@ -482,7 +848,7 @@ int rpg_rt_edit_dec(long value, char code, int width, int decimals,
 }
 
 int rpg_rt_edit(long value, char code, int width, char *out, int out_cap) {
-    return rpg_rt_edit_dec(value, code, width, 0, out, out_cap);
+    return rpg_rt_edit_dec(value, code, width, 0, 0, out, out_cap);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -520,6 +886,11 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
     char stopch = 0;
     int nrep = 0;
     int negat = -1;         /* index of a trailing '-' sign indicator */
+    /* A13: a currency symbol ('$') directly followed by '0' floats -- it
+     * prints immediately to the left of the first significant digit instead
+     * of at its own position (manual 63666-63669). A '$' not followed by '0'
+     * is left alone (falls through as an ordinary constant, unchanged). */
+    int curr = -1;
     for (int i = 0; i < word_len; ++i) {
         char w = word[i];
         int rep = (w == ' ' || w == '0' || w == '*');
@@ -528,6 +899,7 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
             if (stop < 0 && (w == '0' || w == '*')) { stop = i; stopch = w; }
         }
         if (w == '-' && i > 0 && word[i-1] == ' ') negat = i;
+        if (curr < 0 && w == '$' && i + 1 < word_len && word[i+1] == '0') curr = i;
     }
     int negCR = -1;
     if (word_len >= 2 && word[word_len-2] == 'C' && word[word_len-1] == 'R')
@@ -547,8 +919,10 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
     char tmp[96];
     int oi = 0;
     int significant = 0;    /* a non-zero digit has been placed */
+    int curr_pending = (curr >= 0);   /* A13: floating '$' not yet placed */
     for (int i = 0; i < word_len && oi < (int)sizeof(tmp) - 2; ++i) {
         char w = word[i];
+        if (i == curr) continue;   /* A13: prints later, not at its own slot */
         if (w == '&') { tmp[oi++] = ' '; continue; }       /* forced blank */
         if (i == negat) { if (neg) tmp[oi++] = '-'; continue; }
         if (i == negCR) { if (neg) { tmp[oi++] = 'C'; tmp[oi++] = 'R'; }
@@ -564,6 +938,7 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
                 tmp[oi++] = (stopch == '*') ? '*' : ' ';
             } else {
                 if (at_stop) significant = 1;   /* '0'/'*' anchor prints its digit */
+                if (curr_pending) { tmp[oi++] = '$'; curr_pending = 0; }
                 tmp[oi++] = d;
             }
         } else {
@@ -600,14 +975,118 @@ int rpg_rt_open_output(const char *path) {
             }
             g_files[id].fp       = fp;
             g_files[id].is_input = 0;
+            g_files[id].is_update = 0;
             g_files[id].reclen   = 0;
             g_files[id].line     = 0;
             g_files[id].page     = 1;   /* the first page is page 1 (D14) */
+            g_files[id].lines_per_page = 66;  /* default page depth (F22) */
+            g_files[id].overflow_line   = 60;  /* default overflow line (F22) */
+            g_files[id].overflow_latched = 0;
+            g_files[id].key_start = 0;
+            g_files[id].key_len   = 0;
+            g_files[id].last_rec_off = 0;
+            g_files[id].cur_off   = 0;
+            g_files[id].idx_keys  = NULL;
+            g_files[id].idx_offs  = NULL;
+            g_files[id].idx_count = 0;
+            g_files[id].idx_built = 0;
             return id;
         }
     }
     fprintf(stderr, "rpg_rt: too many open files\n");
     return -1;
+}
+
+/* Open an update file (Section G, G25): read+write, in place, no truncate. */
+int rpg_rt_open_update(const char *path) {
+    for (int id = 0; id < RPG_RT_MAX_FILES; ++id) {
+        if (g_files[id].fp == NULL) {
+            FILE *fp = fopen(path, "r+");   /* must exist; read+write */
+            if (!fp) {
+                fprintf(stderr, "rpg_rt: cannot open update file '%s'\n", path);
+                return -1;
+            }
+            g_files[id].fp       = fp;
+            g_files[id].is_input = 1;   /* readable like an input file */
+            g_files[id].is_update = 1;
+            g_files[id].reclen   = 0;
+            g_files[id].line     = 0;
+            g_files[id].page     = 1;
+            g_files[id].lines_per_page = 66;
+            g_files[id].overflow_line   = 60;
+            g_files[id].overflow_latched = 0;
+            g_files[id].key_start = 0;
+            g_files[id].key_len   = 0;
+            g_files[id].last_rec_off = 0;
+            g_files[id].cur_off   = 0;
+            g_files[id].idx_keys  = NULL;
+            g_files[id].idx_offs  = NULL;
+            g_files[id].idx_count = 0;
+            g_files[id].idx_built = 0;
+            return id;
+        }
+    }
+    fprintf(stderr, "rpg_rt: too many open files\n");
+    return -1;
+}
+
+/* Append a record to `file_id` (O-spec ADD, G25). The buffer holds a complete
+ * fixed-width record; it is written followed by a newline. */
+void rpg_rt_write_rec(int file_id, const char *buf, int len) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return;
+    FILE *fp = g_files[file_id].fp;
+    long end = ftell(fp);
+    /* Seek to end so writes append regardless of the read cursor. */
+    long cur = end;
+    fseek(fp, 0, SEEK_END);
+    fwrite(buf, 1, (size_t)len, fp);
+    fputc('\n', fp);
+    fflush(fp);
+    fseek(fp, cur, SEEK_SET);
+}
+
+/* Rewrite the most recently read record in place (O-spec UPDATE, G25). The
+ * record is written at last_rec_off, padded to reclen. */
+void rpg_rt_update_rec(int file_id, const char *buf, int len) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return;
+    FILE *fp = g_files[file_id].fp;
+    int rl = g_files[file_id].reclen;
+    long off = g_files[file_id].last_rec_off;
+    long cur = ftell(fp);
+    fseek(fp, off, SEEK_SET);
+    fwrite(buf, 1, (size_t)len, fp);
+    /* pad to the fixed record width so the next record stays aligned */
+    for (int i = len; i < rl; ++i) fputc(' ', fp);
+    fputc('\n', fp);
+    fflush(fp);
+    fseek(fp, cur, SEEK_SET);
+}
+
+/* Delete the most recently read record (O-spec DEL, G25). Per the manual, a
+ * deleted record is filled with hexadecimal FFs in place. */
+void rpg_rt_delete_rec(int file_id) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return;
+    FILE *fp = g_files[file_id].fp;
+    int rl = g_files[file_id].reclen;
+    long off = g_files[file_id].last_rec_off;
+    long cur = ftell(fp);
+    fseek(fp, off, SEEK_SET);
+    for (int i = 0; i < rl; ++i) fputc('\xFF', fp);
+    fputc('\n', fp);
+    fflush(fp);
+    fseek(fp, cur, SEEK_SET);
+}
+
+/* Write/rewrite the current line buffer (populated by line_begin/line_put_*) as
+ * a disk record. `op` 0 = ADD (append), 1 = UPDATE (in-place). Lets O-spec
+ * ADD/UPDATE records reuse the printer field-placement logic. (Section G, G25.) */
+void rpg_rt_flush_rec(int file_id, int op) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES || !g_files[file_id].fp) return;
+    int len = g_line_len;
+    while (len > 1 && g_line[len - 1] == ' ') --len;   /* rtrim like emit_line */
+    if (op == 1) rpg_rt_update_rec(file_id, g_line, len);
+    else         rpg_rt_write_rec(file_id, g_line, len);
+    g_line_len = 0;
 }
 
 void rpg_rt_line_begin(int width) {
@@ -688,6 +1167,12 @@ void rpg_rt_emit_line(int file_id, int space_after) {
     g_line_len = 0;
     /* Track the line position on the current page (D13). */
     g_files[file_id].line += 1 + (space_after > 0 ? space_after : 0);
+    /* Overflow detection (Section F, F22): latching when the output reaches
+     * or passes the configured overflow line. */
+    if (g_files[file_id].overflow_line > 0 &&
+        g_files[file_id].line >= g_files[file_id].overflow_line) {
+        g_files[file_id].overflow_latched = 1;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -703,18 +1188,46 @@ void rpg_rt_skip(int file_id, int line_no) {
     if (line_no < 1) line_no = 1;
     FILE *fp = g_files[file_id].fp;
     int cur = g_files[file_id].line;
+    int new_page = 0;
     if (line_no <= cur || cur == 0) {
         /* New page: form-feed, reset line, advance page counter. */
         fputc('\f', fp);
         g_files[file_id].line = 0;
         g_files[file_id].page += 1;
         cur = 0;
+        new_page = 1;
     }
     /* Advance to the requested line with blank lines. */
     while (g_files[file_id].line < line_no - 1) {
         fputc('\n', fp);
         g_files[file_id].line++;
     }
+    /* Overflow detection (Section F, F22). Skipping past the overflow line on
+     * the SAME page latches overflow; a skip that started a new page does not. */
+    if (!new_page && g_files[file_id].overflow_line > 0 &&
+        g_files[file_id].line >= g_files[file_id].overflow_line) {
+        g_files[file_id].overflow_latched = 1;
+    }
+}
+
+/* Configure overflow for a PRINTER file (Section F, F22). Called once after the
+ * file is opened when the program assigns an overflow indicator. The line
+ * numbers come from the line-counter (L) spec, or the manual defaults. */
+void rpg_rt_set_overflow(int file_id, int lines_per_page, int overflow_line) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES) return;
+    if (lines_per_page > 0) g_files[file_id].lines_per_page = lines_per_page;
+    g_files[file_id].overflow_line = overflow_line;
+    g_files[file_id].overflow_latched = 0;
+}
+
+/* Return 1 if the overflow line was reached since the last call, then clear the
+ * latch (Section F, F22). The generated cycle polls this at total time to drive
+ * the overflow indicator. */
+int rpg_rt_take_overflow(int file_id) {
+    if (file_id < 0 || file_id >= RPG_RT_MAX_FILES) return 0;
+    int v = g_files[file_id].overflow_latched;
+    g_files[file_id].overflow_latched = 0;
+    return v;
 }
 
 /* Return the current page number for a file. `which`: 0 => this file's own
@@ -741,5 +1254,18 @@ void rpg_rt_close_all(void) {
             fclose(g_files[id].fp);
             g_files[id].fp = NULL;
         }
+        /* Free the keyed index (Section G). */
+        if (g_files[id].idx_keys) {
+            for (int i = 0; i < g_files[id].idx_count; ++i)
+                free(g_files[id].idx_keys[i]);
+            free(g_files[id].idx_keys);
+            g_files[id].idx_keys = NULL;
+        }
+        if (g_files[id].idx_offs) {
+            free(g_files[id].idx_offs);
+            g_files[id].idx_offs = NULL;
+        }
+        g_files[id].idx_count = 0;
+        g_files[id].idx_built = 0;
     }
 }

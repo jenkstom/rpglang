@@ -64,6 +64,8 @@ ISpecs parse_ispecs(const std::vector<SourceLine> &src) {
                 fld.decimals = dec[0] - '0';
             fld.name = nametxt;
             fld.control_level = upper(col_trim(sl.text, 59, 60));
+            // Matching field (cols 61-62): M1-M9 (Section F, F20).
+            fld.match_field = upper(col_trim(sl.text, 61, 62));
             // Field-record-relation (cols 63-64) and field indicators
             // (cols 65-70): three 2-char indicator groups (+/-/0). E17/E18.
             fld.record_id = parse_indicator_token(col_trim(sl.text, 63, 64));
@@ -74,19 +76,29 @@ ISpecs parse_ispecs(const std::vector<SourceLine> &src) {
             else                out.fields.push_back(std::move(fld));
         } else {
             // ---- record-identification line ----
+            // AND/OR continuation lines (cols 14-16) have blank cols 7-14 by
+            // definition, so the continuation check must happen before
+            // rec.name/current_file are trusted -- otherwise the blank name
+            // on a continuation line stomps current_file and field lines that
+            // follow lose their file association (A3).
+            std::string rel = upper(col_trim(sl.text, 14, 16));
+            bool is_cont = (rel == "AND" || rel == "OR");
+
             ISpecRec rec;
             rec.lineno = sl.lineno;
             rec.name   = col_trim(sl.text, 7, 14);
-            current_file = rec.name;
-            std::string ri = col_trim(sl.text, 19, 20);
-            if (ri == "**") {
-                rec.is_lookahead = true;   // E19 look-ahead marker
-                lookahead_mode = true;
-            } else {
-                lookahead_mode = false;    // a normal record-id ends look-ahead
-                if (ri.size() == 2 && std::isdigit((unsigned char)ri[0])
-                                   && std::isdigit((unsigned char)ri[1])) {
-                    rec.rec_indicator = (ri[0]-'0')*10 + (ri[1]-'0');
+            if (!is_cont) {
+                current_file = rec.name;
+                std::string ri = col_trim(sl.text, 19, 20);
+                if (ri == "**") {
+                    rec.is_lookahead = true;   // E19 look-ahead marker
+                    lookahead_mode = true;
+                } else {
+                    lookahead_mode = false;    // a normal record-id ends look-ahead
+                    if (ri.size() == 2 && std::isdigit((unsigned char)ri[0])
+                                       && std::isdigit((unsigned char)ri[1])) {
+                        rec.rec_indicator = (ri[0]-'0')*10 + (ri[1]-'0');
+                    }
                 }
             }
             // Record-identification codes (cols 21-41): three 7-column sets
@@ -106,12 +118,7 @@ ISpecs parse_ispecs(const std::vector<SourceLine> &src) {
                 if (!ch.empty()) cs.ch = ch[0];
                 return cs;
             };
-            // AND/OR continuation: if cols 14-16 carry AND/OR, append to the
-            // previous record rather than starting a new one.
-            std::string rel = upper(col_trim(sl.text, 14, 16));
-            bool is_cont = (rel == "AND" || rel == "OR");
-            if (is_cont && !out.records.empty() &&
-                out.records.back().name == rec.name) {
+            if (is_cont && !out.records.empty()) {
                 ISpecRec &prev = out.records.back();
                 for (int start : {21, 28, 35}) {
                     RecCodeSet cs = parse_set(start);

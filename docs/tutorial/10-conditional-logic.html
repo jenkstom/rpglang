@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 11 — Comparisons and Conditional Logic</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 11 — Comparisons and Conditional Logic</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>Every program needs to make decisions. RPG&nbsp;II gives you two ways to do
+    that, and this chapter covers both. The first is the <strong>indicator-based
+    pattern</strong>: a <code>COMP</code> operation compares two values and
+    records the outcome in indicators, and then later lines are conditioned on
+    those indicators. This is the classic RPG&nbsp;II style and, before structured
+    operations were added, it was the <em>only</em> way to branch. The second is
+    the <strong>structured</strong> family — <code>IFxx</code>, <code>ELSE</code>,
+    and <code>END</code> — which feels much closer to the <code>if</code>/<code>else</code>
+    you already know. We cover <code>COMP</code>'s three-way comparison, the six
+    <code>IFxx</code> operators, nested blocks, and — most importantly — when to
+    reach for each approach.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.1 The "you already know" analogy</h2>
+
+  <p>You already know <code>if</code>/<code>else</code> from every language you
+  have ever used. RPG&nbsp;II offers two routes to the same destination, and the
+  diagram below shows them side by side. On the left, the structured
+  <code>IFxx</code> approach wraps a block of code in a test — almost identical
+  to what you are used to. On the right, the <code>COMP</code>+indicators
+  approach splits the decision across independent lines: one line does the
+  comparison and stores the result in a flag, and the following lines test that
+  flag.</p>
+
+  <div class="callout">
+    <p><strong>Why two approaches?</strong> The <code>COMP</code>+indicators
+    pattern came first — it is baked into the column layout and works everywhere,
+    including output specs where there is no <code>IFxx</code>. The structured
+    <code>IFxx</code> operations were added later for readability. Most real
+    programs use both: <code>IFxx</code> for localized if-then-else logic, and
+    <code>COMP</code> when the comparison result needs to be reused or tested in
+    an output spec.</p>
+  </div>
+
+  <!-- SVG: Two approaches side by side -->
+  <div class="svg-container">
+    <svg width="820" height="280" viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Two Paths to Conditional Logic</text>
+
+      <!-- Left: IFxx approach -->
+      <rect x="20" y="40" width="370" height="220" rx="12" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="205" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="#7aa2f7">Structured IFxx approach</text>
+      <text x="205" y="80" text-anchor="middle" font-size="10" fill="#565f89">Most like modern if/else</text>
+      <rect x="35" y="90" width="340" height="20" fill="none" stroke="#565f89"/>
+      <text x="42" y="105" font-family="monospace" font-size="11" fill="#9ece6a">     C    A    IFGT B</text>
+      <rect x="35" y="113" width="340" height="20" fill="none" stroke="#565f89"/>
+      <text x="42" y="128" font-family="monospace" font-size="11" fill="#9ece6a">     C         Z-ADD 1    RESULT</text>
+      <rect x="35" y="136" width="340" height="20" fill="none" stroke="#565f89"/>
+      <text x="42" y="151" font-family="monospace" font-size="11" fill="#9ece6a">     C         ELSE</text>
+      <rect x="35" y="159" width="340" height="20" fill="none" stroke="#565f89"/>
+      <text x="42" y="174" font-family="monospace" font-size="11" fill="#9ece6a">     C         Z-ADD 2    RESULT</text>
+      <rect x="35" y="182" width="340" height="20" fill="none" stroke="#565f89"/>
+      <text x="42" y="197" font-family="monospace" font-size="11" fill="#9ece6a">     C         END</text>
+      <text x="205" y="225" text-anchor="middle" font-size="10" fill="#7dcfff" font-style="italic">≡ if (a > b) { result=1 } else { result=2 }</text>
+      <text x="205" y="245" text-anchor="middle" font-size="9" fill="#565f89">Block is self-contained; END closes it</text>
+
+      <!-- Right: COMP approach -->
+      <rect x="410" y="40" width="390" height="220" rx="12" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="605" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="#ff9e64">COMP + indicators approach</text>
+      <text x="605" y="80" text-anchor="middle" font-size="10" fill="#565f89">Classic RPG II style</text>
+      <rect x="425" y="90" width="360" height="20" fill="none" stroke="#565f89"/>
+      <text x="432" y="105" font-family="monospace" font-size="11" fill="#9ece6a">     C    A    COMP B         10 11 12</text>
+      <text x="565" y="105" font-size="9" fill="#ff9e64" font-style="italic">↑ sets ind 10/11/12</text>
+      <rect x="425" y="113" width="360" height="20" fill="none" stroke="#565f89"/>
+      <text x="432" y="128" font-family="monospace" font-size="11" fill="#9ece6a">     C  10       Z-ADD 1    RESULT</text>
+      <text x="600" y="128" font-size="9" fill="#7dcfff" font-style="italic">↑ runs if ind 10 ON</text>
+      <rect x="425" y="136" width="360" height="20" fill="none" stroke="#565f89"/>
+      <text x="432" y="151" font-family="monospace" font-size="11" fill="#9ece6a">     C N10       Z-ADD 2    RESULT</text>
+      <text x="600" y="151" font-size="9" fill="#7dcfff" font-style="italic">↑ runs if ind 10 OFF</text>
+      <text x="605" y="195" text-anchor="middle" font-size="10" fill="#ff9e64" font-style="italic">ind 10 = HI (A>B), ind 11 = LO, ind 12 = EQ</text>
+      <text x="605" y="220" text-anchor="middle" font-size="9" fill="#565f89">Indicator persists — test it anywhere later</text>
+      <text x="605" y="240" text-anchor="middle" font-size="9" fill="#565f89">No END needed; lines are independent</text>
+    </svg>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.2 COMP — three-way comparison</h2>
+
+  <p>The <code>COMP</code> operation compares Factor&nbsp;1 (cols&nbsp;18–27) to
+  Factor&nbsp;2 (cols&nbsp;33–42) and records the outcome in up to three
+  <strong>resulting indicators</strong> — one for each possible result. This is
+  the set-then-test pattern from <a href="04-indicators.html">Chapter&nbsp;4</a>,
+  now applied to an explicit comparison.</p>
+
+  <p>The three resulting-indicator slots each cover one outcome:</p>
+
+  <table>
+    <tr><th>Slot</th><th>Cols</th><th>Turned ON when</th></tr>
+    <tr><td>HI</td><td>54–55</td><td>Factor&nbsp;1 &gt; Factor&nbsp;2</td></tr>
+    <tr><td>LO</td><td>56–57</td><td>Factor&nbsp;1 &lt; Factor&nbsp;2</td></tr>
+    <tr><td>EQ</td><td>58–59</td><td>Factor&nbsp;1 = Factor&nbsp;2</td></tr>
+  </table>
+
+  <p>Only the matching indicator turns ON; the other two turn OFF. So a single
+  <code>COMP</code> line gives you a complete three-way branch — like a
+  <code>compareTo()</code> that writes its result into global flags instead of
+  returning an integer.</p>
+
+  <p>The simplest case names just one indicator. Here we compare <code>A</code>
+  to <code>B</code> and put indicator&nbsp;10 in the LO slot (cols&nbsp;56–57), so
+  it turns ON when <code>A&nbsp;&lt;&nbsp;B</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           A         COMP B                      10</code></pre>
+
+  <p>Count the columns: <code>A</code> is at col&nbsp;18 (Factor&nbsp;1),
+  <code>COMP</code> at cols&nbsp;28–31, <code>B</code> at col&nbsp;33
+  (Factor&nbsp;2), and <code>10</code> at cols&nbsp;56–57 (the LO slot). After
+  this line, indicator&nbsp;10 is ON precisely when <code>A&nbsp;&lt;&nbsp;B</code>.
+  If <code>A&nbsp;=&nbsp;5</code> and <code>B&nbsp;=&nbsp;10</code>, then
+  indicator&nbsp;10 is ON; a later line conditioned on <code>10</code> will run.</p>
+
+  <p>To use all three outcomes at once, fill all three slots. Each indicator
+  occupies exactly two columns, so the three indicators sit contiguously at
+  cols&nbsp;54–59 with no gaps between them:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           A         COMP B                    303132</code></pre>
+
+  <p>Here indicator&nbsp;30 occupies the HI slot (54–55), indicator&nbsp;31 the
+  LO slot (56–57), and indicator&nbsp;32 the EQ slot (58–59). After the
+  <code>COMP</code>, exactly one of <code>30</code>, <code>31</code>,
+  <code>32</code> is ON. Subsequent lines can then branch on whichever outcome
+  they care about:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  30                 Z-ADD1         HIEXIT     ← A > B
+     C  31                 Z-ADD1         LOEXIT     ← A < B
+     C  32                 Z-ADD1         EQEXIT     ← A = B</code></pre>
+
+  <p><code>COMP</code> works on both numeric and alphameric (character) operands.
+  For character fields the comparison is byte-by-byte, left-aligned — see
+  <a href="13-field-operations.html">Chapter&nbsp;14</a> for details.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.3 IFxx — structured if-then</h2>
+
+  <p>The <code>IFxx</code> operation opens a conditional block that runs only
+  when the comparison holds. It is the closest RPG&nbsp;II gets to a modern
+  <code>if</code> statement. The block extends until a matching
+  <code>ELSE</code> or <code>END</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           A         IFGT B       ← "if A > B"
+     C                     Z-ADD1         WIN     ← then-branch
+     C                     ELSE                   ← optional
+     C                     Z-ADD2         WIN     ← else-branch
+     C                     END                    ← closes the block</code></pre>
+
+  <p>Factor&nbsp;1 (<code>A</code>, col&nbsp;18) and Factor&nbsp;2
+  (<code>B</code>, col&nbsp;33) are the operands. The two letters appended to
+  <code>IF</code> select the comparison operator — they live in the same
+  operation columns (28–32), so <code>IFGT</code> is one five-character token
+  occupying cols&nbsp;28–31.</p>
+
+  <table>
+    <tr><th>Operation</th><th>Meaning</th><th>Modern equivalent</th></tr>
+    <tr><td><code>IFGT</code></td><td>Greater than</td><td><code>if (a &gt; b)</code></td></tr>
+    <tr><td><code>IFLT</code></td><td>Less than</td><td><code>if (a &lt; b)</code></td></tr>
+    <tr><td><code>IFEQ</code></td><td>Equal</td><td><code>if (a == b)</code></td></tr>
+    <tr><td><code>IFNE</code></td><td>Not equal</td><td><code>if (a != b)</code></td></tr>
+    <tr><td><code>IFGE</code></td><td>Greater or equal</td><td><code>if (a &gt;= b)</code></td></tr>
+    <tr><td><code>IFLE</code></td><td>Less or equal</td><td><code>if (a &lt;= b)</code></td></tr>
+  </table>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> <code>IFGT&nbsp;A&nbsp;B</code> is
+    <code>if (a &gt; b)</code>. The then-branch is everything between
+    <code>IFGT</code> and <code>ELSE</code> (or <code>END</code> if there is no
+    <code>ELSE</code>). The whole construct is just spelled across fixed columns
+    instead of inside parentheses and braces.</p>
+  </div>
+
+  <p>A worked trace: if <code>A&nbsp;=&nbsp;5</code> and <code>B&nbsp;=&nbsp;3</code>,
+  then <code>A&nbsp;&gt;&nbsp;B</code> is true, so the then-branch runs and
+  <code>WIN</code> gets <code>1</code>. The else-branch is skipped. Swap the
+  values to <code>A&nbsp;=&nbsp;2</code> and the else-branch runs instead, setting
+  <code>WIN</code> to <code>2</code>.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.4 ELSE and END</h2>
+
+  <p><code>ELSE</code> marks the start of the else-branch. It is optional: if you
+  omit it, the block is a simple if-then with no alternative. <code>END</code>
+  closes the <code>IFxx</code> block. There is no separate <code>ENDIF</code> —
+  the same <code>END</code> operation also closes loops and CAS groups (covered in
+  <a href="11-loops-branching.html">Chapter&nbsp;12</a> and
+  <a href="12-subroutines.html">Chapter&nbsp;13</a>).</p>
+
+  <p><code>IFxx</code> blocks can nest. An <code>IFxx</code> inside an
+  <code>IFxx</code> needs its own <code>END</code>, exactly the way nested braces
+  work in a modern language. The compiler matches each <code>END</code> to the
+  innermost open block:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           QTY       IFGT 0                  ← outer test
+     C           QTY       IFGT 100                ← inner test
+     C                     Z-ADD1         TIER     ← QTY > 100
+     C                     ELSE
+     C                     Z-ADD2         TIER     ← 0 < QTY ≤ 100
+     C                     END                    ← closes inner IF
+     C                     END                    ← closes outer IF</code></pre>
+
+  <p>Here <code>QTY&nbsp;&gt;&nbsp;0</code> is tested first. Only if that holds
+  does the inner <code>QTY&nbsp;&gt;&nbsp;100</code> test run. The first
+  <code>END</code> closes the inner <code>IF</code>; the second closes the outer
+  one. Read it as:</p>
+
+  <pre><code>if (qty > 0) {
+    if (qty > 100) { tier = 1; }
+    else           { tier = 2; }
+}</code></pre>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.5 Combining IFxx with conditioning indicators</h2>
+
+  <p>An <code>IFxx</code> line is itself a C-spec, so it can carry
+  <strong>conditioning indicators</strong> in cols&nbsp;9–17 (see
+  <a href="04-indicators.html">Chapter&nbsp;4</a>). This lets you build compound
+  conditions: "if indicator&nbsp;10 is ON <em>and</em> <code>A&nbsp;&gt;&nbsp;B</code>,
+  run this block." The indicator gate and the comparison are ANDed together:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  10                 IFGT B                   ← only if ind 10 ON, then test A > B
+     C                     Z-ADD1         FLAG
+     C                     END</code></pre>
+
+  <p>If indicator&nbsp;10 is OFF, the entire block is skipped — the comparison
+  <code>A&nbsp;&gt;&nbsp;B</code> is never even evaluated. If indicator&nbsp;10 is
+  ON, the comparison proceeds normally.</p>
+
+  <p>For <strong>OR</strong> logic between two comparisons, do not try to nest
+  <code>IFxx</code>. Instead, either repeat the body on two lines (each gated by
+  a different comparison) or use the <code>COMP</code>+indicator idiom: do two
+  comparisons that <code>SETON</code> a shared indicator, then condition the real
+  work on that one flag. The conditioning columns on a single line are always
+  ANDed — there is no inline OR.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.6 When to use which approach</h2>
+
+  <ul>
+    <li><strong>Use <code>IFxx</code></strong> when the conditional logic is
+      localized — a clean if-then-else block that does not need to be tested
+      anywhere else. It is more readable for modern programmers and keeps the
+      branches visually grouped.</li>
+    <li><strong>Use <code>COMP</code> + indicators</strong> when:
+      <ul>
+        <li>You need to test the same comparison result in multiple,
+          non-contiguous places. The indicator persists, so you set it once and
+          read it wherever you like.</li>
+        <li>You are conditioning <strong>output specs</strong>. O-specs use
+          indicators (cols&nbsp;23–31), not <code>IFxx</code> — there is no
+          structured-operation syntax in output specifications. To make a field
+          or line print conditionally, you must drive it from an indicator.</li>
+        <li>You need a <strong>three-way branch</strong> (greater / less / equal)
+          rather than a binary true/false. <code>COMP</code> gives you all three
+          outcomes in one line; <code>IFxx</code> would need two separate
+          tests.</li>
+      </ul>
+    </li>
+  </ul>
+
+  <p>In practice, most programs use both approaches together. A typical pattern:
+  use <code>COMP</code> to classify each record (setting indicators that the
+  O-specs read), and use <code>IFxx</code> for any localized calculation logic
+  that never touches output.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>11.7 Putting it together</h2>
+
+  <p>The program below classifies each record's <code>AMT</code> as "large",
+  "small", or "zero" using a single <code>COMP</code>, then routes the value into
+  the right accumulator. It demonstrates the three-way branch that
+  <code>COMP</code> makes possible — something <code>IFxx</code> cannot do in one
+  operation.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C* Classify AMT: large (> 100), small (1..100), or zero.
+     C           AMT       COMP 100                  303132
+     C  30                 ADD  AMT       BIGTOT     ← AMT > 100
+     C  31                 ADD  AMT       SMLTOT     ← AMT < 100
+     C  32                 ADD  AMT       ZERTOT     ← AMT = 100
+     C                     SETON                     LR</code></pre>
+
+  <p>Walking through it: the <code>COMP</code> compares <code>AMT</code> to 100
+  and fills all three resulting slots — indicator&nbsp;30 (HI, cols&nbsp;54–55)
+  for greater, indicator&nbsp;31 (LO, cols&nbsp;56–57) for less, indicator&nbsp;32
+  (EQ, cols&nbsp;58–59) for equal. Exactly one of the three turns ON. The next
+  three lines are each conditioned on one indicator, so exactly one of them runs.
+  The final <code>SETON&nbsp;LR</code> signals end-of-file so the cycle stops.
+  (In a real program, <code>AMT</code> would arrive from an input record, and
+  these lines would run once per record.)</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Common pitfalls</h2>
+
+  <ul>
+    <li><strong>The three resulting slots are contiguous.</strong> Cols&nbsp;54–55,
+      56–57, and 58–59 abut each other. Writing <code>30&nbsp;31&nbsp;32</code>
+      with spaces between them puts each indicator in the wrong slot. Each
+      indicator is exactly two columns wide with no separator — write
+      <code>303132</code>.</li>
+    <li><strong>Only one COMP outcome is ON at a time.</strong> <code>COMP</code>
+      turns the matching indicator ON and the other two OFF. Do not assume an old
+      indicator value survives a <code>COMP</code> that did not name it — if you
+      put an indicator in a slot, that slot is reset every time.</li>
+    <li><strong>Every <code>IFxx</code> needs an <code>END</code>.</strong> A
+      missing <code>END</code> swallows everything after it into the then-branch.
+      When nesting, count your <code>END</code> lines — one per open
+      <code>IFxx</code>.</li>
+    <li><strong>No <code>IFxx</code> in output specs.</strong> If you need to
+      print conditionally, set an indicator in the calculation specs and let the
+      O-spec test it. There is no structured-operation syntax in O-specs.</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You can now branch with both the classic <code>COMP</code>+indicator pattern
+  and the structured <code>IFxx</code> family. The next chapter adds
+  <em>repetition</em>: the three loop constructs (<code>DOWxx</code>,
+  <code>DOUxx</code>, <code>DO</code>) and the <code>GOTO</code>/<code>TAG</code>
+  branching mechanism. Loops use the same six comparison operators and the same
+  <code>END</code> closer you just met.</p>
+
+  <p>That is <a href="11-loops-branching.html">Chapter&nbsp;12 — Loops and
+  Branching</a>.</p>
+
+  <div class="nav">
+    <a href="09-calc-specs.html">← Chapter 9: Calculation Specs</a>
+    <a href="11-loops-branching.html">Chapter 12: Loops and Branching →</a>
+  </div>
+
+</body>
+</html>

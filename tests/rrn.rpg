@@ -1,0 +1,11 @@
+     C* G24: CHAIN by relative record number (no key). RRNFILE has
+     C* records 11,22,33. CHAIN RRN 3 reads the 3rd (val 33). Exit 33.
+     FRRNTRAN IP  F      80            DISK
+     FRRNFILE IF  F      80            DISK
+     IRRNTRAN    01
+     I                                        1   10RRN
+     IRRNFILE    02
+     I                                        1   20RVAL
+     C           RRN       CHAINRRNFILE              99
+     C                     ADD  RVAL      RPGRET
+     CLR                   SETOF

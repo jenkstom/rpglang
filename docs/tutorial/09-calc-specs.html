@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 9 — Calculation Specifications (C-specs)</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 9 — Calculation Specifications (C-specs)</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>The C-spec (column&nbsp;6 = <code>C</code>) is where the program's logic
+    lives. Every calculation — arithmetic, comparison, loop, subroutine call,
+    field move, file access — is one C-spec line, with its components fixed by
+    column position: control level, conditioning indicators, factor&nbsp;1,
+    operation, factor&nbsp;2, result field, length/decimals, half-adjust, and
+    resulting indicators. This chapter is a <strong>reference anatomy</strong>
+    of the C-spec, walking every column. It also serves as the <strong>master
+    operation index</strong> — a catalog of every operation code with its
+    operand requirements, cross-referencing the chapter that covers each in
+    depth.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.1 The "you already know" analogy</h2>
+
+  <p>A C-spec line is a single statement — like one line of a modern program. But
+  instead of free-text syntax parsed by a tokenizer, every component lives at a
+  fixed column offset. There are no braces, no keywords separated by whitespace,
+  and no semicolons. Meaning is positional.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Think of each C-spec line as a
+    single assembly instruction: <code>opcode&nbsp;src1&nbsp;src2&nbsp;→&nbsp;dest</code>,
+    with optional condition flags and result flags. You compose multi-step
+    calculations by <em>chaining lines</em> top to bottom — exactly the way you
+    would sequence statements, just without infix operators. The order of
+    C-spec lines is (usually) the order of execution.</p>
+  </div>
+
+  <p>The operands occupy the same columns on every calculation line. A simple
+  <code>ADD</code> illustrates the pattern:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  AMT       TOTAL</code></pre>
+
+  <p>Factor&nbsp;1 (cols&nbsp;18–27) is blank. The operation <code>ADD</code>
+  sits at cols&nbsp;28–30. Factor&nbsp;2 <code>AMT</code> starts at
+  col&nbsp;33. The result field <code>TOTAL</code> starts at col&nbsp;43.
+  Position alone tells you what is an operand, what is an operation, and where the
+  answer goes.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.2 C-spec column map (the master reference)</h2>
+
+  <p>Every C-spec line uses this layout:</p>
+
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Description</th></tr>
+    <tr><td>Control Level</td><td>7–8</td><td>L1–L9, LR, SR, AN, OR, or blank (detail)</td></tr>
+    <tr><td>Conditioning Indicators</td><td>9–17</td><td>3 AND-groups, each [N]II</td></tr>
+    <tr><td>Factor 1</td><td>18–27</td><td>First operand (field name, literal, or label)</td></tr>
+    <tr><td>Operation</td><td>28–32</td><td>The opcode (ADD, COMP, IFGT, EXSR, etc.)</td></tr>
+    <tr><td>Factor 2</td><td>33–42</td><td>Second operand</td></tr>
+    <tr><td>Result Field</td><td>43–48</td><td>Destination field name</td></tr>
+    <tr><td>Field Length</td><td>49–51</td><td>1–256 (for inline-defined result fields)</td></tr>
+    <tr><td>Decimal Positions</td><td>52</td><td>0–9 or blank</td></tr>
+    <tr><td>Half-Adjust</td><td>53</td><td>H or blank</td></tr>
+    <tr><td>Resulting Indicators</td><td>54–59</td><td>HI (54–55) / LO (56–57) / EQ (58–59)</td></tr>
+    <tr><td>Comments</td><td>60–74</td><td>Free-text comment</td></tr>
+  </table>
+
+  <!-- SVG: C-spec anatomy -->
+  <div class="svg-container">
+    <svg width="860" height="320" viewBox="0 0 860 320" xmlns="http://www.w3.org/2000/svg">
+      <text x="430" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">C-spec Column Anatomy</text>
+
+      <!-- Column bands -->
+      <g>
+        <rect x="50"  y="35" width="40"  height="180" fill="#1f2335" stroke="#565f89"/><text x="70"  y="230" text-anchor="middle" font-size="8" fill="#565f89">7-8 ctrl</text>
+        <rect x="90"  y="35" width="80"  height="180" fill="#24283b" stroke="#7aa2f7"/><text x="130" y="230" text-anchor="middle" font-size="8" fill="#7dcfff">9-17 cond inds</text>
+        <rect x="170" y="35" width="90"  height="180" fill="#1f2335" stroke="#565f89"/><text x="215" y="230" text-anchor="middle" font-size="8" fill="#565f89">18-27 fac1</text>
+        <rect x="260" y="35" width="65"  height="180" fill="#2a1f2e" stroke="#ff9e64"/><text x="292" y="230" text-anchor="middle" font-size="8" fill="#ff9e64">28-32 op</text>
+        <rect x="325" y="35" width="90"  height="180" fill="#1f2335" stroke="#565f89"/><text x="370" y="230" text-anchor="middle" font-size="8" fill="#565f89">33-42 fac2</text>
+        <rect x="415" y="35" width="60"  height="180" fill="#1f2335" stroke="#565f89"/><text x="445" y="230" text-anchor="middle" font-size="8" fill="#565f89">43-48 res</text>
+        <rect x="475" y="35" width="30"  height="180" fill="#24283b" stroke="#7aa2f7"/><text x="490" y="230" text-anchor="middle" font-size="8" fill="#7dcfff">49-51 len</text>
+        <rect x="505" y="35" width="10"  height="180" fill="#24283b" stroke="#7aa2f7"/><text x="510" y="230" text-anchor="middle" font-size="7" fill="#7dcfff">52</text>
+        <rect x="515" y="35" width="10"  height="180" fill="#2a1f2e" stroke="#ff9e64"/><text x="520" y="230" text-anchor="middle" font-size="7" fill="#ff9e64">53</text>
+        <rect x="525" y="35" width="55"  height="180" fill="#1f2335" stroke="#565f89"/><text x="552" y="230" text-anchor="middle" font-size="8" fill="#565f89">54-59 res inds</text>
+      </g>
+
+      <!-- Sample line -->
+      <text x="50" y="260" font-family="monospace" font-size="13" fill="#9ece6a">CL1  10  N20    AMT    COMP 10          HI LO EQ</text>
+
+      <!-- Annotated callouts -->
+      <text x="70"  y="280" text-anchor="middle" font-size="9" fill="#7dcfff">↑ L1</text>
+      <text x="130" y="280" text-anchor="middle" font-size="9" fill="#7dcfff">↑ ind10 AND !ind20</text>
+      <text x="215" y="280" text-anchor="middle" font-size="9" fill="#7dcfff">↑ factor1</text>
+      <text x="292" y="280" text-anchor="middle" font-size="9" fill="#ff9e64">↑ opcode</text>
+      <text x="370" y="280" text-anchor="middle" font-size="9" fill="#7dcfff">↑ factor2</text>
+      <text x="552" y="280" text-anchor="middle" font-size="9" fill="#7dcfff">↑ result inds</text>
+      <text x="430" y="300" text-anchor="middle" font-size="10" fill="#565f89" font-style="italic">"At total time (L1), if ind 10 ON and ind 20 OFF: compare AMT to 10, set HI/LO/EQ indicators"</text>
+    </svg>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.3 Control level (cols 7–8) — when the line runs</h2>
+
+  <p>Columns 7–8 determine <em>when</em> the line executes in the program cycle.
+  This is the column that has no direct modern equivalent — it is how RPG&nbsp;II
+  separates per-record logic from end-of-group and end-of-file logic without
+  <code>if</code> statements:</p>
+
+  <table>
+    <tr><th>Code</th><th>Timing</th><th>When it fires</th></tr>
+    <tr><td><em>blank</em></td><td>Detail time</td><td>Once per record, during normal processing</td></tr>
+    <tr><td><code>L1</code>–<code>L9</code></td><td>Total time</td><td>When that control level (or a higher one) is ON — i.e., when a control-break field changed</td></tr>
+    <tr><td><code>LR</code></td><td>Last-record time</td><td>Once, at end-of-file, after all records are processed</td></tr>
+    <tr><td><code>SR</code></td><td>Subroutine</td><td>Only inside a BEGSR/ENDSR block — excluded from normal cycle execution</td></tr>
+    <tr><td><code>AN</code> / <code>OR</code></td><td>Continuation</td><td>Extends the previous line's conditioning indicators with AND/OR logic</td></tr>
+  </table>
+
+  <p>For most lines, cols&nbsp;7–8 are blank — the line runs at detail time, once
+  per record. A line tagged <code>L1</code> runs only when a control break fires;
+  a line tagged <code>LR</code> runs only at end-of-file. See
+  <a href="03-program-cycle.html">Chapter&nbsp;3</a> for the cycle timing and
+  <a href="14-control-levels.html">Chapter&nbsp;15</a> for control levels.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.4 Conditioning indicators (cols 9–17) — the "if" guard</h2>
+
+  <p>Three 3-column groups, ANDed together, gate whether the line executes at
+  all. Each group can hold an indicator number (optionally prefixed with
+  <code>N</code> for negation):</p>
+
+  <pre><code>col:  9 10 11 | 12 13 14 | 15 16 17
+      [N] II   | [N] II   | [N] II</code></pre>
+
+  <p>If all three groups are blank, the line is unconditional. If any group has an
+  indicator, the line only executes when that indicator is in the required state.
+  <code>10</code> means "execute if indicator&nbsp;10 is ON";
+  <code>N20</code> means "execute if indicator&nbsp;20 is OFF."</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  N20                ADD  TAX       TOTAL</code></pre>
+
+  <p>Here indicator&nbsp;20 occupies cols&nbsp;10–11 (the first group), negated
+  by the <code>N</code> at col&nbsp;9. The line reads: "if indicator&nbsp;20 is
+  OFF, add <code>TAX</code> into <code>TOTAL</code>." This is RPG&nbsp;II's
+  equivalent of <code>if (!ind20) total += tax;</code> — but expressed entirely
+  by column position. See <a href="04-indicators.html">Chapter&nbsp;4</a> for the
+  full indicator system.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.5 Factor 1, Operation, Factor 2, Result (cols 18–48)</h2>
+
+  <p>The four operand slots form the heart of every C-spec:</p>
+
+  <ul>
+    <li><strong>Factor 1</strong> (cols&nbsp;18–27) — the first operand. Can be a
+      field name, a numeric literal, a character literal (quoted), or a label
+      (for <code>TAG</code>/<code>EXSR</code>/<code>BEGSR</code>). Optional for
+      many operations.</li>
+    <li><strong>Operation</strong> (cols&nbsp;28–32) — the opcode. Determines
+      what happens. Always begins at col&nbsp;28.</li>
+    <li><strong>Factor 2</strong> (cols&nbsp;33–42) — the second operand. Required
+      for most operations. Can be a field name, literal, array reference
+      (<code>ARRAY,INDEX</code>), or file name.</li>
+    <li><strong>Result field</strong> (cols&nbsp;43–48) — the destination. For
+      arithmetic, where the answer goes. For <code>EXSR</code>/<code>CASxx</code>,
+      the subroutine name. For <code>SETON</code>/<code>SETOF</code>, blank.</li>
+  </ul>
+
+  <p>A <code>COMP</code> operation demonstrates all four slots. Factor&nbsp;1 is
+  the left operand, Factor&nbsp;2 is the right operand, and the result is
+  recorded in the resulting indicators (cols&nbsp;54–59) rather than a result
+  field:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           AMT       COMP 4                    20</code></pre>
+
+  <p><code>AMT</code> sits at cols&nbsp;18–20 (Factor&nbsp;1), <code>COMP</code>
+  at cols&nbsp;28–31, <code>4</code> at col&nbsp;33 (Factor&nbsp;2), and
+  <code>20</code> at cols&nbsp;54–55 (the HI resulting indicator). The line means:
+  "compare <code>AMT</code> to 4; turn indicator&nbsp;20 ON if
+  <code>AMT</code>&nbsp;&gt;&nbsp;4." See
+  <a href="10-conditional-logic.html">Chapter&nbsp;11</a> for the full COMP
+  semantics.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.6 Result length, decimals, and half-adjust (cols 49–53)</h2>
+
+  <p>When a result field is used for the first time — meaning it was not declared
+  on an I-spec — you define its attributes inline here:</p>
+
+  <ul>
+    <li><strong>Field Length</strong> (cols&nbsp;49–51) — total digits for
+      numeric, or byte count for alphameric (1–256).</li>
+    <li><strong>Decimal Positions</strong> (col&nbsp;52) — 0–9 for numeric; blank
+      for alphameric. This is the same column as on I-specs.</li>
+    <li><strong>Half-Adjust</strong> (col&nbsp;53) — <code>H</code> enables
+      rounding. See <a href="06-arithmetic.html">Chapter&nbsp;6</a>.</li>
+  </ul>
+
+  <p>For example, to define a 5-digit, 2-decimal result field inline on a
+  <code>DIV</code> with half-adjust:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           100       DIV  7         AVG      52H</code></pre>
+
+  <p>The result field <code>AVG</code> at col&nbsp;43, then <code>5</code> at
+  col&nbsp;49 (field length), <code>2</code> at col&nbsp;52 (decimal positions),
+  and <code>H</code> at col&nbsp;53 (half-adjust). This defines <code>AVG</code>
+  as a 5-digit, 2-decimal field and rounds the result.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.7 Resulting indicators (cols 54–59)</h2>
+
+  <p>Three 2-character slots record the outcome of the operation. Their meaning
+  depends on the operation, but for arithmetic and comparison they follow a
+  consistent pattern:</p>
+
+  <table>
+    <tr><th>Slot</th><th>Cols</th><th>Arithmetic</th><th>Comparison (COMP)</th></tr>
+    <tr><td>HI</td><td>54–55</td><td>result is positive</td><td>F1 &gt; F2</td></tr>
+    <tr><td>LO</td><td>56–57</td><td>result is negative</td><td>F1 &lt; F2</td></tr>
+    <tr><td>EQ</td><td>58–59</td><td>result is zero</td><td>F1 = F2</td></tr>
+  </table>
+
+  <p>You put an indicator number in whichever slot you care about. After the
+  operation runs, that indicator is ON or OFF accordingly. A later line can then
+  condition on it. For example, to turn indicator&nbsp;50 ON when an
+  <code>ADD</code> result is positive:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  5         T          50</code></pre>
+
+  <p>Here <code>50</code> occupies the HI slot (cols&nbsp;54–55): indicator&nbsp;50
+  turns ON when the result of the <code>ADD</code> is positive. This is the
+  set-then-test pattern from <a href="04-indicators.html">Chapter&nbsp;4</a>,
+  driven by a computation rather than a manual <code>COMP</code>.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.8 Reading a C-spec line</h2>
+
+  <p>Here is a realistic line that uses almost every column. We will decode it
+  piece by piece:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C   10   N20          ADD  TAX       TOTAL      20</code></pre>
+
+  <table>
+    <tr><th>Cols</th><th>Content</th><th>Meaning</th></tr>
+    <tr><td>7–8</td><td><em>blank</em></td><td>Detail time: runs once per record</td></tr>
+    <tr><td>9–11</td><td><code> 10</code></td><td>AND: indicator 10 must be ON</td></tr>
+    <tr><td>15–17</td><td><code>N20</code></td><td>AND: indicator 20 must be OFF</td></tr>
+    <tr><td>18–27</td><td><em>blank</em></td><td>Factor 1 omitted: <code>TOTAL</code> is both source and destination (accumulator)</td></tr>
+    <tr><td>28–30</td><td><code>ADD</code></td><td>Operation: addition</td></tr>
+    <tr><td>33–35</td><td><code>TAX</code></td><td>Factor 2: the field TAX</td></tr>
+    <tr><td>43–47</td><td><code>TOTAL</code></td><td>Result field: where the answer goes</td></tr>
+    <tr><td>54–55</td><td><code>20</code></td><td>Resulting HI: indicator 20 ON if result is positive</td></tr>
+  </table>
+
+  <p>Read as a sentence: "<em>If indicator&nbsp;10 is ON and indicator&nbsp;20 is
+  OFF, add <code>TAX</code> into <code>TOTAL</code>. Turn indicator&nbsp;20 ON if
+  the result is positive.</em>" That is a lot of logic for one line — but each
+  piece lives at a predictable column, so once you know the layout, you can read
+  any C-spec at a glance.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.9 Comments (cols 60–74)</h2>
+
+  <p>Columns 60–74 on a calculation line hold an optional free-text comment.
+  Additionally, a line with <code>C*</code> (C in col&nbsp;6, asterisk in
+  col&nbsp;7) is a <em>full-line comment</em> — the entire line is ignored by
+  the compiler:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C* This is a full-line comment — the whole line is ignored.
+     C                     ADD  AMT       TOTAL            running sum</code></pre>
+
+  <p>The second line has the comment "running sum" at cols&nbsp;60–74. The
+  operation is unaffected.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.10 Master operation index</h2>
+
+  <p>This is the quick-reference catalog. Each operation is one C-spec line with
+  specific operand requirements. The chapter column links to the in-depth
+  treatment.</p>
+
+  <table>
+    <tr><th>Operation</th><th>Category</th><th>Chapter</th><th>Notes</th></tr>
+    <tr><td><code>ADD</code> <code>SUB</code> <code>MULT</code> <code>DIV</code> <code>MVR</code></td><td>Arithmetic</td><td><a href="06-arithmetic.html">Ch. 6</a></td><td>Scaled-integer math with decimal alignment</td></tr>
+    <tr><td><code>Z-ADD</code> <code>Z-SUB</code> <code>SQRT</code></td><td>Arithmetic</td><td><a href="06-arithmetic.html">Ch. 6</a></td><td>Assignment, negate, square root</td></tr>
+    <tr><td><code>COMP</code></td><td>Comparison</td><td><a href="10-conditional-logic.html">Ch. 11</a></td><td>Three-way compare → HI/LO/EQ indicators</td></tr>
+    <tr><td><code>IFxx</code> <code>ELSE</code> <code>END</code></td><td>Conditional</td><td><a href="10-conditional-logic.html">Ch. 11</a></td><td>Structured if-then-else (xx = GT/LT/EQ/NE/GE/LE)</td></tr>
+    <tr><td><code>DOWxx</code> <code>DOUxx</code> <code>DO</code> <code>END</code></td><td>Loop</td><td><a href="11-loops-branching.html">Ch. 12</a></td><td>Do-while, do-until, counted loop</td></tr>
+    <tr><td><code>GOTO</code> <code>TAG</code></td><td>Branch</td><td><a href="11-loops-branching.html">Ch. 12</a></td><td>Unconditional branch and label</td></tr>
+    <tr><td><code>EXSR</code> <code>BEGSR</code> <code>ENDSR</code></td><td>Subroutine</td><td><a href="12-subroutines.html">Ch. 13</a></td><td>Call, begin, return</td></tr>
+    <tr><td><code>CASxx</code> <code>END</code></td><td>Subroutine</td><td><a href="12-subroutines.html">Ch. 13</a></td><td>Case-select calling subroutines</td></tr>
+    <tr><td><code>MOVE</code> <code>MOVEL</code> <code>MOVEA</code></td><td>Field ops</td><td><a href="13-field-operations.html">Ch. 14</a></td><td>Right/left/byte copy</td></tr>
+    <tr><td><code>TESTZ</code> <code>TESTB</code></td><td>Field ops</td><td><a href="13-field-operations.html">Ch. 14</a></td><td>Test character zone / bits</td></tr>
+    <tr><td><code>SETON</code> <code>SETOF</code></td><td>Indicator</td><td><a href="04-indicators.html">Ch. 4</a></td><td>Turn indicators on/off</td></tr>
+    <tr><td><code>XFOOT</code> <code>LOKUP</code></td><td>Array</td><td><a href="15-arrays-tables.html">Ch. 16</a></td><td>Sum array, search array</td></tr>
+    <tr><td><code>CHAIN</code> <code>SETLL</code> <code>READ</code> <code>READE</code></td><td>File</td><td><a href="18-file-access.html">Ch. 18</a></td><td>Keyed/positioned file access</td></tr>
+    <tr><td><code>EXCPT</code></td><td>Output</td><td><a href="16-output-specs.html">Ch. 10</a></td><td>Write exception output at calc time</td></tr>
+  </table>
+
+  <p>For every operation, Factor&nbsp;1, Factor&nbsp;2, and the result field mean
+  the same thing — they occupy the same columns. What changes is which are
+  required, what the operation computes, and which resulting indicators it sets.
+  The chapter listed above for each operation covers those details.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>9.11 Execution order and the cycle</h2>
+
+  <p>Within the same control level, C-specs execute top to bottom in source
+  order. There is no operator precedence because there are no expressions — each
+  line does one operation, and the sequence of lines is the sequence of
+  execution.</p>
+
+  <p>The cycle separates C-specs by timing: detail-time specs (blank control
+  level) run during detail processing, once per record; total-time specs
+  (<code>L1</code>–<code>L9</code>, <code>LR</code>) run during total processing,
+  when a control break fires or at end-of-file. See
+  <a href="03-program-cycle.html">Chapter&nbsp;3</a> for the full cycle
+  description.</p>
+
+  <p>Subroutine specs — lines inside <code>BEGSR</code>/<code>ENDSR</code> tagged
+  <code>SR</code> at cols&nbsp;7–8 — are excluded from normal execution order.
+  They run only when called via <code>EXSR</code> or <code>CASxx</code>.
+  Subroutines always sit after all detail and total calculations in the source.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You have now seen three of the four specification types: F-specs (files),
+  I-specs (input layout), and C-specs (calculations). The remaining spec is the
+  O-spec — the output specification — which describes what the program produces.
+  Where C-specs are imperative ("do this calculation"), O-specs are declarative:
+  "when these conditions hold, print this line with these fields at these
+  positions."</p>
+
+  <p>That is <a href="16-output-specs.html">Chapter&nbsp;10 — Output
+  Specifications</a>.</p>
+
+  <div class="nav">
+    <a href="08-input-specs.html">← Chapter 8: Input Specifications</a>
+    <a href="16-output-specs.html">Chapter 10: Output Specifications →</a>
+  </div>
+
+</body>
+</html>

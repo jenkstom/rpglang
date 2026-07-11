@@ -1,0 +1,9 @@
+     C* F23: first-cycle total correctness. Single control group [5,5,5];
+     C* L1 on KEY. CNT incremented at L1 should be 1 (LR break only).
+     C* Without the fix the first record spuriously fires L1 (prev=-1) -> CNT 2.
+     C* Exit = CNT = 1.
+     FFCDAT   IP  F      80            DISK
+     IFCDAT      01
+     I                                        1   10KEY   L1
+     CL1                   ADD  1         CNT
+     CLR                   Z-ADDCNT       RPGRET

@@ -1,0 +1,4 @@
+     C* H28 negative: a subroutine that calls itself (must fail).
+     C           REC       BEGSR
+     C                     EXSR REC
+     C                     ENDSR

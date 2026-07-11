@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 18 — File Access</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 18 — File Access</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>Summary</h2>
+    <p>Beyond the automatic cycle, RPG II provides explicit file-access
+    operations for keyed and positioned reading of DISK files.
+    <code>CHAIN</code> performs random access by key (or relative record
+    number). <code>SETLL</code> positions a file at a lower-bound key.
+    <code>READ</code> reads the next record sequentially; <code>READE</code>
+    reads the next record only if its key matches. These operations work on
+    files declared as full-procedural (designation <code>F</code>) — the cycle
+    does not read them automatically; you control access entirely. This chapter
+    covers keyed file declaration, each operation, and the typical patterns:
+    random lookup, sequential scan within a key range, and read-until-
+    unequal.</p>
+  </div>
+
+  <h2>Outline</h2>
+
+  <h3>18.1 The "you already know" analogy</h3>
+  <ul class="outline">
+    <li><code>CHAIN</code> is like a dictionary lookup —
+      <code>dict[key]</code> or a SQL <code>SELECT WHERE key = value</code>.
+      You provide a key, you get the record (or "not found").</li>
+    <li><code>SETLL</code> + <code>READ</code> is like a cursor-based scan —
+      position at a starting point, then iterate forward. Like
+      <code>seek()</code> followed by <code>read()</code> in file I/O.</li>
+    <li><code>READE</code> is like a filtered cursor — read only while the key
+      matches. Like <code>SELECT WHERE key = value</code> returning multiple
+      rows.</li>
+  </ul>
+
+  <!-- SVG: File access patterns -->
+  <div class="svg-container">
+    <svg width="820" height="340" viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">File Access Patterns</text>
+
+      <!-- Indexed file visualization -->
+      <text x="30" y="50" font-size="11" font-weight="bold" fill="#7dcfff">Indexed file (key values shown):</text>
+      <rect x="30" y="60" width="60" height="24" fill="#1f2335" stroke="#7aa2f7"/><text x="60" y="77" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">01</text>
+      <rect x="30" y="84" width="60" height="24" fill="#1f2335" stroke="#7aa2f7"/><text x="60" y="101" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">02</text>
+      <rect x="30" y="108" width="60" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/><text x="60" y="125" text-anchor="middle" font-size="10" font-family="monospace" fill="#ff9e64">02</text>
+      <rect x="30" y="132" width="60" height="24" fill="#1f2335" stroke="#7aa2f7"/><text x="60" y="149" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">03</text>
+      <rect x="30" y="156" width="60" height="24" fill="#1f2335" stroke="#7aa2f7"/><text x="60" y="173" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">04</text>
+      <rect x="30" y="180" width="60" height="24" fill="#1f2335" stroke="#7aa2f7"/><text x="60" y="197" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">05</text>
+
+      <!-- CHAIN pattern -->
+      <rect x="140" y="50" width="200" height="90" rx="8" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="240" y="70" text-anchor="middle" font-size="11" font-weight="bold" fill="#7aa2f7">CHAIN (random by key)</text>
+      <text x="240" y="90" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">CHAIN '02' SRFILE</text>
+      <line x1="100" y1="72" x2="138" y2="80" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#af1)"/>
+      <text x="240" y="110" text-anchor="middle" font-size="9" fill="#565f89">jumps directly to first</text>
+      <text x="240" y="123" text-anchor="middle" font-size="9" fill="#565f89">record with key '02'</text>
+      <text x="240" y="136" text-anchor="middle" font-size="9" fill="#ff9e64">sets HI ind if not found</text>
+
+      <!-- SETLL + READE pattern -->
+      <rect x="400" y="50" width="200" height="120" rx="8" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="500" y="70" text-anchor="middle" font-size="11" font-weight="bold" fill="#ff9e64">SETLL + READE (scan)</text>
+      <text x="500" y="90" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">SETLL '02' SRFILE</text>
+      <text x="500" y="105" text-anchor="middle" font-size="9" fill="#565f89">positions at key '02'</text>
+      <line x1="100" y1="96" x2="398" y2="100" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#af1)"/>
+      <text x="500" y="125" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">READE '02' SRFILE</text>
+      <text x="500" y="140" text-anchor="middle" font-size="9" fill="#565f89">reads while key = '02'</text>
+      <text x="500" y="155" text-anchor="middle" font-size="9" fill="#ff9e64">reads: 02, 02 (then stops)</text>
+
+      <!-- READ pattern -->
+      <rect x="640" y="50" width="160" height="90" rx="8" fill="#1f2335" stroke="#9ece6a" stroke-width="2"/>
+      <text x="720" y="70" text-anchor="middle" font-size="11" font-weight="bold" fill="#9ece6a">READ (sequential)</text>
+      <text x="720" y="90" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">READ SRFILE</text>
+      <text x="720" y="110" text-anchor="middle" font-size="9" fill="#565f89">reads next record</text>
+      <text x="720" y="125" text-anchor="middle" font-size="9" fill="#565f89">regardless of key</text>
+      <text x="720" y="138" text-anchor="middle" font-size="9" fill="#ff9e64">sets EOF ind at end</text>
+
+      <!-- Typical pattern: read loop -->
+      <rect x="140" y="180" width="500" height="140" rx="8" fill="#24283b" stroke="#7dcfff"/>
+      <text x="160" y="200" font-size="11" font-weight="bold" fill="#7dcfff">Typical pattern: read all records with a given key</text>
+      <text x="160" y="222" font-family="monospace" font-size="11" fill="#9ece6a">     C   STKEY   SETLL SRFILE          ← position at key</text>
+      <text x="160" y="240" font-family="monospace" font-size="11" fill="#ff9e64">RDL  C   SKEY    READE SRFILE       99  ← read if key matches</text>
+      <text x="160" y="258" font-family="monospace" font-size="11" fill="#f7768e">     C  99       GOTO DONE             ← EOF/unequal → exit</text>
+      <text x="160" y="276" font-family="monospace" font-size="11" fill="#9ece6a">     C           ADD  1          CNT   ← process record</text>
+      <text x="160" y="294" font-family="monospace" font-size="11" fill="#9ece6a">     C           GOTO RDL              ← loop back</text>
+      <text x="160" y="312" font-family="monospace" font-size="11" fill="#9ece6a">     C  DONE     TAG</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs><marker id="af1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker></defs>
+  </svg>
+
+  <h3>18.2 Declaring a keyed file</h3>
+  <ul class="outline">
+    <li>The F-spec must declare the file as indexed (<code>I</code> in col 32),
+      full-procedural (<code>F</code> in col 16), with key length (cols 29–30)
+      and key start position (cols 35–38).</li>
+    <li>Example:
+      <pre><code>     FSRFILE  IF  F      80  2AI     1 DISK</code></pre>
+      This declares SRFILE as Input, Full-procedural, indexed, 80-byte records,
+      2-byte key starting at position 1, key type A (zoned).</li>
+  </ul>
+
+  <h3>18.3 CHAIN — random access by key</h3>
+  <ul class="outline">
+    <li><code>CHAIN KEY FILE</code> searches the file for the record matching
+      factor 1 (the key). If found, the record is read into the input buffer
+      and fields are extracted. If not found, the no-record indicator (cols
+      54–55) turns on.</li>
+    <li>Without a key, <code>CHAIN</code> reads by relative record number
+      (RRN).</li>
+    <li>The analogy: <code>dict[key]</code> or
+      <code>SELECT * FROM file WHERE key = value</code>.</li>
+  </ul>
+
+  <h3>18.4 SETLL — set lower limit</h3>
+  <ul class="outline">
+    <li><code>SETLL KEY FILE</code> positions the file at the first record whose
+      key is greater than or equal to factor 1. No record is read — just
+      positioning. Like <code>seek()</code> or a SQL cursor open.</li>
+  </ul>
+
+  <h3>18.5 READ — sequential read</h3>
+  <ul class="outline">
+    <li><code>READ FILE</code> reads the next record from the positioned file.
+      Sets the EOF indicator (cols 58–59) at end-of-file. Like
+      <code>cursor.next()</code> or <code>readLine()</code>.</li>
+  </ul>
+
+  <h3>18.6 READE — read equal key</h3>
+  <ul class="outline">
+    <li><code>READE KEY FILE</code> reads the next record <em>only if</em> its
+      key equals factor 1. If the next record's key differs (or EOF is
+      reached), the EOF/unequal indicator (cols 58–59) turns on.</li>
+    <li>Combined with SETLL, this lets you scan all records matching a key
+      — like <code>SELECT WHERE key = value</code> returning multiple rows.</li>
+  </ul>
+
+  <h3>18.7 Resulting indicators</h3>
+  <table>
+    <tr><th>Operation</th><th>HI (54–55)</th><th>EQ/EOF (58–59)</th></tr>
+    <tr><td>CHAIN</td><td>No record found</td><td>—</td></tr>
+    <tr><td>READ</td><td>—</td><td>End-of-file</td></tr>
+    <tr><td>READE</td><td>—</td><td>EOF or key mismatch</td></tr>
+    <tr><td>SETLL</td><td>—</td><td>—</td></tr>
+  </table>
+
+  <h3>18.8 Update files</h3>
+  <ul class="outline">
+    <li>An update file (F-spec type <code>U</code>) opens for read-write. After
+      CHAIN or READ, the record can be rewritten in place. The O-spec drives
+      the update: type <code>U</code> rewrites the last-read record;
+      <code>ADD</code> in cols 16–18 appends a new record; <code>DEL</code>
+      marks the record deleted.</li>
+  </ul>
+
+  <h2>What to write into this chapter</h2>
+  <ul class="outline">
+    <li>Include the file-access-patterns SVG.</li>
+    <li>Show CHAIN for a single-record lookup (e.g. look up a customer
+      master by ID).</li>
+    <li>Show SETLL + READE loop for scanning all matching records.</li>
+    <li>Show an update-file example (CHAIN a record, modify a field,
+      rewrite).</li>
+    <li>Include a resulting-indicator reference table.</li>
+    <li>Cross-reference <a href="07-file-specs.html">Chapter 7</a> for keyed
+      F-spec declaration.</li>
+  </ul>
+
+  <div class="nav">
+    <a href="17-output-formatting.html">← Chapter 17: Output Formatting</a>
+    <a href="19-multifile.html">Chapter 19: Multifile Processing →</a>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,5 @@
+     C* H27 negative: GOTO from main body into a subroutine (must fail).
+     C                     GOTO INSIDE
+     C           SUB       BEGSR
+     C           INSIDE    TAG
+     C                     ENDSR

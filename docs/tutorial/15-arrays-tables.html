@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 16 — Arrays and Tables</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 16 — Arrays and Tables</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>Summary</h2>
+    <p>RPG II supports fixed-size arrays and a special "table" abstraction via
+    the E-spec (Extension specification). Arrays are declared with a name,
+    element count, element length, and decimal positions; they can be loaded
+    with <strong>compile-time data</strong> (appended after the source) or
+    <strong>prerun-time data</strong> (loaded from a file at startup). Element
+    access uses <code>ARRAY,INDEX</code> syntax (1-based). Tables are arrays
+    with a hidden "current element" pointer — <code>LOKUP</code> advances the
+    pointer to the matched element, and a related table advances in lockstep.
+    Operations include <code>XFOOT</code> (sum all elements) and
+    <code>LOKUP</code> (search for a value). This chapter covers the E-spec,
+    data loading, element access, tables vs arrays, and search/sum
+    operations.</p>
+  </div>
+
+  <h2>Outline</h2>
+
+  <h3>16.1 The "you already know" analogy</h3>
+  <ul class="outline">
+    <li>An RPG II array is a fixed-size array of numeric values — like
+      <code>int[] values = new int[5];</code>. You can't resize it or append
+      to it.</li>
+    <li>An RPG II <em>table</em> is like an array with an implicit iterator —
+      <code>LOKUP</code> is like <code>find()</code> that not only returns
+      whether a match exists but also positions the "current element" pointer
+      at the match, similar to a database cursor.</li>
+    <li>Related tables that advance in lockstep are like a pair of parallel
+      arrays or a dictionary/map: look up a key in one, get the corresponding
+      value from the other.</li>
+  </ul>
+
+  <!-- SVG: Array vs Table -->
+  <div class="svg-container">
+    <svg width="820" height="340" viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Arrays vs Tables</text>
+
+      <!-- Array -->
+      <rect x="20" y="40" width="380" height="280" rx="12" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="210" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Array (explicit index)</text>
+
+      <text x="40" y="85" font-size="10" fill="#565f89">NUMS = [10, 20, 30, 40, 50]</text>
+      <rect x="40" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="65" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">10</text>
+      <text x="42" y="88" font-size="8" fill="#565f89">1</text>
+      <rect x="90" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="115" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">20</text>
+      <text x="92" y="88" font-size="8" fill="#565f89">2</text>
+      <rect x="140" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="165" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">30</text>
+      <text x="142" y="88" font-size="8" fill="#565f89">3</text>
+      <rect x="190" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="215" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">40</text>
+      <text x="192" y="88" font-size="8" fill="#565f89">4</text>
+      <rect x="240" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="265" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">50</text>
+      <text x="242" y="88" font-size="8" fill="#565f89">5</text>
+
+      <text x="40" y="150" font-size="10" fill="#7dcfff">Access: NUMS,3 → 30</text>
+      <rect x="140" y="138" width="50" height="30" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="165" y="158" text-anchor="middle" font-size="12" fill="#ff9e64">30</text>
+
+      <text x="40" y="190" font-size="10" fill="#7dcfff">XFOOT NUMS → 150</text>
+      <rect x="40" y="200" width="250" height="20" fill="#24283b" stroke="#7dcfff"/>
+      <text x="165" y="215" text-anchor="middle" font-size="10" fill="#7dcfff">sum of all elements = 150</text>
+
+      <text x="40" y="250" font-size="10" fill="#565f89">Index always specified explicitly:</text>
+      <text x="40" y="265" font-family="monospace" font-size="11" fill="#9ece6a">     C    NUMS,3   ADD 5   RESULT</text>
+      <text x="40" y="290" font-size="9" fill="#565f89">NUMS[3] + 5 = 35 → RESULT</text>
+      <text x="40" y="310" font-size="9" fill="#565f89">(1-based index, not 0-based)</text>
+
+      <!-- Table -->
+      <rect x="420" y="40" width="380" height="280" rx="12" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="610" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#ff9e64">Table (implicit current element)</text>
+
+      <text x="440" y="85" font-size="10" fill="#565f89">TABKEY = [10, 20, 30, 40, 50]</text>
+      <rect x="440" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="465" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">10</text>
+      <rect x="490" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="515" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">20</text>
+      <rect x="540" y="95" width="50" height="30" fill="#2a1f2e" stroke="#ff9e64" stroke-width="3"/><text x="565" y="115" text-anchor="middle" font-size="12" fill="#ff9e64">30</text>
+      <text x="555" y="88" font-size="9" fill="#ff9e64">← current</text>
+      <rect x="590" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="615" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">40</text>
+      <rect x="640" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="665" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">50</text>
+
+      <text x="440" y="150" font-size="10" fill="#ff9e64">LOKUP 30 → finds elem 3, sets pointer</text>
+      <text x="440" y="165" font-size="10" fill="#7dcfff">Bare name → current element = 30</text>
+
+      <text x="440" y="195" font-size="10" fill="#565f89">Related table advances in lockstep:</text>
+      <text x="440" y="212" font-size="10" fill="#565f89">TABVAL = [Jan, Feb, Mar, Apr, May]</text>
+      <rect x="440" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="465" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">Jan</text>
+      <rect x="490" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="515" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">Feb</text>
+      <rect x="540" y="220" width="50" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="3"/><text x="565" y="237" text-anchor="middle" font-size="10" fill="#ff9e64">Mar</text>
+      <rect x="590" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="615" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">Apr</text>
+      <rect x="640" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="665" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">May</text>
+
+      <text x="440" y="270" font-size="9" fill="#565f89">After LOKUP 30 in TABKEY →</text>
+      <text x="440" y="285" font-size="9" fill="#565f89">TABVAL also points to "Mar"</text>
+      <text x="440" y="305" font-size="9" fill="#ff9e64">Like a dictionary lookup: key→value</text>
+    </svg>
+  </div>
+
+  <h3>16.2 The E-spec (Extension specification)</h3>
+  <ul class="outline">
+    <li>The E-spec declares arrays and tables. Key columns:
+      <ul>
+        <li><strong>Name</strong> (cols 27–32) — the array/table name. Names
+          starting with <code>TAB</code> are treated as tables; others are
+          arrays.</li>
+        <li><strong>Number of entries</strong> (cols 36–39) — element count.</li>
+        <li><strong>Entry length</strong> (cols 40–42) — digits per element.</li>
+        <li><strong>Decimals</strong> (col 44) — decimal positions per
+          element.</li>
+        <li><strong>Prerun-time filename</strong> (cols 11–18) — if present,
+          load from this file at startup instead of compile-time data.</li>
+        <li><strong>Alternating/related table</strong> (cols 46–57) — partner
+          table name and its length/decimals.</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h3>16.3 Compile-time data</h3>
+  <ul class="outline">
+    <li>Compile-time array data appears after the source code, introduced by a
+      <code>**</code> record:</li>
+  </ul>
+  <pre><code>** 
+1020304050</code></pre>
+  <ul class="outline">
+    <li>The data is packed — elements are concatenated without delimiters.
+      For 5 elements of length 5, the data line <code>1020304050</code> holds
+      all five values.</li>
+    <li>This data is baked into the compiled program at build time.</li>
+  </ul>
+
+  <h3>16.4 Prerun-time data</h3>
+  <ul class="outline">
+    <li>If the E-spec specifies a filename in cols 11–18, the array is loaded
+      from that file at program startup — before the cycle runs.</li>
+    <li>Useful when the data changes between runs but shouldn't require
+      recompilation.</li>
+  </ul>
+
+  <h3>16.5 Element access: ARRAY,INDEX</h3>
+  <ul class="outline">
+    <li>In any factor or result field, write <code>ARRAY,INDEX</code> to access
+      a specific element. The index is <strong>1-based</strong>.</li>
+    <li>Example: <code>NUMS,3</code> = the third element of NUMS. The index
+      can be a field name or a literal.</li>
+    <li>For tables, a <em>bare</em> name (no <code>,INDEX</code>) resolves to
+      the current (shadow-selected) element. <code>TABNUM,3</code> still works
+      as an explicit array-style reference.</li>
+  </ul>
+
+  <h3>16.6 XFOOT — sum an array</h3>
+  <ul class="outline">
+    <li><code>XFOOT NUMS RESULT</code> sums all elements of the array into the
+      result field. The analogy: <code>result = sum(nums)</code> or
+      <code>nums.Sum()</code>.</li>
+    <li>Sets resulting indicators (HI/LO/EQ) based on the sign of the sum.</li>
+  </ul>
+
+  <h3>16.7 LOKUP — search an array or table</h3>
+  <ul class="outline">
+    <li><code>LOKUP KEY ARRAY INDEX</code> searches the array for a value
+      matching factor 1. Sets resulting indicators:
+      <ul>
+        <li>EQ — exact match found.</li>
+        <li>HI — a higher element found.</li>
+        <li>LO — a lower element found.</li>
+      </ul>
+    </li>
+    <li>On a match, the index variable is updated to the matched position.</li>
+    <li>For tables, <code>LOKUP</code> on a bare table name advances the
+      hidden current-element pointer to the match. A related table named in
+      the result field advances in lockstep.</li>
+    <li>The analogy: <code>indexOf()</code> / <code>find()</code> / binary
+      search, depending on the table's sequence flag.</li>
+  </ul>
+
+  <h3>16.8 MOVEA — bulk transfer</h3>
+  <ul class="outline">
+    <li><code>MOVEA</code> copies bytes between an array and a field (or two
+      fields) as a flat byte sequence. See
+      <a href="13-field-operations.html">Chapter 14</a>.</li>
+  </ul>
+
+  <h2>What to write into this chapter</h2>
+  <ul class="outline">
+    <li>Include the array-vs-table SVG as the central diagram.</li>
+    <li>Show a compile-time array with XFOOT.</li>
+    <li>Show a prerun-time array loaded from a file.</li>
+    <li>Show a table LOKUP with a related table advancing in lockstep (e.g.
+      month-number → month-name lookup).</li>
+    <li>Include an E-spec column reference table.</li>
+    <li>Cross-reference <a href="13-field-operations.html">Chapter 14</a> for
+      MOVEA.</li>
+  </ul>
+
+  <div class="nav">
+    <a href="14-control-levels.html">← Chapter 15: Control Levels</a>
+    <a href="16-output-specs.html">Chapter 10: Output Specs →</a>
+  </div>
+
+</body>
+</html>

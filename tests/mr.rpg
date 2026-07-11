@@ -1,0 +1,16 @@
+     C* F20: matching records (MR indicator, M1 match field).
+     C* Primary MRPRIM keys 1,2,3 vals 10,20,30; secondary MRSEC keys 2,4 vals 5,5.
+     C* ind01 ADD VAL (primary 60), ind02 ADD SVAL (secondary 10), MR ADD 1 (1 match).
+     C* RPGRET = 60+10+1 = 71.
+     FMRPRIM  IP  F    80              DISK
+     FMRSEC   IS  F    80              DISK
+     IMRPRIM      01
+     I                                        1   20KEY     M1
+     I                                        3   40VAL
+     IMRSEC       02
+     I                                        1   20SKEY    M1
+     I                                        3   40SVAL
+     C  01                 ADD  VAL       RPGRET
+     C  02                 ADD  SVAL      RPGRET
+     C  MR                 ADD  1         RPGRET
+     CLR                   SETOF

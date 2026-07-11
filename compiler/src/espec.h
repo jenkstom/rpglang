@@ -31,6 +31,10 @@ struct ESpecArray {
     ArrayLoad   load = ArrayLoad::RunTime;
     std::string from_file;            // cols 11-18 (prerun-time)
     std::vector<long> init_data;      // compile-time values (numeric)
+    // Compile-time values for an alphanumeric array/table (A9): fixed-width
+    // (entry_len-byte) strings, parallel to init_data. Populated instead of
+    // init_data when decimals < 0.
+    std::vector<std::string> init_str;
     // Alternating partner (cols 46-57): a second array/table whose elements
     // interleave with `name`'s on each input record. Blank when not used.
     std::string alt_name;             // cols 46-51
@@ -38,6 +42,7 @@ struct ESpecArray {
     int         alt_decimals  = -1;   // col 56 (-1 = alphanumeric)
     bool        alt_ascending = false;// col 57 == 'A'
     std::vector<long> alt_init_data;  // compile-time values for the partner
+    std::vector<std::string> alt_init_str;  // alphanumeric partner values (A9)
 };
 
 /* A name beginning with TAB (case-insensitive) denotes a table rather than an

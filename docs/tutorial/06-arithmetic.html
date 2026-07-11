@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 6 — Arithmetic Operations</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 6 — Arithmetic Operations</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II provides eight arithmetic operations: <code>ADD</code>,
+    <code>SUB</code>, <code>MULT</code>, <code>DIV</code>, <code>MVR</code>
+    (move remainder), <code>Z-ADD</code> (zero-add / assign),
+    <code>Z-SUB</code> (negate), and <code>SQRT</code> (square root). All
+    operate on the scaled-integer numeric model from
+    <a href="05-data-fields.html">Chapter&nbsp;5</a>: the compiler automatically
+    aligns decimal points between operands, adjusts result scales, and
+    optionally rounds via <strong>half-adjust</strong>. There is no
+    operator-overloading or expression syntax — every operation is a single
+    named opcode on one calculation line.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.1 The "you already know" analogy</h2>
+
+  <p>In a modern language you write <code>total = a + b</code> — one expression
+  with an operator and an assignment. RPG&nbsp;II has <strong>no expression
+  syntax</strong>. There is no <code>+</code> operator, no <code>=</code>, and
+  no operator precedence. Instead, each arithmetic act is a single named
+  <em>operation</em> on one calculation line, with its operands slotted into
+  fixed columns.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Think of each arithmetic C-spec
+    line as a single assembly instruction:
+    <code>ADD&nbsp;source1&nbsp;source2&nbsp;→&nbsp;destination</code>. You
+    compose multi-step calculations by <em>chaining lines</em>, one operation at
+    a time, top to bottom — exactly the way you would sequence statements, just
+    without infix operators.</p>
+  </div>
+
+  <p>The operands occupy the same columns on every calculation line: Factor&nbsp;1
+  (cols&nbsp;18–27), the operation (28–32), Factor&nbsp;2 (33–42), and the
+  result field (43–48). So <code>ADD AMT TOTAL</code> — with Factor&nbsp;1 left
+  blank — means "add <code>AMT</code> into <code>TOTAL</code>":</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  AMT       TOTAL</code></pre>
+
+  <p>There is no ambiguity about which operand is the source and which is the
+  destination: position decides. Factor&nbsp;2 is always the right-hand operand;
+  the result field is always where the answer lands.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.2 Operation reference</h2>
+
+  <p>The eight operations and what each computes:</p>
+
+  <table>
+    <tr><th>Op</th><th>Factor 1</th><th>Factor 2</th><th>Result</th><th>Semantics</th></tr>
+    <tr><td><code>ADD</code></td><td>optional</td><td>required</td><td>required</td><td>result = (F1 or result) + F2</td></tr>
+    <tr><td><code>SUB</code></td><td>optional</td><td>required</td><td>required</td><td>result = (F1 or result) − F2</td></tr>
+    <tr><td><code>MULT</code></td><td>optional</td><td>required</td><td>required</td><td>result = (F1 or result) × F2</td></tr>
+    <tr><td><code>DIV</code></td><td>optional</td><td>required</td><td>required</td><td>result = (F1 or result) ÷ F2 (quotient)</td></tr>
+    <tr><td><code>MVR</code></td><td>blank</td><td>blank</td><td>required</td><td>result = remainder of preceding DIV</td></tr>
+    <tr><td><code>Z-ADD</code></td><td>unused</td><td>required</td><td>required</td><td>result = F2 (assignment / zero-assign)</td></tr>
+    <tr><td><code>Z-SUB</code></td><td>unused</td><td>required</td><td>required</td><td>result = −F2 (negate)</td></tr>
+    <tr><td><code>SQRT</code></td><td>blank</td><td>required</td><td>required</td><td>result = √(F2), always half-adjusted</td></tr>
+  </table>
+
+  <p>Two operations deserve a quick orienting note before we go deeper.
+  <code>Z-ADD</code> is the <em>assignment</em> operation: it clears the result
+  field and stores Factor&nbsp;2 into it (the "Z" is for "zero" — it zeroes the
+  field first, which is why it is the canonical way to initialise a variable).
+  <code>Z-SUB</code> does the same but negates. Both ignore Factor&nbsp;1
+  entirely:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD42        X            ← X = 42
+     C                     Z-ADD0         TOTAL        ← TOTAL = 0 (initialise)</code></pre>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.3 Factor 1 omission — the accumulator pattern</h2>
+
+  <p>For <code>ADD</code>, <code>SUB</code>, <code>MULT</code>, and
+  <code>DIV</code>, Factor&nbsp;1 is <strong>optional</strong>. When you leave
+  it blank, the result field is used as <em>both</em> the source and the
+  destination. This is the heart of the accumulator pattern:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  AMT       TOTAL        ← TOTAL = TOTAL + AMT
+     C                     ADD  5         COUNT        ← COUNT = COUNT + 5</code></pre>
+
+  <p>Because Factor&nbsp;1 is blank, <code>ADD AMT TOTAL</code> reads as
+  "<code>TOTAL</code> = <code>TOTAL</code> + <code>AMT</code>" — the result
+  field feeds back into itself. Across the program cycle, where every line runs
+  once per input record, this builds a running total automatically:</p>
+
+  <!-- SVG: Accumulator pattern -->
+  <div class="svg-container">
+    <svg width="780" height="240" viewBox="0 0 780 240" xmlns="http://www.w3.org/2000/svg">
+      <text x="390" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">The Accumulator Pattern: ADD without Factor 1</text>
+
+      <!-- Step 1 -->
+      <rect x="30" y="40" width="200" height="100" rx="8" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="130" y="62" text-anchor="middle" font-size="11" font-weight="bold" fill="#7aa2f7">Cycle iteration 1</text>
+      <text x="130" y="85" text-anchor="middle" font-size="11" font-family="monospace" fill="#9ece6a">AMT = 10</text>
+      <text x="130" y="105" text-anchor="middle" font-size="11" font-family="monospace" fill="#9ece6a">TOTAL = 0</text>
+      <line x1="50" y1="113" x2="210" y2="113" stroke="#565f89"/>
+      <text x="130" y="130" text-anchor="middle" font-size="11" font-family="monospace" fill="#e0af68">ADD AMT → TOTAL=10</text>
+
+      <!-- Arrow -->
+      <line x1="240" y1="90" x2="275" y2="90" stroke="#7dcfff" stroke-width="2" marker-end="url(#ae1)"/>
+
+      <!-- Step 2 -->
+      <rect x="280" y="40" width="200" height="100" rx="8" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="380" y="62" text-anchor="middle" font-size="11" font-weight="bold" fill="#7aa2f7">Cycle iteration 2</text>
+      <text x="380" y="85" text-anchor="middle" font-size="11" font-family="monospace" fill="#9ece6a">AMT = 25</text>
+      <text x="380" y="105" text-anchor="middle" font-size="11" font-family="monospace" fill="#9ece6a">TOTAL = 10</text>
+      <line x1="300" y1="113" x2="460" y2="113" stroke="#565f89"/>
+      <text x="380" y="130" text-anchor="middle" font-size="11" font-family="monospace" fill="#e0af68">ADD AMT → TOTAL=35</text>
+
+      <line x1="490" y1="90" x2="525" y2="90" stroke="#7dcfff" stroke-width="2" marker-end="url(#ae1)"/>
+
+      <!-- Step 3 -->
+      <rect x="530" y="40" width="200" height="100" rx="8" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="630" y="62" text-anchor="middle" font-size="11" font-weight="bold" fill="#7aa2f7">Cycle iteration 3</text>
+      <text x="630" y="85" text-anchor="middle" font-size="11" font-family="monospace" fill="#9ece6a">AMT = 7</text>
+      <text x="630" y="105" text-anchor="middle" font-size="11" font-family="monospace" fill="#9ece6a">TOTAL = 35</text>
+      <line x1="550" y1="113" x2="710" y2="113" stroke="#565f89"/>
+      <text x="630" y="130" text-anchor="middle" font-size="11" font-family="monospace" fill="#e0af68">ADD AMT → TOTAL=42</text>
+
+      <!-- Bottom annotation -->
+      <rect x="200" y="170" width="380" height="40" rx="6" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="390" y="195" text-anchor="middle" font-size="12" fill="#ff9e64">Each cycle: TOTAL += AMT (factor 1 omitted)</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs><marker id="ae1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker></defs>
+  </svg>
+
+  <p>If you <em>do</em> supply Factor&nbsp;1, the result field's old value is
+  ignored — the result is computed purely from the two factors. So
+  <code>ADD A B SUM</code> means <code>SUM = A + B</code>, overwriting whatever
+  <code>SUM</code> held:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           A         ADD  B         SUM          ← SUM = A + B (F1 present)</code></pre>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.4 Decimal-point alignment</h2>
+
+  <p>Because every numeric field is a scaled integer
+  (<a href="05-data-fields.html">Chapter&nbsp;5</a>), two fields can represent
+  their values at <em>different scales</em>. A field with 2 decimals stores
+  1.50 as the integer <code>150</code>; a field with 0 decimals stores the value
+  2 as the integer <code>2</code>. Adding those raw integers (150 + 2 = 152)
+  would be nonsense — you would be adding 1.50 to 0.02.</p>
+
+  <p>RPG&nbsp;II avoids this by <strong>automatically aligning operands at the
+  implied decimal point</strong> before it computes. When the scales differ, the
+  compiler rescales the lower-precision operand up to match. Adding a 0-decimal
+  field (2) to a 2-decimal field (1.50):</p>
+
+  <ul>
+    <li>2 stored as <code>2</code> (0 decimals) → scaled up to 2 decimals:
+      <code>200</code></li>
+    <li>1.50 stored as <code>150</code> (2 decimals) → already at 2 decimals</li>
+    <li>200 + 150 = <code>350</code>, which at 2 decimals is <strong>3.50</strong></li>
+  </ul>
+
+  <!-- SVG: Decimal alignment -->
+  <div class="svg-container">
+    <svg width="720" height="250" viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg">
+      <text x="360" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Decimal-Point Alignment Before ADD</text>
+
+      <!-- A: 1.50, 2 decimals -->
+      <rect x="40" y="44" width="200" height="70" rx="6" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="140" y="66" text-anchor="middle" font-size="11" fill="#9ece6a" font-family="monospace">PRICE = 1.50 (2 dec)</text>
+      <text x="140" y="92" text-anchor="middle" font-size="15" fill="#e0af68" font-family="monospace">stored: 150</text>
+
+      <!-- B: 2, 0 decimals -->
+      <rect x="480" y="44" width="200" height="70" rx="6" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="580" y="66" text-anchor="middle" font-size="11" fill="#9ece6a" font-family="monospace">QTY = 2 (0 dec)</text>
+      <text x="580" y="92" text-anchor="middle" font-size="15" fill="#e0af68" font-family="monospace">stored: 2</text>
+
+      <!-- rescale arrow on B -->
+      <text x="580" y="130" text-anchor="middle" font-size="10" fill="#ff9e64">scale up to 2 dec → 200</text>
+      <rect x="510" y="138" width="140" height="28" rx="4" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="580" y="157" text-anchor="middle" font-size="14" fill="#ff9e64" font-family="monospace">200</text>
+
+      <!-- plus sign and result -->
+      <text x="360" y="160" text-anchor="middle" font-size="22" fill="#7dcfff">+</text>
+      <line x1="140" y1="172" x2="580" y2="172" stroke="#565f89" stroke-width="1"/>
+      <text x="360" y="200" text-anchor="middle" font-size="15" fill="#e0af68" font-family="monospace">150 + 200 = 350  →  3.50 (2 dec)</text>
+      <text x="360" y="225" text-anchor="middle" font-size="11" fill="#565f89">The compiler aligns scales so the decimal points line up</text>
+    </svg>
+  </div>
+
+  <p><code>MULT</code> and <code>DIV</code> have their own scale rules.
+  <code>MULT</code>'s result decimal count is the <em>sum</em> of the operands'
+  decimal counts (multiplying a 2-decimal field by a 1-decimal field yields a
+  3-decimal result). <code>DIV</code> scales the numerator up before dividing so
+  that the quotient keeps its precision rather than being truncated to an
+  integer. You control the final scale through the result field's declared
+  decimal positions (column&nbsp;52).</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> This is exactly what a
+    fixed-precision <code>decimal</code> type does: the runtime tracks each
+    value's scale and lines up the decimal points for you. The difference is that
+    in RPG&nbsp;II the scale is a fixed property of each field, declared once,
+    and the compiler honours it on every operation.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.5 Half-adjust (rounding)</h2>
+
+  <p>Because arithmetic is exact but result fields have a fixed number of
+  decimals, a result sometimes has more fractional digits than the result field
+  can hold. By default those extra digits are <strong>truncated</strong> (silently
+  dropped). To round instead, put an <code>H</code> in column&nbsp;53 — the
+  <strong>half-adjust</strong> flag.</p>
+
+  <p>Half-adjust rounds the result to the result field's decimal positions by
+  adding 5 at the first dropped digit before truncating — standard
+  "round-half-up" behaviour. It applies to <code>ADD</code>, <code>SUB</code>,
+  <code>MULT</code>, and <code>DIV</code>; <code>SQRT</code> is always
+  half-adjusted whether you ask for it or not.</p>
+
+  <p>The classic demonstration is integer division made precise. Dividing 100
+  by 7 into a 2-decimal result:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           100       DIV  7         Q        2     ← truncates → 14.28
+     C           100       DIV  7         Q        2H    ← half-adjust → 14.29</code></pre>
+
+  <p>Both lines are identical except for the <code>H</code> in column&nbsp;53.
+  Without it the third decimal (the .857… of 14.2857…) is dropped, giving 14.28;
+  with it, that dropped digit rounds the result up to 14.29.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Half-adjust is the language's
+    per-operation <code>round()</code> — except you switch it on with a single
+    column flag rather than wrapping the expression in a rounding call.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.6 DIV and MVR (quotient and remainder)</h2>
+
+  <p><code>DIV</code> stores the <em>quotient</em> in its result field. The
+  <em>remainder</em> is a separate quantity, and to capture it you must follow
+  the <code>DIV</code> immediately with an <code>MVR</code> (move remainder)
+  operation, which stores the remainder into <em>its own</em> result field:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           100       DIV  7         Q            ← Q = 14 (quotient)
+     C                     MVR            R            ← R = 2  (remainder)</code></pre>
+
+  <p>The two operations are a pair: <code>MVR</code> has no factors of its own
+  — Factor&nbsp;1 and Factor&nbsp;2 are blank — because it reads the remainder
+  left behind by the immediately preceding <code>DIV</code>. If you want both
+  the quotient and the remainder, you need both lines, always in that order.
+  (When the <code>DIV</code> uses half-adjust for a fractional quotient, the
+  <code>MVR</code> still reflects the integer remainder.)</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.7 Resulting indicators on arithmetic</h2>
+
+  <p>Like every operation, arithmetic can set <strong>resulting indicators</strong>
+  (cols&nbsp;54–59) to record the sign of its result: HI (54–55) if the result
+  is positive, LO (56–57) if negative, EQ (58–59) if zero. This lets you branch
+  on the outcome of a computation <em>without</em> a separate
+  <code>COMP</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  5         T          50</code></pre>
+
+  <p>Here <code>50</code> sits in the HI slot (cols&nbsp;54–55), so indicator&nbsp;50
+  turns ON when the result of the <code>ADD</code> is positive. A later line
+  conditioned on <code>50</code> (or <code>N50</code>) then reacts to that sign —
+  the same set-then-test pattern you met in
+  <a href="04-indicators.html">Chapter&nbsp;4</a>, driven here by an arithmetic
+  result rather than a comparison.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.8 Overflow</h2>
+
+  <p>Numeric fields cap at 15 digits. If a result exceeds its result field's
+  declared length, the high-order digits are <strong>silently truncated</strong>
+  — there is no exception, no overflow flag, and no warning. The value simply
+  wraps around the field's capacity, losing its most significant digits.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> It is integer overflow — except
+    that where many languages wrap modulo a power of two, RPG&nbsp;II truncates
+    the leftmost digits and otherwise continues as if nothing happened. The
+    practical lesson is the same as in any fixed-width numeric type: <em>size
+    your result fields generously</em>, especially for <code>MULT</code>, whose
+    result length is the sum of the operands' lengths.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>6.9 Putting it together</h2>
+
+  <p>The short program below exercises the pieces together: an accumulator built
+  with Factor-1-omitted <code>ADD</code>, a <code>DIV</code> with half-adjust
+  to compute an average, and a <code>Z-ADD</code> to copy the result. It
+  averages three values (10, 25, 7) by summing them and dividing by 3:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C* Compute the average of three values: (10 + 25 + 7) / 3.
+     C                     Z-ADD10        SUM
+     C                     ADD  25        SUM
+     C                     ADD  7         SUM
+     C           SUM       DIV  3         AVG      2H
+     C                     Z-ADDAVG       RPGRET   2
+     C                     SETON                     LR</code></pre>
+
+  <p>Trace the arithmetic: <code>Z-ADD10</code> sets <code>SUM</code> to 10
+  (clearing it first). The next two lines add 25 and 7, accumulating
+  <code>SUM</code> to 42 — all three <code>ADD</code>s omit Factor&nbsp;1, so
+  <code>SUM</code> feeds back into itself. <code>DIV 3 AVG</code> divides 42 by
+  3 into a 2-decimal result with half-adjust, giving <code>AVG</code> = 14.00.
+  <code>Z-ADDAVG</code> copies that into <code>RPGRET</code>, and
+  <code>SETON LR</code> signals the cycle to stop. Every step is one operation,
+  one line, with the scaled-integer model quietly aligning decimals throughout.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now have RPG&nbsp;II's full numeric toolkit: the data model
+  (Chapter&nbsp;5) and the eight arithmetic operations that act on it, with
+  automatic decimal alignment and optional half-adjust rounding. Together with
+  indicators (Chapter&nbsp;4), this is enough to express a great deal of
+  business logic.</p>
+
+  <p>The next part of the tutorial steps back to look at the <em>specifications</em>
+  themselves — the four declaration forms that every program is built from —
+  column by column. We start with the F-spec, which declares your files.</p>
+
+  <p>That is <a href="07-file-specs.html">Chapter&nbsp;7 — File
+  Specifications</a>.</p>
+
+  <div class="nav">
+    <a href="05-data-fields.html">← Chapter 5: Data Types and Fields</a>
+    <a href="07-file-specs.html">Chapter 7: File Specifications →</a>
+  </div>
+
+</body>
+</html>

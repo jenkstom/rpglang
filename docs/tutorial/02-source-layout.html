@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 2 — The Source Layout</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; color: #7aa2f7; padding-bottom: .3rem; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; color: #7dcfff; padding-bottom: .2rem; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 2 — The Source Layout</h1>
+
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>This chapter teaches you <strong>how to look at RPG&nbsp;II
+    source</strong> before teaching any semantics. RPG&nbsp;II source is a
+    sequence of lines divided into fixed columns, and column&nbsp;6 of each
+    line declares its <em>spec type</em>: <strong>F</strong> (File),
+    <strong>I</strong> (Input), <strong>C</strong> (Calculation), or
+    <strong>O</strong> (Output). We'll introduce the column ruler, the four
+    spec types at a high level, the ordering convention (F&nbsp;→&nbsp;I
+    →&nbsp;C&nbsp;→&nbsp;O), and walk through a complete example program.
+    By the end you should be able to visually parse any RPG&nbsp;II listing
+    and identify what each section does — even without knowing the details
+    yet.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>2.1 The 80-column legacy</h2>
+
+  <p>As we noted in <a href="01-introduction.html">Chapter&nbsp;1</a>, RPG&nbsp;II
+  source was originally punched onto 80-column cards. Each card was one line
+  of program; each column position was a physical punch slot. The format
+  survived into digital source files because it was deeply embedded in the
+  language design — the compiler was built to read fixed positions, so
+  changing the format would have meant changing the language.</p>
+
+  <p>The practical consequence is the single most important thing to
+  internalise about reading RPG&nbsp;II: <strong>whitespace is not a
+  separator.</strong> You cannot freely indent, add spaces, or align things
+  the way you can in the languages you know. A character at column&nbsp;28
+  has a completely different meaning from the same character at
+  column&nbsp;33. The compiler does not scan for tokens delimited by spaces;
+  it reads fixed character positions.</p>
+
+  <div class="callout">
+    <p><strong>You already know</strong> positional meaning — think of a
+    fixed-width data record where bytes 1–6 are a customer number and bytes
+    7–14 are a date. RPG&nbsp;II applies that same principle to its
+    <em>own source code</em>. Reading an RPG&nbsp;II program is like reading
+    a printed form: each box on the form has a dedicated purpose, and the
+    value you write in that box is interpreted according to which box it
+    is, not according to how it is spaced.</p>
+  </div>
+
+  <p>This does not mean RPG&nbsp;II source is chaotic. Far from it — it is
+  extremely regular. Once you learn which column ranges mean what, every
+  line follows the same anatomy. The rest of this chapter teaches you that
+  anatomy.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>2.2 The column ruler</h2>
+
+  <p>Because column position is everything, every code example in this
+  tutorial is preceded by a <strong>ruler line</strong> that helps you
+  count positions:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</code></pre>
+
+  <p>Each group is ten columns wide. The <code>+</code> marks every fifth
+  column; the digit marks every tenth. Columns are
+  <strong>1-based</strong> — column&nbsp;1 is the leftmost position. So
+  column&nbsp;15 sits directly under the <code>1</code> in
+  <code>....1</code>, and column&nbsp;28 sits under the <code>8</code> in
+  <code>...2</code>.</p>
+
+  <h3>Global column conventions</h3>
+
+  <p>Regardless of spec type, every line in an RPG&nbsp;II program shares
+  the same high-level column structure:</p>
+
+  <table>
+    <tr><th>Columns</th><th>Purpose</th><th>Required?</th></tr>
+    <tr>
+      <td><strong>1–5</strong></td>
+      <td>Sequence number. A purely cosmetic numbering that helped keep
+        card decks in order. Modern source files usually leave it
+        blank.</td>
+      <td>Optional</td>
+    </tr>
+    <tr>
+      <td><strong>6</strong></td>
+      <td><strong>Form type</strong> — the single letter that declares what
+        kind of line this is: <code>F</code>, <code>I</code>,
+        <code>C</code>, or <code>O</code>. This is the most important column
+        in the entire language.</td>
+      <td>Required</td>
+    </tr>
+    <tr>
+      <td><strong>7–59</strong></td>
+      <td>Spec-specific fields. The meaning of these columns depends on the
+        form type in column&nbsp;6. This is where the actual content lives,
+        and each spec type divides this range differently. (See sections
+        2.3 and 2.5 below.)</td>
+      <td>Varies</td>
+    </tr>
+    <tr>
+      <td><strong>60–74</strong></td>
+      <td>Comments. Free-form text appended to any line — an inline note
+        for the human reader.</td>
+      <td>Optional</td>
+    </tr>
+    <tr>
+      <td><strong>75–80</strong></td>
+      <td>Program ID. Another card-deck relic: a short identifier stamped
+        on every card so a dropped deck could be sorted back together.
+        Modern source files usually leave it blank.</td>
+      <td>Optional</td>
+    </tr>
+  </table>
+
+  <h3>Comment lines</h3>
+
+  <p>In addition to the inline comments in columns 60–74, you can make an
+  entire line a comment by placing an asterisk (<code>*</code>) in
+  <strong>column&nbsp;7</strong>. The form-type letter in column&nbsp;6 is
+  still present (so the compiler knows which section the comment belongs
+  to), but the asterisk tells it to ignore the rest of the line
+  entirely:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C*  This entire line is a comment — the * in column 7 says "ignore me"</code></pre>
+
+  <p>You will see comment lines like this in every example throughout the
+  tutorial. They are how RPG&nbsp;II programmers annotate their work.</p>
+
+  <!-- SVG: The anatomy of a source line -->
+  <div class="svg-container">
+    <svg width="840" height="310" viewBox="0 0 840 310" xmlns="http://www.w3.org/2000/svg">
+      <text x="420" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Anatomy of an RPG II Source Line</text>
+
+      <!-- ── Section 1: Global column bands ── -->
+
+      <!-- Top column-range labels -->
+      <text x="65"  y="44" text-anchor="middle" font-size="9"  fill="#888">cols 1–5</text>
+      <text x="110" y="44" text-anchor="middle" font-size="9"  fill="#888">6</text>
+      <text x="325" y="44" text-anchor="middle" font-size="10" fill="#7aa2f7" font-weight="bold">cols 7–59 (spec-specific)</text>
+      <text x="620" y="44" text-anchor="middle" font-size="10" fill="#ff9e64">cols 60–74</text>
+      <text x="750" y="44" text-anchor="middle" font-size="9"  fill="#888">75–80</text>
+
+      <!-- Column bands -->
+      <rect x="30"  y="50" width="70"  height="80" fill="#1f2335" stroke="#333653"/>
+      <rect x="100" y="50" width="20"  height="80" fill="#e0af68" stroke="#333653"/>
+      <rect x="120" y="50" width="410" height="80" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <rect x="530" y="50" width="180" height="80" fill="#1f2335" stroke="#ff9e64"/>
+      <rect x="710" y="50" width="80"  height="80" fill="#1f2335" stroke="#333653"/>
+
+      <!-- Sample monospace text, split by band so alignment is exact -->
+      <text x="110" y="98" text-anchor="middle" font-family="monospace" font-size="14" font-weight="bold" fill="#e0af68">C</text>
+      <text x="125" y="98" font-family="monospace" font-size="14" fill="#c0caf5">AMT   COMP 10                   20</text>
+      <text x="538" y="98" font-family="monospace" font-size="14" fill="#ff9e64">compare result</text>
+
+      <!-- Bottom semantic labels -->
+      <text x="65"  y="148" text-anchor="middle" font-size="10" fill="#888">Sequence</text>
+      <text x="65"  y="161" text-anchor="middle" font-size="9"  fill="#666">(optional)</text>
+      <text x="110" y="148" text-anchor="middle" font-size="9"  font-weight="bold" fill="#e0af68">Form</text>
+      <text x="110" y="161" text-anchor="middle" font-size="9"  font-weight="bold" fill="#e0af68">Type</text>
+      <text x="620" y="148" text-anchor="middle" font-size="10" fill="#ff9e64">Comments</text>
+      <text x="750" y="148" text-anchor="middle" font-size="10" fill="#888">Program</text>
+      <text x="750" y="161" text-anchor="middle" font-size="10" fill="#888">ID</text>
+
+      <!-- ── Section 2: C-spec field detail ── -->
+      <text x="420" y="195" text-anchor="middle" font-size="11" font-weight="bold" fill="#888">Inside cols 7–59: C-spec field layout</text>
+
+      <!-- Field boxes -->
+      <rect x="130" y="210" width="90" height="34" rx="4" fill="#1f2335" stroke="#7dcfff"/>
+      <text x="175" y="227" text-anchor="middle" font-size="10" fill="#7dcfff">Factor 1</text>
+      <text x="175" y="239" text-anchor="middle" font-size="8"  fill="#555">cols 18–27</text>
+
+      <rect x="227" y="210" width="60" height="34" rx="4" fill="#1f2335" stroke="#7dcfff"/>
+      <text x="257" y="227" text-anchor="middle" font-size="10" fill="#7dcfff">Op</text>
+      <text x="257" y="239" text-anchor="middle" font-size="8"  fill="#555">cols 28–32</text>
+
+      <rect x="294" y="210" width="90" height="34" rx="4" fill="#1f2335" stroke="#7dcfff"/>
+      <text x="339" y="227" text-anchor="middle" font-size="10" fill="#7dcfff">Factor 2</text>
+      <text x="339" y="239" text-anchor="middle" font-size="8"  fill="#555">cols 33–42</text>
+
+      <rect x="391" y="210" width="65" height="34" rx="4" fill="#1f2335" stroke="#7dcfff"/>
+      <text x="423" y="227" text-anchor="middle" font-size="10" fill="#7dcfff">Result</text>
+      <text x="423" y="239" text-anchor="middle" font-size="8"  fill="#555">cols 43–48</text>
+
+      <rect x="463" y="210" width="57" height="34" rx="4" fill="#1f2335" stroke="#ff9e64"/>
+      <text x="491" y="226" text-anchor="middle" font-size="9"  fill="#ff9e64">Result</text>
+      <text x="491" y="237" text-anchor="middle" font-size="9"  fill="#ff9e64">Inds</text>
+
+      <!-- Sample values from the line above -->
+      <text x="175" y="262" text-anchor="middle" font-size="9" font-family="monospace" fill="#e0af68">AMT</text>
+      <text x="257" y="262" text-anchor="middle" font-size="9" font-family="monospace" fill="#e0af68">COMP</text>
+      <text x="339" y="262" text-anchor="middle" font-size="9" font-family="monospace" fill="#e0af68">10</text>
+      <text x="423" y="262" text-anchor="middle" font-size="9" font-family="monospace" fill="#555">—</text>
+      <text x="491" y="262" text-anchor="middle" font-size="9" font-family="monospace" fill="#e0af68">20</text>
+
+      <text x="325" y="290" text-anchor="middle" font-size="9" fill="#555" font-style="italic">Full C-spec column detail in Chapter 9</text>
+    </svg>
+  </div>
+
+  <p>The diagram above shows a single calculation line. Column&nbsp;6 holds
+  <code>C</code>, declaring it a calculation. Columns&nbsp;7–59 are divided
+  into <em>Factor&nbsp;1</em>, <em>Operation</em>, <em>Factor&nbsp;2</em>,
+  <em>Result field</em>, and <em>resulting indicators</em> — but that
+  internal division is specific to C-specs. Each spec type slices columns
+  7–59 its own way, which is exactly what the rest of this chapter
+  introduces and what <a href="07-file-specs.html">Chapters 7–10</a> cover
+  column by column.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>2.3 The four spec types</h2>
+
+  <p>Think of a program as answering four questions in sequence:
+  <em>What files am I using? What do the records look like? What do I
+  compute? What do I output?</em> Each spec type answers one of those
+  questions. This maps onto things you already do in every program you
+  write:</p>
+
+  <div class="callout">
+    <p><strong>You already know this pattern.</strong> When you write a
+    program that processes a file, you: (1)&nbsp;open the file, (2)&nbsp;define
+    a structure to hold each record, (3)&nbsp;write the logic that
+    transforms the data, and (4)&nbsp;format and emit the output. RPG&nbsp;II
+    gives each of those four phases its own dedicated spec type, and each
+    one is a different kind of declaration rather than executable
+    code.</p>
+  </div>
+
+  <h3>F-spec — File Description (col 6 = <code>F</code>)</h3>
+
+  <blockquote>
+    <p><strong>"What files does this program use?"</strong></p>
+    <p>You already know this as <em>opening a file and specifying its
+    mode</em> — read, write, or update. An F-spec declares each file's
+    name, whether it is input or output, its record format (fixed or
+    variable), its record length, and the device it lives on (disk,
+    printer, workstation). One F-spec line declares one file.</p>
+  </blockquote>
+
+  <p>Here is a typical pair of F-spec lines — one declaring an input file
+  on disk, one declaring an output file to a printer:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FSALES   IP  F    80              DISK
+     FREPORT  O   F   132             PRINTER</code></pre>
+
+  <p>Don't worry about every column yet — we cover F-specs in detail in
+  <a href="07-file-specs.html">Chapter&nbsp;7</a>. For now, just see the
+  shape: column&nbsp;6 is <code>F</code>, the filename sits in
+  columns&nbsp;7–14, and the device sits further right. The <code>IP</code>
+  after the filename means Input/Primary (this file feeds the program
+  cycle); <code>O</code> means Output.</p>
+
+  <h3>I-spec — Input (col 6 = <code>I</code>)</h3>
+
+  <blockquote>
+    <p><strong>"What does each record contain?"</strong></p>
+    <p>You already know this as <em>defining a struct or a class to hold a
+    parsed record</em>. An I-spec maps byte positions within an input
+    record to named fields. Instead of writing code to extract substrings
+    at offsets, you declare which columns of the record correspond to which
+    field name, and the language extracts them for you automatically on
+    every cycle.</p>
+  </blockquote>
+
+  <p>Here is an I-spec that identifies records from the <code>SALES</code>
+  file and maps a 3-byte numeric field at record positions 1–3 to the name
+  <code>AMT</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     ISALES   AA  01
+     I                                        1    3AMT</code></pre>
+
+  <p>The first line identifies the record; the second line maps field
+  positions to names. We cover I-specs in <a href="08-input-specs.html">Chapter&nbsp;8</a>.</p>
+
+  <h3>C-spec — Calculation (col 6 = <code>C</code>)</h3>
+
+  <blockquote>
+    <p><strong>"What should the program <em>do</em>?"</strong></p>
+    <p>You already know this as <em>the body of your program</em> — your
+    assignment statements, arithmetic, if-blocks, loops, and function
+    calls. C-specs contain the executable logic. Each line is one
+    operation: it names a Factor&nbsp;1, an operation code, a Factor&nbsp;2,
+    and a result field — arranged in fixed columns rather than as a
+    tokenised expression.</p>
+  </blockquote>
+
+  <p>Here are two C-spec lines — one that adds <code>AMT</code> into
+  <code>TOTAL</code>, and one that sets the <code>LR</code> (last-record)
+  indicator to signal the program cycle that it is time to finish:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  AMT       TOTAL
+     C                     SETON                     LR</code></pre>
+
+  <p>Notice there is no equals sign and no semicolon. The operation code
+  <code>ADD</code> sits in its own fixed column range; <code>AMT</code>
+  (Factor&nbsp;2) and <code>TOTAL</code> (result) each sit in theirs. We
+  cover C-specs in <a href="09-calc-specs.html">Chapter&nbsp;9</a>.</p>
+
+  <h3>O-spec — Output (col 6 = <code>O</code>)</h3>
+
+  <blockquote>
+    <p><strong>"What should the output look like?"</strong></p>
+    <p>You already know this as <em>printf or string-format templates, but
+    baked into the language as structured declarations</em>. An O-spec
+    declaratively describes report lines: which fields print at which
+    positions, what constants (like column headings) accompany them, and
+    under what conditions each line should emit. You are describing the
+    shape of the output, not writing code to produce it.</p>
+  </blockquote>
+
+  <p>Here are O-spec lines that print a detail line showing the value of
+  <code>AMT</code>, followed by a total line showing <code>TOTAL</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  D  1
+     O                                   20 'Amount ='
+     O                         AMT       30
+     OREPORT  T  2    LR
+     O                                   20 'Grand total ='
+     O                         TOTAL     30</code></pre>
+
+  <p>The <code>D</code> means a detail line (printed once per record); the
+  <code>T</code> means a total line (printed once, at the end). We cover
+  O-specs in <a href="16-output-specs.html">Chapter&nbsp;16</a>.</p>
+
+  <!-- SVG: The four spec types flow -->
+  <div class="svg-container">
+    <svg width="820" height="120" viewBox="0 0 820 120" xmlns="http://www.w3.org/2000/svg">
+      <!-- F box -->
+      <rect x="10" y="30" width="170" height="60" rx="8" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="95" y="52" text-anchor="middle" font-size="22" font-weight="bold" fill="#7aa2f7">F</text>
+      <text x="95" y="72" text-anchor="middle" font-size="11" fill="#c0caf5">File Description</text>
+      <text x="95" y="85" text-anchor="middle" font-size="9" fill="#888">"What files?"</text>
+      <!-- arrow -->
+      <line x1="185" y1="60" x2="210" y2="60" stroke="#888" stroke-width="2" marker-end="url(#ag1)"/>
+
+      <!-- I box -->
+      <rect x="215" y="30" width="170" height="60" rx="8" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="300" y="52" text-anchor="middle" font-size="22" font-weight="bold" fill="#7aa2f7">I</text>
+      <text x="300" y="72" text-anchor="middle" font-size="11" fill="#c0caf5">Input</text>
+      <text x="300" y="85" text-anchor="middle" font-size="9" fill="#888">"What's in a record?"</text>
+      <line x1="390" y1="60" x2="415" y2="60" stroke="#888" stroke-width="2" marker-end="url(#ag1)"/>
+
+      <!-- C box -->
+      <rect x="420" y="30" width="170" height="60" rx="8" fill="#1f2335" stroke="#ff9e64" stroke-width="2"/>
+      <text x="505" y="52" text-anchor="middle" font-size="22" font-weight="bold" fill="#ff9e64">C</text>
+      <text x="505" y="72" text-anchor="middle" font-size="11" fill="#c0caf5">Calculation</text>
+      <text x="505" y="85" text-anchor="middle" font-size="9" fill="#888">"What do I compute?"</text>
+      <line x1="595" y1="60" x2="620" y2="60" stroke="#888" stroke-width="2" marker-end="url(#ag1)"/>
+
+      <!-- O box -->
+      <rect x="625" y="30" width="170" height="60" rx="8" fill="#1f2335" stroke="#9ece6a" stroke-width="2"/>
+      <text x="710" y="52" text-anchor="middle" font-size="22" font-weight="bold" fill="#9ece6a">O</text>
+      <text x="710" y="72" text-anchor="middle" font-size="11" fill="#c0caf5">Output</text>
+      <text x="710" y="85" text-anchor="middle" font-size="9" fill="#888">"What do I print?"</text>
+    </svg>
+  </div>
+
+  <svg width="0" height="0" style="position:absolute;">
+    <defs>
+      <marker id="ag1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#888"/>
+      </marker>
+    </defs>
+  </svg>
+
+  <p>The four spec types flow naturally from top to bottom: declare your
+  files, describe their records, write the logic, describe the output.
+  That is the shape of every RPG&nbsp;II program.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>2.4 Spec ordering</h2>
+
+  <p>Spec types appear in a fixed order: <strong>F, then I, then C, then
+  O</strong>. This is not a style suggestion — the compiler expects the
+  sections in this sequence, because each section builds on the one before
+  it:</p>
+
+  <ul class="outline">
+    <li><strong>F-specs</strong> come first because every other section
+      references the files declared here.</li>
+    <li><strong>I-specs</strong> come next because they describe the
+      records of the files declared in the F-specs, and the C-specs will
+      reference the field names defined here.</li>
+    <li><strong>C-specs</strong> come after, because the calculation logic
+      operates on the fields declared in the I-specs and writes results
+      that the O-specs will reference.</li>
+    <li><strong>O-specs</strong> come last, because the output descriptions
+      reference both the fields from I-specs and the results computed in
+      C-specs.</li>
+  </ul>
+
+  <p>Within each spec type, lines appear in the order the program needs
+  them. Each F-spec declares one file. I-spec field-description lines
+  follow their record-identification line. C-specs execute top to bottom.
+  O-spec field lines follow their record line.</p>
+
+  <div class="callout">
+    <p><strong>A program does not need all four spec types.</strong> A pure
+    calculation program with no file I/O might have only C-specs. A program
+    that reads a file and does no calculation might skip C-specs entirely
+    and just map fields in I-specs directly to output in O-specs. But most
+    real-world business programs use all four.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>2.5 Your first program: a visual walkthrough</h2>
+
+  <p>Now let's put the pieces together. Below is a complete, working
+  RPG&nbsp;II program. It reads a file of sales records, adds each
+  record's <code>AMT</code> field to a running <code>TOTAL</code>, prints
+  each amount on a detail line, and prints the grand total at the end.</p>
+
+  <p>This is a <em>preview</em>: we are not explaining the semantics of
+  every operation yet — that is the job of the chapters ahead. The goal
+  right now is simply to <strong>see the shape</strong>. Try to identify
+  each spec section by its column-6 letter before reading the
+  annotations.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FSALES   IP  F    80              DISK             ← F-spec: input file
+     FREPORT  O   F   132             PRINTER            ← F-spec: output file
+
+     ISALES   AA  01                                    ← I-spec: record id
+     I                                        1    3AMT                  ← I-spec: field map
+
+     C                     ADD  AMT       TOTAL         ← C-spec: accumulate
+     C                     SETON                     LR  ← C-spec: signal end
+
+     OREPORT  D  1                                       ← O-spec: detail line
+     O                                   20 'Amount ='   ← O-spec: constant
+     O                         AMT       30              ← O-spec: field
+     OREPORT  T  2    LR                                  ← O-spec: total line
+     O                                   20 'Grand total ='  ← O-spec: constant
+     O                         TOTAL     30              ← O-spec: field</code></pre>
+
+  <h3>Walking through each section</h3>
+
+  <p><strong>The F-spec section (lines 1–2).</strong> Two files are
+  declared. <code>SALES</code> is an <strong>input</strong> file on disk —
+  the <code>IP</code> means "input, primary," telling the language this is
+  the main file that feeds the automatic read loop. <code>REPORT</code> is
+  an <strong>output</strong> file to a printer — the <code>O</code> means
+  output. Both are fixed-format (<code>F</code>) with the record lengths
+  shown (80 for input, 132 for printed output).</p>
+
+  <p><strong>The I-spec section (lines 4–5).</strong> The first line
+  identifies the record: it names the file (<code>SALES</code>), declares
+  the record type (<code>AA</code>), and assigns a record-identifying
+  indicator (<code>01</code>). The second line maps record
+  positions&nbsp;1 through&nbsp;3 to the field name <code>AMT</code>. From
+  now on, whenever the cycle reads a record, the first three characters
+  are automatically extracted and available as <code>AMT</code>.</p>
+
+  <p><strong>The C-spec section (lines 7–8).</strong> Two operations. The
+  first adds <code>AMT</code> into <code>TOTAL</code> — this runs once per
+  record, automatically, because of the program cycle. The second uses
+  <code>SETON</code> to turn on the <code>LR</code> indicator, which tells
+  the cycle "after this record, stop reading and run your final total
+  output." (<code>LR</code> stands for "last record"; we cover it in
+  <a href="03-program-cycle.html">Chapter&nbsp;3</a>.)</p>
+
+  <p><strong>The O-spec section (lines 10–15).</strong> Two output record
+  descriptions. The first (type <code>D</code> = detail) prints once per
+  record: a literal <code>'Amount ='</code> ending at column&nbsp;20,
+  followed by the value of <code>AMT</code> ending at column&nbsp;30. The
+  second (type <code>T</code> = total, conditioned on <code>LR</code>)
+  prints once at the very end: the literal
+  <code>'Grand total ='</code> followed by <code>TOTAL</code>.</p>
+
+  <h3>What to notice</h3>
+
+  <ul class="outline">
+    <li>There is <strong>no explicit read-loop anywhere</strong>. The
+      program cycle reads each record silently; the C-specs and O-specs
+      are the <em>body</em> of that invisible loop. This is paradigm shift
+      #2 from <a href="01-introduction.html">Chapter&nbsp;1</a> in
+      action.</li>
+    <li>There are <strong>no braces, no assignment operators, no
+      semicolons</strong>. Every line is a fixed-column declaration; the
+      operation code (<code>ADD</code>, <code>SETON</code>) sits in its
+      designated column range, and the operands sit in theirs. This is
+      paradigm shift #1.</li>
+    <li>The <strong>output is described, not coded</strong>. You do not
+      write print statements — you declare what each report line looks
+      like and when it should appear, and the language emits it for
+      you.</li>
+    <li>The <code>LR</code> indicator weaves through all three sections:
+      it is <em>set</em> in a C-spec and <em>tested</em> in an O-spec,
+      without any explicit wiring. This is a first taste of paradigm shift
+      #3 — indicators — which <a href="04-indicators.html">Chapter&nbsp;4</a>
+      covers in full.</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>You do not need to understand every detail yet.</strong> The
+    point of this walkthrough is visual literacy — recognising the four
+    sections and seeing how they fit together into a complete program. The
+    chapters that follow will revisit each spec type column by column,
+    starting with the program cycle in <a href="03-program-cycle.html">Chapter&nbsp;3</a>.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You can now visually parse an RPG&nbsp;II program: you know the column
+  ruler, the global column conventions, the four spec types, and the
+  F→I→C→O ordering. The biggest question remaining is the one we have been
+  hinting at since Chapter&nbsp;1: <strong>how does the read-loop actually
+  work?</strong> If there is no explicit loop in the source, what exactly
+  happens between records?</p>
+
+  <p>That is the program cycle, and it is the subject of
+  <a href="03-program-cycle.html">Chapter&nbsp;3</a>. Understanding it is
+  the single most important step in becoming productive with RPG&nbsp;II —
+  everything else builds on it.</p>
+
+  <div class="nav">
+    <a href="01-introduction.html">← Chapter 1: Introduction</a>
+    <a href="03-program-cycle.html">Chapter 3: The Program Cycle →</a>
+  </div>
+
+</body>
+</html>

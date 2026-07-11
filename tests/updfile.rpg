@@ -1,0 +1,10 @@
+     C* G25 CHAIN+UPDATE. UDATA keyed col1, val cols3-4, reclen 4.
+     C* CHAIN key 2 (val 20), ADD 5 -> 25, UPDATE in place. 0220->0225.
+     FUDATA   UC  F       4  2AI     1 DISK
+     IUDATA      02
+     I                                        1   20UKEY
+     I                                        3   40UVAL
+     C           2         CHAINUDATA                99
+     C                     ADD  5         UVAL
+     OUDATA   U
+     O                         UVAL       4

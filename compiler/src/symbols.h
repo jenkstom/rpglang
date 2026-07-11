@@ -38,6 +38,10 @@ struct FieldInfo {
     // element this index selects. Section B.
     bool is_table = false;
     llvm::GlobalVariable *shadow_gv = nullptr;
+    // A9: an alphameric E-spec array/table ([array_count x [length x i8]]
+    // storage instead of [array_count x i32]). `length` holds the per-element
+    // byte width in this case.
+    bool is_char_array = false;
 };
 
 class SymbolTable {
@@ -65,6 +69,16 @@ public:
     llvm::Value *get_or_create_array(const std::string &name, int count,
                                      const std::vector<long> &init,
                                      bool is_table = false);
+
+    /* Declare an alphameric E-spec array/table (A9): `count` fixed-width
+     * `entry_len`-byte elements ([count x [entry_len x i8]]), blank-padded
+     * or initialised from `init` (one string per element; short/missing
+     * entries are blank-filled). When `is_table` it also gets the same
+     * hidden current-element index global as a numeric table. Idempotent. */
+    llvm::Value *get_or_create_char_array(const std::string &name, int count,
+                                          int entry_len,
+                                          const std::vector<std::string> &init,
+                                          bool is_table = false);
 
     bool has_field(const std::string &name) const {
         return fields_.find(name) != fields_.end();

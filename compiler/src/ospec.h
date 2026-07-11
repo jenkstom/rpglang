@@ -22,6 +22,12 @@ namespace rpgc {
 
 enum class OType { Heading, Detail, Total, Exception };
 
+/* Record operation for DISK/update files (O-spec cols 16-18, Section G, G25).
+ * Write is the plain printer/printer-file case; Add/Update/Delete drive the
+ * corresponding runtime record operation on a type-U (update) or output DISK
+ * file. */
+enum class ORecOp { Write, Add, Update, Delete };
+
 /* One field/constant on an output line. */
 struct OField {
     int         lineno    = 0;
@@ -33,6 +39,9 @@ struct OField {
     std::vector<CondInd> conditions;   // cols 23-31, per-field conditioning
     bool        blank_after = false;   // col 39 == 'B'
     char        edit_code = 0;         // col 38 (0 = none)
+    // A13: floating fill character following an edit code (cols 45-47) -- a
+    // bare '*' (asterisk fill) or a quoted currency symbol like '$'. 0 = none.
+    char        fill_char = 0;
 };
 
 /* One output record line + the fields that belong on it. */
@@ -44,6 +53,7 @@ struct ORecord {
     int         space_before = 0;      // col 17
     int         skip_before = 0;       // cols 19-20 skip-to line (D13); 0=none
     int         skip_after  = 0;       // cols 21-22 skip-to line (D13); 0=none
+    ORecOp      rec_op = ORecOp::Write; // cols 16-18 ADD/UPDATE/DEL (G25)
     std::vector<CondInd> conditions;   // cols 23-31, line conditioning
     std::vector<OField> fields;        // field lines that follow this record line
     std::string except_name;           // cols 32-37, EXCPT name (type-E only)

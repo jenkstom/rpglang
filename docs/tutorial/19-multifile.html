@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 19 — Multifile Processing</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 19 — Multifile Processing</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>Summary</h2>
+    <p>When a program declares a primary file plus one or more secondary files,
+    RPG II runs a <strong>multifile cycle</strong> instead of the single-file
+    cycle. Each file's records are read into their own buffer, and each cycle
+    iteration selects one record to process. Files tagged with a
+    <strong>match field</strong> (M1 on the I-spec) are merged in ascending key
+    order; the <strong>MR</strong> (matching record) indicator turns on when
+    records from different files share the same key. Files without a match
+    field are processed by priority (primary first). This chapter covers the
+    multifile cycle, match-field declaration, the MR indicator, and the
+    practical pattern of merging a primary transaction file with a secondary
+    master file.</p>
+  </div>
+
+  <h2>Outline</h2>
+
+  <h3>19.1 The "you already know" analogy</h3>
+  <ul class="outline">
+    <li>Multifile processing is RPG II's built-in <strong>merge join</strong>.
+      You declare two or more files, tag a shared key field with M1 in each,
+      and the cycle merges them by key — like SQL's
+      <code>SELECT ... FROM primary JOIN secondary ON primary.key =
+      secondary.key</code>, or like a merge-join algorithm.</li>
+    <li>The MR indicator tells you "this record from file A has a matching
+      record currently held from file B" — like detecting that a join
+      condition is satisfied for the current row.</li>
+  </ul>
+
+  <!-- SVG: Multifile merge -->
+  <div class="svg-container">
+    <svg width="820" height="380" viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Multifile Merge: Primary + Secondary by M1 Key</text>
+
+      <!-- Primary file -->
+      <rect x="30" y="40" width="180" height="200" rx="8" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="120" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#7aa2f7">Primary (MRPRIM)</text>
+      <text x="120" y="75" text-anchor="middle" font-size="9" fill="#565f89">designation P, M1 key</text>
+
+      <rect x="45" y="85" width="150" height="20" fill="#24283b" stroke="#9ece6a"/><text x="120" y="99" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">key=1 val=10</text>
+      <rect x="45" y="108" width="150" height="20" fill="#24283b" stroke="#9ece6a"/><text x="120" y="122" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">key=2 val=20</text>
+      <rect x="45" y="131" width="150" height="20" fill="#24283b" stroke="#9ece6a"/><text x="120" y="145" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">key=3 val=30</text>
+      <text x="120" y="175" text-anchor="middle" font-size="9" fill="#565f89">Three records,</text>
+      <text x="120" y="190" text-anchor="middle" font-size="9" fill="#565f89">keys 1, 2, 3</text>
+      <text x="120" y="215" text-anchor="middle" font-size="9" fill="#565f89">priority: higher</text>
+
+      <!-- Secondary file -->
+      <rect x="240" y="40" width="180" height="200" rx="8" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="330" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#ff9e64">Secondary (MRSEC)</text>
+      <text x="330" y="75" text-anchor="middle" font-size="9" fill="#565f89">designation S, M1 key</text>
+
+      <rect x="255" y="85" width="150" height="20" fill="#24283b" stroke="#9ece6a"/><text x="330" y="99" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">key=2 sval=5</text>
+      <rect x="255" y="108" width="150" height="20" fill="#24283b" stroke="#9ece6a"/><text x="330" y="122" text-anchor="middle" font-size="10" font-family="monospace" fill="#9ece6a">key=4 sval=5</text>
+      <text x="330" y="155" text-anchor="middle" font-size="9" fill="#565f89">Two records,</text>
+      <text x="330" y="170" text-anchor="middle" font-size="9" fill="#565f89">keys 2, 4</text>
+      <text x="330" y="195" text-anchor="middle" font-size="9" fill="#565f89">priority: lower</text>
+      <text x="330" y="210" text-anchor="middle" font-size="9" fill="#565f89">(tied keys → primary</text>
+      <text x="330" y="222" text-anchor="middle" font-size="9" fill="#565f89">processed first)</text>
+
+      <!-- Merged output -->
+      <rect x="470" y="40" width="320" height="280" rx="8" fill="#1f2335" stroke="#9ece6a" stroke-width="2"/>
+      <text x="630" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#9ece6a">Merged Processing Order</text>
+
+      <rect x="485" y="70" width="290" height="22" fill="#24283b" stroke="#7aa2f7"/>
+      <text x="500" y="85" font-size="10" font-family="monospace" fill="#7aa2f7">1. key=1 val=10 (P)</text>
+      <text x="680" y="85" font-size="9" fill="#565f89">MR off</text>
+
+      <rect x="485" y="95" width="290" height="22" fill="#24283b" stroke="#7aa2f7"/>
+      <text x="500" y="110" font-size="10" font-family="monospace" fill="#7aa2f7">2. key=2 val=20 (P)</text>
+      <text x="680" y="110" font-size="9" fill="#9ece6a">MR on! (match)</text>
+
+      <rect x="485" y="120" width="290" height="22" fill="#2a1f2e" stroke="#ff9e64"/>
+      <text x="500" y="135" font-size="10" font-family="monospace" fill="#ff9e64">3. key=2 sval=5 (S)</text>
+      <text x="680" y="135" font-size="9" fill="#9ece6a">MR on! (match)</text>
+
+      <rect x="485" y="145" width="290" height="22" fill="#24283b" stroke="#7aa2f7"/>
+      <text x="500" y="160" font-size="10" font-family="monospace" fill="#7aa2f7">4. key=3 val=30 (P)</text>
+      <text x="680" y="160" font-size="9" fill="#565f89">MR off</text>
+
+      <rect x="485" y="170" width="290" height="22" fill="#2a1f2e" stroke="#ff9e64"/>
+      <text x="500" y="185" font-size="10" font-family="monospace" fill="#ff9e64">5. key=4 sval=5 (S)</text>
+      <text x="680" y="185" font-size="9" fill="#565f89">MR off</text>
+
+      <!-- Summary -->
+      <text x="630" y="220" text-anchor="middle" font-size="10" font-weight="bold" fill="#9ece6a">Result:</text>
+      <text x="630" y="238" text-anchor="middle" font-size="10" fill="#c0caf5">MR on for records 2 &amp; 3 (both key=2)</text>
+      <text x="630" y="255" text-anchor="middle" font-size="10" fill="#c0caf5">Record 1 (P only): ADD VAL = 10</text>
+      <text x="630" y="272" text-anchor="middle" font-size="10" fill="#c0caf5">Record 3 (S, MR): ADD 1 for match</text>
+      <text x="630" y="289" text-anchor="middle" font-size="10" fill="#c0caf5">Total = 10 + 20 + 1 + 30 + 5 = 66</text>
+
+      <!-- Arrows -->
+      <line x1="210" y1="120" x2="480" y2="100" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="3 2"/>
+      <line x1="420" y1="110" x2="480" y2="130" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="3 2"/>
+    </svg>
+  </div>
+
+  <h3>19.2 Declaring primary and secondary files</h3>
+  <ul class="outline">
+    <li>One file is declared <strong>primary</strong> (designation
+      <code>P</code> in F-spec col 16); additional input files are declared
+      <strong>secondary</strong> (designation <code>S</code>).</li>
+    <li>When the cycle detects multiple input files, it switches from the
+      single-file cycle to the multifile cycle.</li>
+    <li>Each file gets its own record buffer. Only the selected record's fields
+      are extracted per iteration.</li>
+  </ul>
+
+  <h3>19.3 Match fields (M1)</h3>
+  <ul class="outline">
+    <li>To merge files by key, tag the key field in each file with
+      <strong>M1</strong> on the I-spec (cols 61–62). This marks it as a match
+      field.</li>
+    <li>The cycle compares M1 values across files. Files with M1 are processed
+      in ascending key order; ties (same key in multiple files) are resolved by
+      priority — primary first, then secondaries in F-spec order.</li>
+    <li>Files <em>without</em> an M1 field are processed by priority alone
+      (primary fully, then secondaries in order) — no key-based merging.</li>
+  </ul>
+
+  <h3>19.4 The MR indicator</h3>
+  <ul class="outline">
+    <li>When the selected record's M1 key equals another held record's M1 key,
+      the <strong>MR</strong> indicator turns ON for that iteration.</li>
+    <li>This lets you write calcs that fire only when a match exists between
+      files — e.g. "if MR is on, look up the secondary record's value and
+      combine it with the primary's."</li>
+    <li>The analogy: MR is the join condition's boolean result —
+      <code>if (join_matched) { ... }</code>.</li>
+  </ul>
+
+  <h3>19.5 Record-identifying indicators</h3>
+  <ul class="outline">
+    <li>Each file has a record-identifying indicator (I-spec cols 19–20).
+      When a record from a particular file is selected, that file's indicator
+      turns ON for the iteration. This lets you condition calcs on "which file
+      this record came from."</li>
+    <li>Example: indicator 01 for primary, 02 for secondary.
+      <code>01 ADD VAL RPGRET</code> adds only when the primary record is
+      selected; <code>02 ADD SVAL RPGRET</code> adds only for secondary.</li>
+  </ul>
+
+  <h3>19.6 How the multifile cycle selects records</h3>
+  <ul class="outline">
+    <li>Each file holds its "current" record in its own buffer (with a
+      got/valid flag).</li>
+    <li>Each iteration, the cycle selects one record to process:
+      <ul>
+        <li>Among M1 files: the record with the lowest key (ties → primary
+          first).</li>
+        <li>Among non-M1 files: the primary is fully exhausted first, then
+          secondaries in order.</li>
+      </ul>
+    </li>
+    <li>The selected record is copied into the shared input buffer, and only
+      that file's fields are decoded. The rest of the cycle (total/detail calc
+      and output) is identical to the single-file path.</li>
+  </ul>
+
+  <h3>19.7 Look-ahead fields</h3>
+  <ul class="outline">
+    <li>In the multifile cycle, look-ahead fields (I-spec <code>**</code>
+      lines) peek at the <em>next</em> uncommitted record from a file. This is
+      how the cycle knows whether a match will occur on the next iteration.
+      At EOF, look-ahead fields fill with 9s.</li>
+  </ul>
+
+  <h2>What to write into this chapter</h2>
+  <ul class="outline">
+    <li>Include the multifile merge SVG as the central diagram.</li>
+    <li>Show a complete example: primary transaction file merged with a
+      secondary master file by customer-ID key, using MR to enrich
+      transactions with master data.</li>
+    <li>Explain the selection algorithm with a step-by-step trace.</li>
+    <li>Show how record-identifying indicators (01, 02) route processing by
+      source file.</li>
+    <li>Cross-reference <a href="03-program-cycle.html">Chapter 3</a> (the
+      single-file cycle as the baseline) and
+      <a href="08-input-specs.html">Chapter 8</a> (I-spec match-field
+      assignment).</li>
+  </ul>
+
+  <div class="nav">
+    <a href="18-file-access.html">← Chapter 18: File Access</a>
+    <a href="index.html">↑ Table of contents</a>
+  </div>
+
+</body>
+</html>

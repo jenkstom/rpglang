@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 8 — Input Specifications (I-specs)</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 8 — Input Specifications (I-specs)</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>The I-spec (column&nbsp;6 = <code>I</code>) describes the <em>layout of
+    input records</em>: which byte positions map to which named fields, what
+    their data types and decimal positions are, and (for multi-format files) how
+    to identify which record type was read. You declare the layout once; the
+    program cycle extracts the fields into named variables automatically every
+    time it reads a record. There is no parsing code to write.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.1 The "you already know" analogy</h2>
+
+  <p>In a modern language you might define a record layout and then write parsing
+  code to populate it:</p>
+
+  <pre><code>struct Transaction {
+    int    key;       // bytes 1-2
+    int    amount;    // bytes 3-5
+    string name;      // bytes 6-15
+};
+
+// then, for each record:
+Transaction rec;
+rec.key    = atoi(raw.substr(0, 2));
+rec.amount = atoi(raw.substr(2, 3));
+rec.name   = raw.substr(5, 10);</code></pre>
+
+  <p>In RPG&nbsp;II, the I-spec <em>is</em> the struct definition <em>and</em>
+  the parser combined. You declare byte positions and field names on I-spec
+  lines; the cycle extracts fields into named global variables automatically.
+  No <code>substr</code>, no <code>atoi</code>, no manual parsing.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Think of the I-spec section as a
+    schema: "bytes 1–2 are an integer called KEY, bytes 3–5 are an integer
+    called AMT, bytes 6–15 are a string called NAME." The runtime applies that
+    schema to every incoming record, so by the time your C-specs run, the fields
+    are already populated.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.2 Two line types: record-identification and field-description</h2>
+
+  <p>Every input file needs at least two kinds of I-spec line:</p>
+
+  <ul>
+    <li><strong>Record-identification line</strong> — names the file and (for
+      multi-format files) how to recognise the record type. It carries the
+      filename in cols&nbsp;7–14 and a record-identifying indicator in
+      cols&nbsp;19–20.</li>
+    <li><strong>Field-description lines</strong> — one per field. Each declares
+      the field's byte range, name, data type, and optional control-level,
+      matching-field, or field-indicator tags. The filename columns (7–14) are
+      blank — these lines belong to the record-id line above them.</li>
+  </ul>
+
+  <p>A file with one record type needs exactly one record-id line followed by
+  one field line per field. Here is a complete I-spec section for a transaction
+  file with four fields:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     ITRANS   AA  01
+     I                                        1   20KEY
+     I                                        3   50AMT
+     I                                        6  112SALARY
+     I                                       13  20 NAME</code></pre>
+
+  <p>Line by line: the first line declares that file <code>TRANS</code> has a
+  record type identified by indicator <code>01</code> (cols&nbsp;19–20). The
+  next four lines map byte positions to field names. <code>KEY</code> occupies
+  bytes 1–2 with 0&nbsp;decimals; <code>AMT</code> occupies bytes 3–5 with
+  0&nbsp;decimals; <code>SALARY</code> occupies bytes 6–11 with 2&nbsp;decimals;
+  <code>NAME</code> occupies bytes 13–20 and is alphameric (no decimal
+  position).</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.3 Field-description line column map</h2>
+
+  <p>Each field-description line uses the same column layout:</p>
+
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Description</th></tr>
+    <tr><td>Packed/Binary encoding</td><td>43</td><td>P (packed), B (binary), blank (zoned)</td></tr>
+    <tr><td>Field From</td><td>44–47</td><td>Starting byte position in the record (1-based)</td></tr>
+    <tr><td>Field To</td><td>48–51</td><td>Ending byte position</td></tr>
+    <tr><td>Decimal Positions</td><td>52</td><td>0–9 for numeric; blank = alphameric</td></tr>
+    <tr><td>Field Name</td><td>53–58</td><td>The field's name (must start with a letter)</td></tr>
+    <tr><td>Control Level</td><td>59–60</td><td>L1–L9 (assigns this field as a control-break key)</td></tr>
+    <tr><td>Matching Fields</td><td>61–62</td><td>M1–M9 (assigns this field as a match key for multifile)</td></tr>
+    <tr><td>Field Indicators</td><td>65–70</td><td>Positive (65–66) / Negative (67–68) / Zero (69–70)</td></tr>
+  </table>
+
+  <p>The column that beginners most often misplace is decimal positions
+  (col&nbsp;52). If you put the decimal count one column to the left or right,
+  the field becomes the wrong type or the name shifts. Always line up against the
+  ruler.</p>
+
+  <!-- SVG: I-spec record layout -->
+  <div class="svg-container">
+    <svg width="860" height="280" viewBox="0 0 860 280" xmlns="http://www.w3.org/2000/svg">
+      <text x="430" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">I-spec: From Record Buffer to Named Fields</text>
+
+      <!-- Record buffer -->
+      <rect x="50" y="40" width="500" height="30" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="60" y="60" font-family="monospace" font-size="11" fill="#9ece6a">03  142  015000SMITH</text>
+
+      <!-- Byte position ruler -->
+      <text x="50" y="85" font-size="9" fill="#565f89">pos:</text>
+      <text x="80" y="85" font-size="9" fill="#565f89">1</text>
+      <text x="120" y="85" font-size="9" fill="#565f89">3</text>
+      <text x="160" y="85" font-size="9" fill="#565f89">6</text>
+      <text x="220" y="85" font-size="9" fill="#565f89">11</text>
+
+      <!-- Field extraction boxes -->
+      <rect x="79" y="95" width="21" height="30" fill="#1f2335" stroke="#7dcfff"/>
+      <text x="89" y="115" text-anchor="middle" font-size="9" fill="#7dcfff">03</text>
+      <line x1="89" y1="70" x2="89" y2="95" stroke="#7dcfff" stroke-width="1" stroke-dasharray="2 2"/>
+
+      <rect x="110" y="95" width="30" height="30" fill="#1f2335" stroke="#7dcfff"/>
+      <text x="125" y="115" text-anchor="middle" font-size="9" fill="#7dcfff">142</text>
+      <line x1="120" y1="70" x2="120" y2="95" stroke="#7dcfff" stroke-width="1" stroke-dasharray="2 2"/>
+
+      <rect x="150" y="95" width="60" height="30" fill="#1f2335" stroke="#ff9e64"/>
+      <text x="180" y="115" text-anchor="middle" font-size="9" fill="#ff9e64">015000</text>
+      <line x1="165" y1="70" x2="165" y2="95" stroke="#ff9e64" stroke-width="1" stroke-dasharray="2 2"/>
+
+      <rect x="220" y="95" width="60" height="30" fill="#1f2335" stroke="#9ece6a"/>
+      <text x="250" y="115" text-anchor="middle" font-size="9" fill="#9ece6a">SMITH</text>
+      <line x1="230" y1="70" x2="230" y2="95" stroke="#9ece6a" stroke-width="1" stroke-dasharray="2 2"/>
+
+      <!-- Field name labels -->
+      <text x="89" y="145" text-anchor="middle" font-size="10" font-weight="bold" fill="#7dcfff">KEY</text>
+      <text x="89" y="158" text-anchor="middle" font-size="8" fill="#565f89">pos 1-2, dec 0</text>
+
+      <text x="125" y="145" text-anchor="middle" font-size="10" font-weight="bold" fill="#7dcfff">AMT</text>
+      <text x="125" y="158" text-anchor="middle" font-size="8" fill="#565f89">pos 3-5, dec 0</text>
+
+      <text x="180" y="145" text-anchor="middle" font-size="10" font-weight="bold" fill="#ff9e64">SALARY</text>
+      <text x="180" y="158" text-anchor="middle" font-size="8" fill="#565f89">pos 6-11, dec 2</text>
+
+      <text x="250" y="145" text-anchor="middle" font-size="10" font-weight="bold" fill="#9ece6a">NAME</text>
+      <text x="250" y="158" text-anchor="middle" font-size="8" fill="#565f89">pos 12-16, alpha</text>
+
+      <!-- I-spec source -->
+      <rect x="580" y="40" width="250" height="130" rx="8" fill="#24283b" stroke="#565f89"/>
+      <text x="595" y="60" font-size="10" font-weight="bold" fill="#7dcfff">I-spec source:</text>
+      <text x="595" y="78" font-family="monospace" font-size="11" fill="#9ece6a">     IDATA    AA  01</text>
+      <text x="595" y="93" font-family="monospace" font-size="11" fill="#9ece6a">     I              1   2 0KEY   L1</text>
+      <text x="595" y="108" font-family="monospace" font-size="11" fill="#9ece6a">     I              3   5 0AMT</text>
+      <text x="595" y="123" font-family="monospace" font-size="11" fill="#9ece6a">     I              6  11 2SALARY</text>
+      <text x="595" y="138" font-family="monospace" font-size="11" fill="#9ece6a">     I             12  16   NAME</text>
+
+      <!-- Result globals -->
+      <rect x="50" y="190" width="780" height="60" rx="8" fill="#1f2335" stroke="#7aa2f7"/>
+      <text x="65" y="210" font-size="11" font-weight="bold" fill="#7aa2f7">After extraction, these global variables are available:</text>
+      <text x="80" y="230" font-family="monospace" font-size="12" fill="#9ece6a">KEY = 3   ·   AMT = 142   ·   SALARY = 150.00   ·   NAME = "SMITH"</text>
+      <text x="80" y="245" font-size="9" fill="#565f89">All C-specs and O-specs can reference these by name</text>
+    </svg>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.4 Numeric versus alphameric — the decimal-position column</h2>
+
+  <p>Column&nbsp;52 is the type discriminator. A digit (0–9) makes the field
+  <strong>numeric</strong> with that many decimal positions. A blank makes it
+  <strong>alphameric</strong> (a character string). This is the single most
+  important column on a field-description line, because it determines which
+  operations are valid on the field.</p>
+
+  <p>Compare two fields — one numeric, one alphameric — side by side:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                        6  112SALARY       ← numeric: 2 decimals
+     I                                       13  20 NAME         ← alphameric: blank at col 52</code></pre>
+
+  <p>For <code>SALARY</code>: field-from is <code>6</code> (right-justified at
+  col&nbsp;47, within the 44–47 range), field-to is <code>11</code>
+  (right-justified at cols&nbsp;50–51, within 48–51), decimal positions is
+  <code>2</code> at col&nbsp;52, and the name <code>SALARY</code> starts at
+  col&nbsp;53.</p>
+
+  <p>For <code>NAME</code>: field-from is <code>13</code>, field-to is
+  <code>20</code>, col&nbsp;52 is <em>blank</em> (alphameric), name starts at
+  col&nbsp;53. The blank at col&nbsp;52 is what makes this a character field
+  rather than a number.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.5 Packed, binary, and zoned encoding (col 43)</h2>
+
+  <p>By default, numeric fields are <strong>zoned</strong> — each byte holds one
+  ASCII digit. Column&nbsp;43 lets you override the encoding for fields stored in
+  <strong>packed-decimal</strong> or <strong>binary</strong> format on disk:</p>
+
+  <table>
+    <tr><th>Col 43</th><th>Encoding</th><th>Layout</th></tr>
+    <tr><td>blank</td><td>Zoned (default)</td><td>One ASCII digit per byte</td></tr>
+    <tr><td><code>P</code></td><td>Packed-decimal</td><td>Two BCD digits per byte, sign nibble in the last byte</td></tr>
+    <tr><td><code>B</code></td><td>Binary</td><td>Big-endian integer (2-byte int16 or 4-byte int32)</td></tr>
+  </table>
+
+  <p>The runtime decodes packed and binary fields into the same scaled-integer
+  representation as zoned fields (see <a href="05-data-fields.html">Chapter&nbsp;5</a>),
+  so once a field is extracted, your C-specs treat it identically regardless of
+  encoding. The encoding only matters for how bytes are laid out in the input
+  file.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.6 Control level (cols 59–60)</h2>
+
+  <p>Assigning <code>L1</code>–<code>L9</code> to a field marks it as a
+  <strong>control-break key</strong>. When this field's value changes between
+  records, the corresponding control level turns ON and total-time processing
+  fires — letting you print subtotals whenever a group changes.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                        1   20DEPT  L1          ← L1 control break on DEPT</code></pre>
+
+  <p>Here <code>L1</code> sits at cols&nbsp;59–60. Whenever <code>DEPT</code>
+  changes value from one record to the next, indicator <code>L1</code> turns on
+  and any C-specs or O-specs conditioned on <code>L1</code> execute. See
+  <a href="14-control-levels.html">Chapter&nbsp;15</a> for the full control-level
+  mechanism.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.7 Matching fields (cols 61–62)</h2>
+
+  <p>Assigning <code>M1</code>–<code>M9</code> to a field marks it as a
+  <strong>match key</strong> for multifile processing. When primary and
+  secondary files both have an <code>M1</code> field, the cycle merges them by
+  key order rather than processing them independently. See
+  <a href="19-multifile.html">Chapter&nbsp;19</a> for the full matching-records
+  mechanism.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.8 Field indicators (cols 65–70)</h2>
+
+  <p>Three indicator slots that fire at read time based on the field's value.
+  These are <em>resulting indicators</em> — the cycle sets them automatically when
+  it extracts the field:</p>
+
+  <table>
+    <tr><th>Columns</th><th>Condition</th><th>Indicator turns ON when…</th></tr>
+    <tr><td>65–66</td><td>Positive</td><td>the numeric field is greater than zero</td></tr>
+    <tr><td>67–68</td><td>Negative</td><td>the numeric field is less than zero</td></tr>
+    <tr><td>69–70</td><td>Zero</td><td>the numeric field is zero (or, for alphameric, all blanks)</td></tr>
+  </table>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Think of field indicators as
+    validators that fire automatically when a record is parsed. Instead of
+    writing <code>if (amt &gt; 0) flag = true;</code> after each read, you put an
+    indicator number in cols&nbsp;65–66 and the cycle does it for you. Later
+    C-specs can then condition on that indicator.</p>
+  </div>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                        3   50AMT         40  50</code></pre>
+
+  <p>Here indicator <code>40</code> (cols&nbsp;65–66) turns ON when
+  <code>AMT</code> is positive, and indicator <code>50</code> (cols&nbsp;69–70)
+  turns ON when <code>AMT</code> is zero. Any C-spec conditioned on
+  <code>40</code> or <code>50</code> then reacts to the sign of
+  <code>AMT</code> without a separate <code>COMP</code>.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.9 Multiple record types</h2>
+
+  <p>A single input file can contain multiple record types — for example, header
+  records and detail records interleaved in the same stream. You distinguish them
+  with <strong>record-identification codes</strong> (cols&nbsp;21–41 on the
+  record-id line): three 7-column sets, each specifying a byte position, a match
+  character, and a comparison type.</p>
+
+  <p>When a record is read, its identification codes are matched against the
+  buffer. The matching type's record-identifying indicator (cols&nbsp;19–20)
+  turns ON; records matching no type are skipped. A field's
+  <strong>field-record-relation</strong> (cols&nbsp;63–64) ties it to a specific
+  record type — it is only extracted when that type's indicator is on.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> This is like a tagged union or
+    polymorphic deserializer: a type-discriminator byte determines which set of
+    fields to parse. In RPG&nbsp;II the discriminator is a character at a known
+    position, and the "which variant" decision happens at read time via the
+    record-identifying indicator.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.10 Look-ahead fields</h2>
+
+  <p>A <code>**</code> in cols&nbsp;19–20 of a record-identification line marks
+  the following field lines as <strong>look-ahead fields</strong>. These are
+  decoded from the <em>next</em> (uncommitted) record rather than the current
+  one. This lets you peek at the next record's key before the cycle processes it
+  — useful for detecting the last record in a group before total-time
+  processing fires. At end-of-file, look-ahead fields fill with 9s.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>8.11 Putting it together</h2>
+
+  <p>Here is a realistic I-spec section for a payroll file. The file has a
+  3-digit department code (control break at L1), a 5-digit employee ID, a salary
+  with 2 decimal places, and a 15-character name:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     IPAYROLL AA  01
+     I                                        1   30DEPT  L1
+     I                                        4   80EMPID
+     I                                        9  152SALARY
+     I                                       16  30 NAME</code></pre>
+
+  <p>When a record like <code>03  00417  027500JOHNSON, ROBERT</code> arrives,
+  the cycle extracts five global fields automatically:</p>
+
+  <ul>
+    <li><code>DEPT</code> = 3 (bytes 1–3, 0 decimals, tagged L1)</li>
+    <li><code>EMPID</code> = 417 (bytes 4–8, 0 decimals)</li>
+    <li><code>SALARY</code> = 275.00 (bytes 9–15, 2 decimals)</li>
+    <li><code>NAME</code> = <code>"JOHNSON, ROBERT"</code> (bytes 16–30, alphameric)</li>
+  </ul>
+
+  <p>Every C-spec and O-spec in the program can now reference these names
+  directly. No parsing code, no <code>struct</code> population, no conversion —
+  the I-spec declaration did it all.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now know how to declare files (F-specs) and describe their record
+  layouts (I-specs). The remaining specification types are where your program's
+  <em>logic</em> lives. The C-spec — the calculation specification — is the
+  workhorse: every arithmetic operation, comparison, loop, and subroutine call is
+  one C-spec line, with operands slotted into fixed columns.</p>
+
+  <p>That is <a href="09-calc-specs.html">Chapter&nbsp;9 — Calculation
+  Specifications</a>.</p>
+
+  <div class="nav">
+    <a href="07-file-specs.html">← Chapter 7: File Specifications</a>
+    <a href="09-calc-specs.html">Chapter 9: Calculation Specifications →</a>
+  </div>
+
+</body>
+</html>

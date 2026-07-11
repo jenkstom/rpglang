@@ -1,0 +1,16 @@
+     C* G24: SETLL + READE. SRFILE keys 02,02,03. SETLL 02, READE loop
+     C* counts equal-key reads (2) then stops on unequal. Exit 2.
+     FSRTX    IP  F      80            DISK
+     FSRFILE  IF  F      80  2AI     1 DISK
+     ISRTX       01
+     I                                        1   20STKEY
+     ISRFILE     02
+     I                                        1   20SKEY
+     C           STKEY     SETLLSRFILE
+     C           RDL       TAG
+     C           SKEY      READESRFILE                   99
+     C  99                 GOTO DONE
+     C                     ADD  1         CNT
+     C                     GOTO RDL
+     C           DONE      TAG
+     CLR                   Z-ADDCNT       RPGRET

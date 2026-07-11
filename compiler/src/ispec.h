@@ -47,6 +47,7 @@ struct ISpecField {
     char        data_format = 0;      // col 43: 0=blank(zoned), 'P'=packed, 'B'=binary
     std::string name;                 // cols 53-58
     std::string control_level;        // cols 59-60 (L1-L9)
+    std::string match_field;          // cols 61-62 (M1-M9 matching field, Section F)
     int         record_id = 0;        // cols 63-64: record-identifying indicator (E17)
     int         plus_ind  = 0;        // cols 65-66: field indicator on + (E18)
     int         minus_ind = 0;        // cols 67-68: field indicator on - (E18)

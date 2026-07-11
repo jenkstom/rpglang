@@ -1,0 +1,11 @@
+     C* B4: alphameric look-ahead fields must 9-fill at EOF (83344-46),
+     C* not stay unchanged. LADATA2 has 2 records: '10','20'. On the
+     C* last record (CUR2=20) the look-ahead NALA must read '99'.
+     FLADATA2 IP  F    2               DISK
+     ILADATA2     AA
+     I                                        1   2 CUR2
+     I            **
+     I                                        1   2 NALA
+     C           CUR2      COMP '20'                     20
+     C  20       NALA      COMP '99'                     21
+     C  21                 Z-ADD1         RPGRET

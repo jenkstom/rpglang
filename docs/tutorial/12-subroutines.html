@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 13 — Subroutines and CAS</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 13 — Subroutines and CAS</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II subroutines — <code>BEGSR</code>, <code>ENDSR</code>, and
+    <code>EXSR</code> — are reusable code blocks, the closest thing the language
+    has to functions. They take no parameters, return no value, and have no local
+    variables: they share the program's global fields and indicators. The
+    <code>CASxx</code> operation provides a case-select mechanism — it compares
+    two values and calls a subroutine if the comparison holds, functioning like a
+    modern <code>switch</code>/<code>case</code> that dispatches to different
+    subroutines. This chapter covers defining and calling subroutines, the CAS
+    group pattern, and the constraint that shapes everything: RPG&nbsp;II forbids
+    recursion.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.1 The "you already know" analogy</h2>
+
+  <p>A subroutine is a <code>void</code> function with no parameters. You define
+  it, you call it by name, and when it finishes, control returns to the line
+  after the call. The modern equivalent of a subroutine body is simply:</p>
+
+  <pre><code>void doCalculate() {
+    result = a * b;
+}</code></pre>
+
+  <p>You call it with <code>EXSR&nbsp;DOCALC</code> — like <code>doCalculate()</code>.</p>
+
+  <div class="callout">
+    <p><strong>Three things you do <em>not</em> get.</strong> Unlike the
+    functions you are used to, an RPG&nbsp;II subroutine has <strong>no
+    parameters, no return value, and no local variables.</strong> All
+    communication happens through the program's global fields and indicators. A
+    subroutine reads and writes the same fields the main code does — there is no
+    argument list and no private scope. Think of it as a function that only uses
+    globals.</p>
+  </div>
+
+  <!-- SVG: Subroutine call flow -->
+  <div class="svg-container">
+    <svg width="820" height="340" viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Subroutine Call and Return</text>
+
+      <!-- Main code section -->
+      <rect x="30" y="40" width="340" height="280" rx="8" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="200" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#7aa2f7">Main calculation section</text>
+
+      <rect x="45" y="75" width="310" height="20" fill="none" stroke="#565f89"/>
+      <text x="52" y="90" font-family="monospace" font-size="11" fill="#9ece6a">     C         Z-ADD 6    A</text>
+
+      <rect x="45" y="98" width="310" height="20" fill="none" stroke="#565f89"/>
+      <text x="52" y="113" font-family="monospace" font-size="11" fill="#9ece6a">     C         Z-ADD 7    B</text>
+
+      <rect x="45" y="121" width="310" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="52" y="138" font-family="monospace" font-size="11" fill="#ff9e64">     C         EXSR SUBMUL</text>
+
+      <rect x="45" y="150" width="310" height="20" fill="none" stroke="#565f89"/>
+      <text x="52" y="165" font-family="monospace" font-size="11" fill="#9ece6a">     C         MOVE R     RPGRET</text>
+
+      <!-- Subroutine section -->
+      <rect x="450" y="40" width="340" height="280" rx="8" fill="#24283b" stroke="#9ece6a" stroke-width="2"/>
+      <text x="620" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#9ece6a">Subroutine section</text>
+
+      <rect x="465" y="75" width="310" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="472" y="92" font-family="monospace" font-size="11" fill="#ff9e64">     C SUBMUL  BEGSR</text>
+
+      <rect x="465" y="104" width="310" height="20" fill="none" stroke="#565f89"/>
+      <text x="472" y="119" font-family="monospace" font-size="11" fill="#9ece6a">     C    A    MULT B    R</text>
+
+      <rect x="465" y="127" width="310" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="472" y="144" font-family="monospace" font-size="11" fill="#ff9e64">     C         ENDSR</text>
+
+      <!-- Call arrow -->
+      <path d="M 200 133 Q 350 133 400 87 Q 420 60 465 87" fill="none" stroke="#ff9e64" stroke-width="2" marker-end="url(#as1)"/>
+      <text x="350" y="125" text-anchor="middle" font-size="10" fill="#ff9e64" font-weight="bold">call</text>
+
+      <!-- Return arrow -->
+      <path d="M 465 139 Q 400 139 380 165 Q 370 175 355 160" fill="none" stroke="#7dcfff" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#as2)"/>
+      <text x="395" y="180" font-size="10" fill="#7dcfff" font-weight="bold">return</text>
+
+      <!-- Global state -->
+      <rect x="45" y="200" width="745" height="50" rx="8" fill="#1f2335" stroke="#7aa2f7"/>
+      <text x="70" y="220" font-size="10" font-weight="bold" fill="#7aa2f7">Shared global state (visible everywhere):</text>
+      <text x="80" y="238" font-family="monospace" font-size="11" fill="#9ece6a">A = 6   ·   B = 7   ·   R = 42   (RPGRET = 42 after MOVE)</text>
+      <text x="450" y="220" font-size="10" fill="#565f89">← no parameters passed;</text>
+      <text x="450" y="235" font-size="10" fill="#565f89">   sub reads globals directly</text>
+
+      <!-- Notes -->
+      <text x="410" y="280" text-anchor="middle" font-size="10" fill="#565f89">Subroutines appear AFTER all detail/total calcs, before the end of C-specs</text>
+      <text x="410" y="300" text-anchor="middle" font-size="10" fill="#565f89">Each subroutine = separate block, shares all global fields and indicators</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs>
+      <marker id="as1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ff9e64"/></marker>
+      <marker id="as2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker>
+    </defs>
+  </svg>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.2 BEGSR and ENDSR — defining a subroutine</h2>
+
+  <p><code>BEGSR</code> marks the start of a subroutine; the subroutine's name
+  goes in Factor&nbsp;1 (cols&nbsp;18–27). <code>ENDSR</code> marks the end and
+  returns to the caller. A subroutine definition looks like this:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           SUBMUL    BEGSR                ← begin subroutine SUBMUL
+     C           A         MULT B         R      ←   R = A * B
+     C                     ENDSR                 ← return to caller</code></pre>
+
+  <p>The name <code>SUBMUL</code> sits at col&nbsp;18 (Factor&nbsp;1);
+  <code>BEGSR</code> fills cols&nbsp;28–32 (a five-character token). The body
+  lines between <code>BEGSR</code> and <code>ENDSR</code> are the subroutine's
+  logic. <code>ENDSR</code> at cols&nbsp;28–32 returns control to whichever line
+  follows the <code>EXSR</code> that called it.</p>
+
+  <p>Subroutine definitions must appear <strong>after</strong> all the detail and
+  total calculation lines in the C-spec section. The compiler recognizes them as
+  separate blocks and excludes them from normal top-to-bottom execution — they
+  run only when called.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.3 EXSR — calling a subroutine</h2>
+
+  <p><code>EXSR</code> calls a subroutine by name. The subroutine name goes in
+  Factor&nbsp;2 (cols&nbsp;33–42). When the subroutine's <code>ENDSR</code>
+  returns, execution resumes at the line after the <code>EXSR</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD6         A
+     C                     Z-ADD7         B
+     C                     EXSR SUBMUL              ← call SUBMUL
+     C                     MOVE R         RPGRET    ← resumes here after return</code></pre>
+
+  <p><code>EXSR</code> is at cols&nbsp;28–31; <code>SUBMUL</code> starts at
+  col&nbsp;33 (Factor&nbsp;2). The call works like <code>submul()</code> — but
+  with no arguments. The subroutine reads <code>A</code> and <code>B</code>
+  directly from the global fields, multiplies them into <code>R</code>, and
+  returns. Back in the main code, <code>MOVE&nbsp;R&nbsp;RPGRET</code> copies the
+  result. With <code>A&nbsp;=&nbsp;6</code> and <code>B&nbsp;=&nbsp;7</code>,
+  <code>R&nbsp;=&nbsp;42</code>.</p>
+
+  <p>Because <code>EXSR</code> is just a C-spec operation, it can be conditioned
+  by indicators (cols&nbsp;9–17). You can call a subroutine only when a certain
+  flag is on, or only at total time (by tagging the line with a control level in
+  cols&nbsp;7–8). The timing of the call determines when the subroutine's logic
+  runs within the program cycle.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.4 CASxx — case-select dispatching</h2>
+
+  <p><code>CASxx</code> combines a comparison with a subroutine call. It compares
+  Factor&nbsp;1 to Factor&nbsp;2 and, if the comparison holds, calls the
+  subroutine named in the result field (cols&nbsp;43–48). A group of
+  <code>CASxx</code> lines followed by <code>END</code> forms a case construct —
+  like a <code>switch</code>/<code>case</code> that dispatches to different
+  subroutines:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD7         A
+     C                     Z-ADD0         RPGRET
+     C           A         CASGE10        SUB1     ← if A ≥ 10, call SUB1
+     C           A         CASLT10        SUB2     ← if A < 10, call SUB2
+     C                     END                     ← close the CAS group</code></pre>
+
+  <p>Here <code>A</code> is at col&nbsp;18 (Factor&nbsp;1), <code>CASGE</code>
+  fills cols&nbsp;28–32, <code>10</code> is at col&nbsp;33 (Factor&nbsp;2), and
+  <code>SUB1</code> is at col&nbsp;43 (result = subroutine to call). With
+  <code>A&nbsp;=&nbsp;7</code>, the first comparison <code>7&nbsp;&gt;=&nbsp;10</code>
+  is false, so <code>SUB1</code> is not called. The second comparison
+  <code>7&nbsp;&lt;&nbsp;10</code> is true, so <code>SUB2</code> runs and sets
+  <code>RPGRET&nbsp;=&nbsp;2</code>. The subroutine definitions follow:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           SUB1      BEGSR
+     C                     Z-ADD1         RPGRET
+     C                     ENDSR
+     C           SUB2      BEGSR
+     C                     Z-ADD2         RPGRET
+     C                     ENDSR</code></pre>
+
+  <p><code>CASxx</code> uses the same six two-letter operators as
+  <code>IFxx</code> and <code>DOWxx</code> (GT, LT, EQ, NE, GE, LE). An
+  <strong>unconditional</strong> <code>CAS</code> — with no comparison operator
+  and no Factor&nbsp;1 or Factor&nbsp;2 — acts as the <code>default:</code> case:
+  it always calls its subroutine. Place it last in the group so it catches
+  anything the comparison cases missed:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           A         CASGT10        SUB1     ← if A > 10, call SUB1
+     C                     CAS            DFAULT   ← default: A ≤ 10, call DFAULT
+     C                     END</code></pre>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> A CAS group is a chain of
+    <code>if&nbsp;/&nbsp;else&nbsp;if</code> blocks, each calling a different
+    function. The comparison cases test conditions in order; the first one that
+    holds fires its subroutine. The unconditional <code>CAS</code> is the
+    <code>default:</code> label — it runs when nothing else matched.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.5 No recursion</h2>
+
+  <p>RPG&nbsp;II <strong>forbids recursion</strong>. A subroutine cannot call
+  itself, directly or indirectly. This is enforced at compile time: if
+  <code>SUBA</code> calls <code>SUBB</code> and <code>SUBB</code> calls
+  <code>SUBA</code>, the compiler rejects it. There is no call stack in the
+  generated code — each <code>EXSR</code> is a simple jump-and-return, so
+  re-entrant calls would corrupt state.</p>
+
+  <div class="callout">
+    <p><strong>You already know this — as a constraint.</strong> In Python, C#,
+    or Java, recursion is natural: a function calls itself, and each call gets
+    its own stack frame. RPG&nbsp;II subroutines are non-reentrant: they share
+    one copy of every field, so a recursive call would overwrite the caller's
+    data. Any problem you would solve with recursion in a modern language must
+    be solved iteratively here — typically with a <code>DO</code> or
+    <code>DOWxx</code> loop (see <a href="11-loops-branching.html">Chapter&nbsp;12</a>).</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.6 GOTO restrictions inside subroutines</h2>
+
+  <p>Inside a subroutine, <code>GOTO</code> and <code>TAG</code> work normally —
+  you can jump around within the subroutine body. But a <code>GOTO</code> may
+  <strong>not</strong> cross the <code>BEGSR</code>/<code>ENDSR</code> boundary.
+  You cannot jump into a subroutine from the main body, nor jump out of a
+  subroutine to the main body. The subroutine boundary is a hard barrier for
+  <code>GOTO</code>.</p>
+
+  <p>This restriction exists because subroutines use a return-address mechanism:
+  <code>ENDSR</code> returns to the caller. A <code>GOTO</code> that jumped out
+  would skip the <code>ENDSR</code> and leave the return address dangling. If
+  you need to exit a subroutine early, use <code>GOTO</code> to a
+  <code>TAG</code> just before the <code>ENDSR</code> — that way the subroutine
+  still returns properly.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>13.7 Subroutines and the cycle</h2>
+
+  <p>An <code>EXSR</code> call inherits the timing of the line it appears on. If
+  the <code>EXSR</code> is at detail time (blank control level), the subroutine
+  runs once per record. If it is tagged <code>LR</code> (cols&nbsp;7–8), it runs
+  once at end-of-file. If it is tagged <code>L1</code>, it runs when a control
+  break fires. See <a href="03-program-cycle.html">Chapter&nbsp;3</a> for the
+  cycle timing and <a href="09-calc-specs.html">Chapter&nbsp;9</a> for the
+  control-level column.</p>
+
+  <p>A common pattern: put complex per-record processing in a subroutine and call
+  it from a detail-time line. This keeps the main calculation section clean — the
+  detail calcs read as a sequence of high-level <code>EXSR</code> calls, and the
+  messy logic is tucked away in subroutine blocks at the bottom.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Common pitfalls</h2>
+
+  <ul>
+    <li><strong>No parameters, no locals.</strong> A subroutine cannot declare
+      its own variables. If you need to pass information in, set a global field
+      before the <code>EXSR</code> and have the subroutine read it. This is the
+      "pseudo-parameter" pattern — verbose but the only option.</li>
+    <li><strong>Subroutines go at the bottom.</strong> All
+      <code>BEGSR</code>/<code>ENDSR</code> blocks must come after the last
+      detail and total calculation line. Putting a subroutine definition in the
+      middle of the main calc section will cause it to be treated as part of
+      normal execution.</li>
+    <li><strong>No recursion — direct or indirect.</strong> The compiler detects
+      cycles in the call graph and rejects them. Use iterative loops instead.</li>
+    <li><strong><code>GOTO</code> stays inside.</strong> A <code>GOTO</code>
+      inside a subroutine can only target a <code>TAG</code> within the same
+      subroutine. To return early, jump to a <code>TAG</code> just before
+      <code>ENDSR</code>.</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now have the full control-flow toolkit: conditionals, loops,
+  subroutines, and case-select dispatch. The next chapter turns to
+  <strong>data movement</strong> — the operations that copy bytes between fields,
+  convert between numeric and character representations, and test individual
+  characters and bits. <code>MOVE</code>, <code>MOVEL</code>, and
+  <code>MOVEA</code> are the workhorses, and they introduce a subtlety you have
+  not seen yet: right-justified versus left-justified copying with padding.</p>
+
+  <p>That is <a href="13-field-operations.html">Chapter&nbsp;14 — Field and
+  String Operations</a>.</p>
+
+  <div class="nav">
+    <a href="11-loops-branching.html">← Chapter 12: Loops and Branching</a>
+    <a href="13-field-operations.html">Chapter 14: Field and String Operations →</a>
+  </div>
+
+</body>
+</html>

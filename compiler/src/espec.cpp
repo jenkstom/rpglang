@@ -120,6 +120,17 @@ void load_compile_time_data(const std::vector<SourceLine> &src,
         }
         return pos + w;
     };
+    // Pull one fixed-width alphanumeric field (A9): unlike take_field this
+    // keeps the raw bytes verbatim (no numeric parse), matching the manual's
+    // own headline array/table example, a month-name table (Ch. 20).
+    auto take_str = [&](const std::string &t, int pos, int w,
+                        std::vector<std::string> &out) -> int {
+        while (pos < (int)t.size() && std::isspace((unsigned char)t[pos])) ++pos;
+        if (w < 1) w = 1;
+        if (pos + w > (int)t.size()) return -1;
+        out.push_back(t.substr(pos, w));
+        return pos + w;
+    };
 
     ++i;
     ESpecArray *cur = next_ct();
@@ -130,7 +141,22 @@ void load_compile_time_data(const std::vector<SourceLine> &src,
             continue;
         }
         if (!cur) break;
-        if (cur->decimals < 0) continue;   // alphanumeric arrays: deferred
+
+        if (cur->decimals < 0) {
+            // Alphanumeric compile-time array/table (A9).
+            int wA = cur->entry_len > 0 ? cur->entry_len : 1;
+            bool altAlpha = !cur->alt_name.empty() && cur->alt_decimals < 0;
+            int wB = altAlpha ? (cur->alt_entry_len > 0 ? cur->alt_entry_len : 1) : 0;
+            int pos = 0;
+            while (pos >= 0 &&
+                   (int)cur->init_str.size() < cur->entries &&
+                   (!altAlpha || (int)cur->alt_init_str.size() < cur->entries)) {
+                pos = take_str(t, pos, wA, cur->init_str);
+                if (altAlpha && pos >= 0)
+                    pos = take_str(t, pos, wB, cur->alt_init_str);
+            }
+            continue;
+        }
 
         int wA = cur->entry_len > 0 ? cur->entry_len : 1;
         bool alt = !cur->alt_name.empty() && cur->alt_decimals >= 0;
@@ -149,9 +175,21 @@ void load_compile_time_data(const std::vector<SourceLine> &src,
         }
     }
 
-    // Pad each compile-time array to its declared size with zeros.
+    // Pad each compile-time array to its declared size (zeros for numeric,
+    // blanks for alphanumeric -- A9).
     for (auto &a : arrays) {
         if (a.load != ArrayLoad::CompileTime) continue;
+        if (a.decimals < 0) {
+            int wA = a.entry_len > 0 ? a.entry_len : 1;
+            while ((int)a.init_str.size() < a.entries)
+                a.init_str.push_back(std::string((size_t)wA, ' '));
+            if (!a.alt_name.empty() && a.alt_decimals < 0) {
+                int wB = a.alt_entry_len > 0 ? a.alt_entry_len : 1;
+                while ((int)a.alt_init_str.size() < a.entries)
+                    a.alt_init_str.push_back(std::string((size_t)wB, ' '));
+            }
+            continue;
+        }
         while ((int)a.init_data.size() < a.entries) a.init_data.push_back(0);
         if (!a.alt_name.empty())
             while ((int)a.alt_init_data.size() < a.entries)

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 7 — File Specifications (F-specs)</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 7 — File Specifications (F-specs)</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>The F-spec (column&nbsp;6 = <code>F</code>) declares every file the program
+    uses. Each F-spec specifies the filename, whether it is input, output, or
+    update; its designation (primary, secondary, full-procedural); its record
+    format and length; the device it lives on (DISK, PRINTER, WORKSTN); and, for
+    keyed files, where the key sits inside each record. The file is opened
+    automatically when the program starts — there is no explicit
+    <code>open()</code> call.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.1 The "you already know" analogy</h2>
+
+  <p>In a modern language you open a file with a mode and some metadata:</p>
+
+  <pre><code># Python
+f = open("customers.dat", "rb")          # binary read
+r = open("report.txt", "w")              # text write
+m = open("master.dat", "r+b")            # read-write</code></pre>
+
+  <p>You tell the runtime the <em>name</em>, the <em>mode</em> (read, write,
+  read-write), and implicitly the <em>device</em> (disk). RPG&nbsp;II folds all of
+  that into a single declarative line — the F-spec — but with two extra twists:
+  the designation (how the program cycle interacts with the file) and the device
+  (which peripheral the file lives on).</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> An F-spec is a declarative
+    <code>open()</code> call. You write it once at the top of the program; the
+    runtime opens the file before the first line of logic runs and closes it when
+    the program ends. What is different is that you also declare <em>how the
+    cycle drives the file</em> — whether it reads records for you automatically
+    (primary) or leaves you in charge (full-procedural).</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.2 F-spec column map</h2>
+
+  <p>Every F-spec line has an <code>F</code> in column&nbsp;6. The remaining
+  columns fall into logical groups:</p>
+
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Description</th></tr>
+    <tr><td>Filename</td><td>7–14</td><td>The file's name (also used as the on-disk filename)</td></tr>
+    <tr><td>File Type</td><td>15</td><td>I (input), O (output), U (update), C (combined)</td></tr>
+    <tr><td>File Designation</td><td>16</td><td>P (primary), S (secondary), F (full-procedural), etc.</td></tr>
+    <tr><td>File Format</td><td>19</td><td>F (fixed-length, the common case)</td></tr>
+    <tr><td>Record Length</td><td>24–27</td><td>Number of bytes per record</td></tr>
+    <tr><td>Mode of Processing</td><td>28</td><td>Blank (sequential), L (limits), R (random)</td></tr>
+    <tr><td>Key Length</td><td>29–30</td><td>Length of the key field (for indexed files)</td></tr>
+    <tr><td>Record-Addr Type</td><td>31</td><td>A (zoned key), I (RRN), P (packed key), blank</td></tr>
+    <tr><td>Organization</td><td>32</td><td>I (indexed), T (address-output), blank (sequential)</td></tr>
+    <tr><td>Overflow Indicator</td><td>33–34</td><td>OA–OG, OV (printer files only)</td></tr>
+    <tr><td>Key Start</td><td>35–38</td><td>1-based record position of the key field</td></tr>
+    <tr><td>Extension Code</td><td>39</td><td>E or L</td></tr>
+    <tr><td>Device</td><td>40–46</td><td>DISK, PRINTER, WORKSTN, SPECIAL</td></tr>
+  </table>
+
+  <p>Columns 17–18, 20–23, and the gaps are reserved or rarely used. For most
+  programs you only need the filename, type, designation, format, record length,
+  and device — everything else can stay blank.</p>
+
+  <!-- SVG: F-spec column anatomy -->
+  <div class="svg-container">
+    <svg width="860" height="260" viewBox="0 0 860 260" xmlns="http://www.w3.org/2000/svg">
+      <text x="430" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">F-spec Column Anatomy</text>
+      <!-- Ruler -->
+      <text x="50" y="45" font-family="monospace" font-size="10" fill="#565f89">....+....1....+....2....+....3....+....4....+....5</text>
+      <!-- Column band backgrounds -->
+      <rect x="50" y="50" width="60" height="20" fill="#24283b" stroke="#7aa2f7"/><text x="80" y="64" text-anchor="middle" font-size="8" fill="#565f89">1-6</text>
+      <rect x="110" y="50" width="80" height="20" fill="#1f2335" stroke="#7aa2f7"/><text x="150" y="64" text-anchor="middle" font-size="8" fill="#7dcfff">7-14 name</text>
+      <rect x="190" y="50" width="10" height="20" fill="#2a1f2e" stroke="#ff9e64"/><text x="195" y="64" text-anchor="middle" font-size="7" fill="#ff9e64">15</text>
+      <rect x="200" y="50" width="10" height="20" fill="#2a1f2e" stroke="#ff9e64"/><text x="205" y="64" text-anchor="middle" font-size="7" fill="#ff9e64">16</text>
+      <rect x="238" y="50" width="10" height="20" fill="#1f2335" stroke="#7aa2f7"/><text x="243" y="64" text-anchor="middle" font-size="7" fill="#7dcfff">19</text>
+      <rect x="288" y="50" width="40" height="20" fill="#1f2335" stroke="#7aa2f7"/><text x="308" y="64" text-anchor="middle" font-size="7" fill="#7dcfff">24-27</text>
+      <rect x="328" y="50" width="10" height="20" fill="#2a1f2e" stroke="#ff9e64"/><text x="333" y="64" text-anchor="middle" font-size="7" fill="#ff9e64">28</text>
+      <rect x="448" y="50" width="90" height="20" fill="#1f2335" stroke="#7aa2f7"/><text x="493" y="64" text-anchor="middle" font-size="8" fill="#7dcfff">40-46 device</text>
+
+      <!-- Sample F-spec lines -->
+      <text x="50" y="95" font-family="monospace" font-size="12" fill="#9ece6a">     FDATA    IP  F    80              DISK</text>
+      <text x="50" y="115" font-family="monospace" font-size="12" fill="#9ece6a">     FREPORT  O   F    132             PRINTER</text>
+      <text x="50" y="135" font-family="monospace" font-size="12" fill="#9ece6a">     FSRTX    IP  F      80            DISK</text>
+      <text x="50" y="155" font-family="monospace" font-size="12" fill="#9ece6a">     FSRFILE  IF  F      80  2AI     1 DISK</text>
+
+      <!-- Annotations -->
+      <text x="580" y="95" font-size="10" fill="#7dcfff">↑ Input, Primary, 80-byte records, DISK</text>
+      <text x="580" y="115" font-size="10" fill="#7dcfff">↑ Output, 132-column report, PRINTER</text>
+      <text x="580" y="135" font-size="10" fill="#7dcfff">↑ Input, Primary, sequential</text>
+      <text x="580" y="155" font-size="10" fill="#ff9e64">↑ Input, Full-procedural, keyed (len 2, start 1)</text>
+
+      <!-- Designation legend -->
+      <rect x="50" y="185" width="760" height="60" rx="8" fill="#24283b" stroke="#565f89"/>
+      <text x="65" y="205" font-size="11" font-weight="bold" fill="#7dcfff">File Designation (col 16):</text>
+      <text x="65" y="222" font-size="10" fill="#c0caf5">P = Primary (cycle reads it automatically)  ·  S = Secondary (cycle merges with primary)  ·  F = Full-procedural (you control reads via CHAIN/READ)</text>
+      <text x="65" y="237" font-size="10" fill="#c0caf5">C = Chained  ·  R = Record-address  ·  T = Table  ·  D = Demand</text>
+    </svg>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.3 File type (col 15) — the "mode"</h2>
+
+  <p>Column&nbsp;15 is the closest thing to a mode argument. It tells the runtime
+  which direction data flows:</p>
+
+  <table>
+    <tr><th>Code</th><th>Mode</th><th>Modern analogy</th><th>Meaning</th></tr>
+    <tr><td><code>I</code></td><td>Input</td><td><code>"r"</code></td><td>Read-only. The cycle (or CHAIN/READ) reads records from this file.</td></tr>
+    <tr><td><code>O</code></td><td>Output</td><td><code>"w"</code></td><td>Write-only. The program produces records via O-specs. The file is created or truncated.</td></tr>
+    <tr><td><code>U</code></td><td>Update</td><td><code>"r+"</code></td><td>Read and rewrite in place. You can read a record, modify it, and write it back.</td></tr>
+    <tr><td><code>C</code></td><td>Combined</td><td>—</td><td>Both input and output on the same file (rare).</td></tr>
+  </table>
+
+  <p>Here is a primary input file and a printer output file, side by side:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FRPDATA  IP  F    80              DISK
+     FREPORT  O   F    132             PRINTER</code></pre>
+
+  <p>Both lines are identical up to column&nbsp;14 (the filename). Then
+  <code>RPDATA</code> has <code>I</code> at column&nbsp;15 (input) while
+  <code>REPORT</code> has <code>O</code> (output). The designations differ too:
+  <code>P</code> (primary) on the input file means the cycle reads it
+  automatically; the output file's designation column is blank because output
+  files are driven by O-specs, not by the cycle's read logic.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.4 File designation (col 16) — how the cycle treats the file</h2>
+
+  <p>This is the column with no modern equivalent. It tells the program cycle
+  <em>who is responsible for reading</em> this file:</p>
+
+  <table>
+    <tr><th>Code</th><th>Designation</th><th>Cycle behaviour</th></tr>
+    <tr><td><code>P</code></td><td>Primary</td><td>The cycle reads one record per iteration, automatically. Most input files are primary. There can be only one primary file (or one matched set).</td></tr>
+    <tr><td><code>S</code></td><td>Secondary</td><td>The cycle also reads this file, merging it with the primary by match field (M1). See <a href="19-multifile.html">Chapter&nbsp;19</a>.</td></tr>
+    <tr><td><code>F</code></td><td>Full-procedural</td><td>The cycle does <em>not</em> read this file. You control access entirely through <code>CHAIN</code>, <code>READ</code>, <code>SETLL</code>, etc. See <a href="18-file-access.html">Chapter&nbsp;18</a>.</td></tr>
+  </table>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> Think of a primary file as a
+    <code>for line in file:</code> loop that the language runs for you. A
+    full-procedural file is one you manage yourself — you call
+    <code>read()</code> when you want the next record. The designation column is
+    what switches between those two models.</p>
+  </div>
+
+  <p>A full-procedural keyed file looks like this (note the <code>F</code> at
+  column&nbsp;16 and the key information in columns&nbsp;29–38):</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FCMASTER IF  F      80  2AI     1 DISK</code></pre>
+
+  <p>Decoding the key columns: <code>2</code> at col&nbsp;30 means the key is
+  2&nbsp;bytes long; <code>A</code> at col&nbsp;31 means the key is zoned
+  (ASCII digits); <code>I</code> at col&nbsp;32 means the file is indexed
+  (organised by key); <code>1</code> at col&nbsp;38 means the key starts at byte
+  position&nbsp;1 in each record.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.5 Device (cols 40–46)</h2>
+
+  <p>The device column tells the runtime what kind of peripheral the file lives
+  on. In practice there are four you will encounter:</p>
+
+  <table>
+    <tr><th>Device</th><th>What it means</th><th>Typical file type</th></tr>
+    <tr><td><code>DISK</code></td><td>A file on disk. The most common device for input, output, and update.</td><td>I, O, U</td></tr>
+    <tr><td><code>PRINTER</code></td><td>Output to a printer (mapped to a text file in modern systems). Used for reports.</td><td>O</td></tr>
+    <tr><td><code>WORKSTN</code></td><td>Interactive workstation display for screen-based I/O.</td><td>C, U</td></tr>
+    <tr><td><code>SPECIAL</code></td><td>A user-supplied I/O routine — a hook for custom input/output logic.</td><td>any</td></tr>
+  </table>
+
+  <p>The device name is left-justified starting at column&nbsp;40.
+  <code>DISK</code> and <code>PRINTER</code> together cover the vast majority of
+  batch programs.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.6 Record length and format</h2>
+
+  <p>The record length (cols&nbsp;24–27) declares the fixed number of bytes per
+  record. The runtime reads exactly this many bytes per record (with
+  newline-tolerance: if a newline arrives before the full length, the remainder
+  is padded with spaces).</p>
+
+  <p>Format (col&nbsp;19) is almost always <code>F</code> (fixed-length). A
+  fixed-length file with 80-byte records is the bread-and-butter of RPG&nbsp;II
+  batch processing — it mirrors the 80-column punched card. Printer files
+  typically use 132 to match a standard line-printer width:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FRPDATA  IP  F    80              DISK       ← 80-byte input records
+     FREPORT  O   F    132             PRINTER    ← 132-column printer output</code></pre>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.7 Keyed files</h2>
+
+  <p>An indexed (keyed) DISK file declares its key in four F-spec columns:</p>
+
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Purpose</th></tr>
+    <tr><td>Key Length</td><td>29–30</td><td>Number of bytes in the key field</td></tr>
+    <tr><td>Record-Addr Type</td><td>31</td><td><code>A</code> (zoned key), <code>I</code> (relative record number), <code>P</code> (packed key)</td></tr>
+    <tr><td>Organization</td><td>32</td><td><code>I</code> for indexed (keyed)</td></tr>
+    <tr><td>Key Start</td><td>35–38</td><td>1-based byte position where the key begins in each record</td></tr>
+  </table>
+
+  <p>Together these four fields let the runtime build (or open) an index so you
+  can do random access via <code>CHAIN</code> and positioned sequential access
+  via <code>SETLL</code>/<code>READ</code>/<code>READE</code> — all covered in
+  <a href="18-file-access.html">Chapter&nbsp;18</a>.</p>
+
+  <p>For a file keyed by a 2-byte zoned field at position&nbsp;1:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FCMASTER IF  F      80  2AI     1 DISK
+               │  │  │    │   │││     │
+               │  │  │    │   │││     └─ key starts at byte 1 (cols 35-38)
+               │  │  │    │   ││└────── organization: I = indexed (col 32)
+               │  │  │    │   │└─────── record-addr type: A = zoned (col 31)
+               │  │  │    │   └──────── key length: 2 bytes (cols 29-30)
+               │  │  │    └──────────── record length: 80 (cols 24-27)
+               │  │  └───────────────── format: F = fixed (col 19)
+               │  └──────────────────── designation: F = full-procedural (col 16)
+               └─────────────────────── file type: I = input (col 15)</code></pre>
+
+  <p>Sequential files leave all four key columns blank. You only fill them in
+  when you need keyed access.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>7.8 Common patterns</h2>
+
+  <p>Most programs use one of a handful of F-spec combinations. Here are the
+  four you will see over and over:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FTRANS   IP  F    80              DISK       ← primary sequential input
+     FMAST    UF  F    80              DISK       ← update (read-rewrite)
+     FREPORT  O   F    132             PRINTER    ← printer output
+     FLOOKUP  IF  F      80  2AI     1 DISK       ← keyed full-procedural</code></pre>
+
+  <p>Line by line:</p>
+
+  <ul>
+    <li><strong>Primary sequential input</strong> — <code>IP</code> means input +
+      primary. The cycle reads one record per iteration. This is the default
+      starting point for most programs.</li>
+    <li><strong>Update file</strong> — <code>UF</code> means update +
+      full-procedural. You read records with <code>READ</code> or
+      <code>CHAIN</code>, modify them in C-specs, and write them back via an
+      update O-spec (<code>UPDATE</code> in cols&nbsp;16–18).</li>
+    <li><strong>Printer output</strong> — <code>O</code> means output, device is
+      <code>PRINTER</code>. The record length is the print line width
+      (typically&nbsp;132). O-specs describe what prints.</li>
+    <li><strong>Keyed full-procedural</strong> — <code>IF</code> means input +
+      full-procedural. You control access with <code>CHAIN</code>,
+      <code>SETLL</code>, <code>READ</code>, <code>READE</code>. The key columns
+      (<code>2AI</code> and <code>1</code>) define the index.</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>F-specs declare your files, but they say nothing about what is
+  <em>inside</em> each record. That is the job of the I-spec — the input
+  specification that maps byte positions to named fields. If the F-spec is the
+  <code>open()</code> call, the I-spec is the <code>struct</code> that describes
+  the record layout.</p>
+
+  <p>That is <a href="08-input-specs.html">Chapter&nbsp;8 — Input
+  Specifications</a>.</p>
+
+  <div class="nav">
+    <a href="06-arithmetic.html">← Chapter 6: Arithmetic Operations</a>
+    <a href="08-input-specs.html">Chapter 8: Input Specifications →</a>
+  </div>
+
+</body>
+</html>

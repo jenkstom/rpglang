@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 14 — Field and String Operations</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 14 — Field and String Operations</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II's field and string operations copy data between fields, compare
+    character strings, and test individual characters or bits. The core copy
+    operations are <code>MOVE</code> (right-justified copy with padding),
+    <code>MOVEL</code> (left-justified copy with padding), and <code>MOVEA</code>
+    (a flat byte-level copy for bulk transfers between arrays and fields).
+    Character comparison uses the same <code>COMP</code>/<code>IFxx</code>
+    operations you already know, but compares byte-by-byte. Two specialized
+    operations — <code>TESTZ</code> (test a character's zone) and
+    <code>TESTB</code> (test individual bits) — round out the toolkit. This
+    chapter pays close attention to how <code>MOVE</code> and <code>MOVEL</code>
+    differ in padding direction, since that is the detail that trips up most
+    newcomers.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.1 The "you already know" analogy</h2>
+
+  <p>You already know how to copy data between variables — it is just
+  assignment. RPG&nbsp;II splits that into three operations because fields have
+  fixed widths and the copy must say <em>which end</em> to align to:</p>
+
+  <ul>
+    <li><code>MOVE</code> is a right-justified copy — like assigning a shorter
+      value into a fixed-width field and padding on the left. The source lands at
+      the <em>right</em> edge of the destination.</li>
+    <li><code>MOVEL</code> is a left-justified copy — like a normal string copy
+      into a buffer, padding on the right. The source lands at the <em>left</em>
+      edge.</li>
+    <li><code>MOVEA</code> is a flat <code>memcpy</code> between an array and a
+      field (or two fields), treating both as raw byte sequences.</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>Why two copy directions?</strong> In a modern language a string
+    variable grows and shrinks. In RPG&nbsp;II every field has a fixed width
+    chosen at declaration time. When the source is shorter than the destination,
+    something has to fill the gap. <code>MOVE</code> pads on the left (so the
+    value sits at the right); <code>MOVEL</code> pads on the right (so the value
+    sits at the left). For numeric fields the pad is zeros; for character fields
+    it is blanks.</p>
+  </div>
+
+  <!-- SVG: MOVE vs MOVEL -->
+  <div class="svg-container">
+    <svg width="780" height="320" viewBox="0 0 780 320" xmlns="http://www.w3.org/2000/svg">
+      <text x="390" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">MOVE vs MOVEL: Justification and Padding</text>
+
+      <!-- MOVE section -->
+      <rect x="20" y="40" width="360" height="260" rx="12" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="200" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">MOVE (right-justified)</text>
+
+      <text x="35" y="85" font-size="10" fill="#565f89">Source: "HI" (2 bytes)</text>
+      <rect x="35" y="90" width="40" height="24" fill="#24283b" stroke="#9ece6a"/>
+      <text x="55" y="107" text-anchor="middle" font-family="monospace" font-size="12" fill="#9ece6a">HI</text>
+
+      <text x="35" y="130" font-size="10" fill="#565f89">Destination: 5-byte field</text>
+      <line x1="55" y1="114" x2="125" y2="140" stroke="#7dcfff" stroke-width="2" marker-end="url(#am1)"/>
+      <text x="80" y="128" font-size="9" fill="#7dcfff">right-justified</text>
+
+      <rect x="35" y="145" width="100" height="24" fill="#24283b" stroke="#7aa2f7"/>
+      <rect x="35" y="145" width="60" height="24" fill="#2a2b3d" stroke="#565f89"/>
+      <text x="65" y="162" text-anchor="middle" font-size="9" fill="#565f89">pad</text>
+      <text x="85" y="162" text-anchor="middle" font-family="monospace" font-size="12" fill="#9ece6a">HI</text>
+
+      <text x="200" y="162" font-size="11" fill="#9ece6a" font-family="monospace">= "   HI"</text>
+
+      <text x="35" y="195" font-size="10" fill="#565f89">Numeric MOVE (type conversion):</text>
+      <text x="35" y="213" font-size="10" fill="#c0caf5">Source: numeric field = 73</text>
+      <text x="35" y="228" font-size="10" fill="#c0caf5">MOVE to char field → "073" (right-justified)</text>
+      <text x="35" y="243" font-size="10" fill="#c0caf5">MOVE char "000N" to numeric → -5 (overpunch)</text>
+      <text x="35" y="270" font-size="9" fill="#565f89">MOVE converts between numeric and character</text>
+      <text x="35" y="285" font-size="9" fill="#565f89">using sign-overpunch on the last digit</text>
+
+      <!-- MOVEL section -->
+      <rect x="400" y="40" width="360" height="260" rx="12" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="580" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#ff9e64">MOVEL (left-justified)</text>
+
+      <text x="415" y="85" font-size="10" fill="#565f89">Source: "HI" (2 bytes)</text>
+      <rect x="415" y="90" width="40" height="24" fill="#24283b" stroke="#9ece6a"/>
+      <text x="435" y="107" text-anchor="middle" font-family="monospace" font-size="12" fill="#9ece6a">HI</text>
+
+      <text x="415" y="130" font-size="10" fill="#565f89">Destination: 5-byte field</text>
+      <line x1="435" y1="114" x2="445" y2="140" stroke="#7dcfff" stroke-width="2" marker-end="url(#am1)"/>
+      <text x="445" y="128" font-size="9" fill="#7dcfff">left-justified</text>
+
+      <rect x="415" y="145" width="100" height="24" fill="#24283b" stroke="#ff9e64"/>
+      <rect x="475" y="145" width="40" height="24" fill="#2a2b3d" stroke="#565f89"/>
+      <text x="435" y="162" text-anchor="middle" font-family="monospace" font-size="12" fill="#9ece6a">HI</text>
+      <text x="495" y="162" text-anchor="middle" font-size="9" fill="#565f89">pad</text>
+
+      <text x="580" y="162" font-size="11" fill="#9ece6a" font-family="monospace">= "HI   "</text>
+
+      <text x="415" y="195" font-size="10" fill="#565f89">Use MOVEL when you want text at the</text>
+      <text x="415" y="210" font-size="10" fill="#565f89">start of the field (natural reading order):</text>
+      <text x="415" y="228" font-size="10" fill="#c0caf5">MOVEL 'WORLD' NAME</text>
+      <text x="415" y="243" font-size="10" fill="#c0caf5">→ NAME = "WORLD     "</text>
+      <text x="415" y="270" font-size="9" fill="#565f89">If source is longer than destination,</text>
+      <text x="415" y="285" font-size="9" fill="#565f89">leftmost bytes are kept (truncated right)</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs><marker id="am1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker></defs>
+  </svg>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.2 MOVE — right-justified copy</h2>
+
+  <p><code>MOVE</code> copies Factor&nbsp;2 (cols&nbsp;33–42) into the result
+  field (cols&nbsp;43–48), right-aligned. If the destination is wider than the
+  source, the left side is padded — with blanks for character fields, zeros for
+  numeric. If the source is longer than the destination, the rightmost bytes of
+  the source are kept and the left overflow is dropped.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD73        SRC
+     C                     MOVE SRC       DST      ← right-justified copy
+     C                     ADD  DST       RPGRET</code></pre>
+
+  <p>Here <code>MOVE</code> is at cols&nbsp;28–31, <code>SRC</code> at
+  col&nbsp;33 (Factor&nbsp;2), and <code>DST</code> at col&nbsp;43 (result). Both
+  are numeric, so the copy is right-aligned and zero-padded. With
+  <code>SRC&nbsp;=&nbsp;73</code>, <code>DST</code> receives 73, and
+  <code>RPGRET</code> ends up 73.</p>
+
+  <div class="callout">
+    <p><strong>Type conversion.</strong> When <code>MOVE</code> crosses type
+    boundaries — numeric source to character destination, or vice versa — it
+    applies sign-overpunch encoding on the rightmost digit. This is how RPG&nbsp;II
+    converts between string and numeric representations. See
+    <a href="05-data-fields.html">Chapter&nbsp;5</a> for the overpunch details.
+    For same-type moves (numeric to numeric, character to character), no
+    conversion happens — just the alignment and padding.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.3 MOVEL — left-justified copy</h2>
+
+  <p><code>MOVEL</code> is the mirror of <code>MOVE</code>: it copies
+  Factor&nbsp;2 into the result field left-aligned, with padding on the right. If
+  the source is longer than the destination, the leftmost bytes are kept and the
+  right side is truncated. Use <code>MOVEL</code> when you want text at the
+  <em>start</em> of the field — natural reading order:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     MOVEL'WORLD'   NAME</code></pre>
+
+  <p><code>MOVEL</code> fills cols&nbsp;28–32 completely — it is a five-character
+  token — so Factor&nbsp;2 begins immediately at col&nbsp;33 with no gap. The
+  literal <code>'WORLD'</code> occupies cols&nbsp;33–39, and <code>NAME</code>
+  starts at col&nbsp;43. After this line, <code>NAME</code> holds
+  <code>"WORLD&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"</code> — the text left-aligned,
+  padded with blanks on the right.</p>
+
+  <div class="callout">
+    <p><strong>Five-character opcodes pack tightly.</strong> <code>MOVEL</code>,
+    <code>MOVEA</code>, <code>BEGSR</code>, <code>ENDSR</code>, and the
+    <code>xx</code>-suffixed comparison ops (<code>DOWLT</code>, <code>CASGE</code>,
+    etc.) all fill cols&nbsp;28–32 exactly. Factor&nbsp;2 then starts at
+    col&nbsp;33 with zero spaces between the opcode and the operand — e.g.
+    <code>MOVEL'WORLD'</code>. This is correct column-based behavior, not a
+    formatting error.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.4 MOVEA — array ↔ field byte move</h2>
+
+  <p><code>MOVEA</code> does a left-justified, byte-level copy between Factor&nbsp;2
+  and the result field, treating both as flat byte sequences. It copies as many
+  bytes as fit in the smaller of the two. The classic use is bulk-transferring
+  data between a character array and a single large field, or repacking fields:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     MOVEACSRC      CDST     ← byte copy CSRC → CDST
+     C           CSRC      COMP CDST                     20</code></pre>
+
+  <p><code>MOVEA</code> fills cols&nbsp;28–32; <code>CSRC</code> starts at
+  col&nbsp;33 (Factor&nbsp;2) and <code>CDST</code> at col&nbsp;43 (result). Both
+  must be character (alphameric) fields. After the copy, the <code>COMP</code>
+  line verifies that the two fields now hold identical bytes — if they match,
+  indicator&nbsp;20 turns ON in the EQ slot. (In a real program,
+  <code>CSRC</code> and <code>CDST</code> would be declared on I-specs or
+  E-specs with their character widths.)</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.5 Character comparison</h2>
+
+  <p><code>COMP</code>, <code>IFxx</code>, <code>DOWxx</code>, and the other
+  comparison operations all work on alphameric fields as well as numeric. For
+  character operands, the comparison is byte-by-byte, left-aligned, with the
+  shorter operand blank-padded on the right — just like
+  <code>String.compareTo()</code> in a modern language:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           CNAME     COMP 'SMITH'              20</code></pre>
+
+  <p><code>CNAME</code> is at col&nbsp;18 (Factor&nbsp;1), <code>COMP</code> at
+  cols&nbsp;28–31, the literal <code>'SMITH'</code> at cols&nbsp;33–39
+  (Factor&nbsp;2), and indicator&nbsp;20 at cols&nbsp;54–55 (the HI slot). After
+  the comparison, indicator&nbsp;20 is ON when
+  <code>CNAME&nbsp;&gt;&nbsp;'SMITH'</code>. Comparing <code>"ABC"</code> to
+  <code>"ABD"</code>: they differ at the third byte, <code>C&nbsp;&lt;&nbsp;D</code>,
+  so the LO outcome holds. This is plain lexicographic ordering on the raw byte
+  values.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.6 TESTZ — test character zone</h2>
+
+  <p><code>TESTZ</code> examines the leftmost byte of the result field (which
+  must be alphameric) and sets resulting indicators based on its "zone" — a
+  leftover from the EBCDIC punched-card era, where the high nibble of the first
+  character carried sign information. Factor&nbsp;1 and Factor&nbsp;2 are not
+  used; the field to test goes in the result field (cols&nbsp;43–48):</p>
+
+  <table>
+    <tr><th>Result indicator slot</th><th>Cols</th><th>Turned ON when the character is</th></tr>
+    <tr><td>HI</td><td>54–55</td><td>In the "plus" zone: <code>&amp;</code>, A–I, a–i</td></tr>
+    <tr><td>LO</td><td>56–57</td><td>In the "minus" zone: <code>-</code>, J–R, j–r</td></tr>
+    <tr><td>EQ</td><td>58–59</td><td>Anything else (the "zero" zone)</td></tr>
+  </table>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     MOVE 'J'       CF    1   ← CF = 'J' (1-byte char field)
+     C                     TESTZ          CF         010203</code></pre>
+
+  <p><code>TESTZ</code> fills cols&nbsp;28–32; the field <code>CF</code> sits at
+  col&nbsp;43 (result), and the three indicators <code>01</code>, <code>02</code>,
+  <code>03</code> occupy cols&nbsp;54–59 contiguously (HI, LO, EQ). Because
+  <code>'J'</code> is in the minus zone, indicator&nbsp;02 (LO) turns ON. A later
+  line conditioned on <code>02</code> can react to that:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  02                 Z-ADD2         RPGRET    ← runs because 'J' is minus zone</code></pre>
+
+  <p>In practice <code>TESTZ</code> is rarely used in new code, but it appears in
+  legacy programs that relied on overpunch sign conventions.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>14.7 TESTB — test bits</h2>
+
+  <p><code>TESTB</code> tests individual bits within a one-byte character field.
+  Factor&nbsp;2 specifies <em>which</em> bits to test — either as a bit-number
+  literal like <code>'025'</code> (each digit names a bit, 0 = leftmost /
+  highest) or as a one-position character field whose ON bits form the mask. The
+  field being tested goes in the result field (cols&nbsp;43–48):</p>
+
+  <table>
+    <tr><th>Result indicator slot</th><th>Cols</th><th>Turned ON when</th></tr>
+    <tr><td>HI</td><td>54–55</td><td>Every tested bit is OFF</td></tr>
+    <tr><td>LO</td><td>56–57</td><td>The tested bits are mixed (some on, some off)</td></tr>
+    <tr><td>EQ</td><td>58–59</td><td>Every tested bit is ON</td></tr>
+  </table>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     MOVE 'C'       CF    1   ← CF = 'C' (ASCII 0x43)
+     C                     TESTB'0'       CF         010203</code></pre>
+
+  <p><code>TESTB</code> fills cols&nbsp;28–32; the mask literal <code>'0'</code>
+  is at col&nbsp;33 (Factor&nbsp;2), naming bit&nbsp;0 (the leftmost /
+  highest-order bit). <code>CF</code> is at col&nbsp;43 (result), and indicators
+  <code>01</code>/<code>02</code>/<code>03</code> fill cols&nbsp;54–59. The ASCII
+  code for <code>'C'</code> is <code>0x43</code> = <code>01000011</code> in
+  binary — bit&nbsp;0 (the 0x80 position) is OFF. Since the one tested bit is
+  OFF, indicator&nbsp;01 (HI) turns ON. A line conditioned on <code>01</code>
+  then runs:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  01                 Z-ADD1         RPGRET    ← runs because bit 0 of 'C' is off</code></pre>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> <code>TESTB</code> is a bitwise
+    AND test. "HI if all tested bits OFF" is <code>(val&nbsp;&amp;&nbsp;mask)&nbsp;==&nbsp;0</code>;
+    "EQ if all tested bits ON" is <code>(val&nbsp;&amp;&nbsp;mask)&nbsp;==&nbsp;mask</code>;
+    "LO" is the mixed case in between. RPG&nbsp;II just writes the outcome into
+    indicators instead of a boolean expression.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Common pitfalls</h2>
+
+  <ul>
+    <li><strong><code>MOVE</code> vs. <code>MOVEL</code> padding direction.</strong>
+      This is the #1 source of confusion. <code>MOVE</code> right-justifies
+      (pads left); <code>MOVEL</code> left-justifies (pads right). If your text
+      ends up with unexpected leading blanks, you probably used <code>MOVE</code>
+      where you wanted <code>MOVEL</code>.</li>
+    <li><strong>The field to test is in the result column.</strong> For
+      <code>TESTZ</code> and <code>TESTB</code>, the field under examination goes
+      in cols&nbsp;43–48 (the result field) — not in Factor&nbsp;2. Factor&nbsp;2
+      holds the bit mask for <code>TESTB</code> and is blank for
+      <code>TESTZ</code>.</li>
+    <li><strong>Resulting indicators for TESTZ/TESTB are contiguous.</strong>
+      Like <code>COMP</code>, the three slots at cols&nbsp;54–59 abut each other.
+      Write <code>010203</code>, not <code>01&nbsp;02&nbsp;03</code>.</li>
+    <li><strong>Character comparison is byte-order, not locale-aware.</strong>
+      <code>COMP</code> on alphameric fields compares raw byte values. Uppercase
+      and lowercase sort separately because their ASCII codes differ — there is
+      no case-insensitive comparison built in.</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You have now completed Part&nbsp;IV — the logic and control-flow core of
+  RPG&nbsp;II. You can branch, loop, call subroutines, dispatch with CAS, and
+  move data between fields in any alignment. Part&nbsp;V turns to the features
+  that make RPG&nbsp;II powerful for reporting and data processing: control
+  levels (automatic subtotalling when a group key changes), arrays and tables,
+  output formatting with edit codes, and file access beyond the program cycle.</p>
+
+  <p>The next chapter introduces <strong>control levels</strong> — L1 through L9
+  — which let a report automatically subtotal and break whenever a sort key
+  changes, without manual comparison logic.</p>
+
+  <p>That is <a href="14-control-levels.html">Chapter&nbsp;15 — Control Levels
+  and Report Breaks</a>.</p>
+
+  <div class="nav">
+    <a href="12-subroutines.html">← Chapter 13: Subroutines and CAS</a>
+    <a href="14-control-levels.html">Chapter 15: Control Levels →</a>
+  </div>
+
+</body>
+</html>

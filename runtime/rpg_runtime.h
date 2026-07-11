@@ -55,6 +55,54 @@ int rpg_rt_peek_next(int file_id, char *buf, size_t buflen);
  * line-based reading. */
 void rpg_rt_set_reclen(int file_id, int reclen);
 
+/* ----- Section G (G24): keyed / random file access ------------------------ */
+
+/* Declare the key field for an indexed DISK file: `key_start` is the 1-based
+ * record column where the key begins, `key_len` its length. Called once after
+ * the file is opened. With no key set, CHAIN falls back to relative-record-
+ * number access. */
+void rpg_rt_set_key(int file_id, int key_start, int key_len);
+
+/* Format `value` as a zero-padded decimal string of width `width` into `out`
+ * (right-justified). Returns the width. Used to build a numeric key buffer. */
+int rpg_rt_fmt_key(long value, int width, char *out);
+
+/* Random read of one record (CHAIN). If a key is declared, `key` (keylen bytes)
+ * is binary-searched in the file's key index; record N (1-based) is returned.
+ * Without a key, `key` holds a decimal RRN. Returns 1 on a hit (record in buf),
+ * 0 on no-record. */
+int rpg_rt_chain(int file_id, const char *key, int keylen, char *buf, size_t buflen);
+
+/* Position an indexed file at the first record whose key >= `key` (SETLL). A
+ * subsequent rpg_rt_read / rpg_rt_reade reads from there. Returns 1. */
+int rpg_rt_setll(int file_id, const char *key, int keylen);
+
+/* Read the next record from the current position (full-procedural / demand
+ * READ). Returns 1 on record, 0 on EOF. */
+int rpg_rt_read(int file_id, char *buf, size_t buflen);
+
+/* Read the next record only if its key == `key` (READE); otherwise return 0
+ * (unequal / EOF) without advancing past the non-matching record. */
+int rpg_rt_reade(int file_id, const char *key, int keylen, char *buf, size_t buflen);
+
+/* ----- Section G (G25): update files -------------------------------------- */
+
+/* Open an update file (type U): read+write in place, no truncate. */
+int rpg_rt_open_update(const char *path);
+
+/* Append a record (O-spec ADD). */
+void rpg_rt_write_rec(int file_id, const char *buf, int len);
+
+/* Rewrite the most recently read record in place (O-spec UPDATE). */
+void rpg_rt_update_rec(int file_id, const char *buf, int len);
+
+/* Delete the most recently read record (O-spec DEL): fill it with 0xFF. */
+void rpg_rt_delete_rec(int file_id);
+
+/* Flush the current line buffer as a disk record. op 0 = ADD (append), 1 =
+ * UPDATE (in-place). Reuses the printer field-placement logic. */
+void rpg_rt_flush_rec(int file_id, int op);
+
 /* Open a sequential output file (text, line-buffered). Returns a file id or
  * -1 on failure. The file is truncated on open. */
 int rpg_rt_open_output(const char *path);
@@ -88,6 +136,17 @@ void rpg_rt_skip(int file_id, int line_no);
  * the page of the nth-opened output file (PAGE1-PAGE7). Section D (D14). */
 int rpg_rt_page(int file_id, int which);
 
+/* Configure printer overflow for `file_id` (Section F, F22). `lines_per_page`
+ * is the form depth (default 66); `overflow_line` is the line at which overflow
+ * occurs (default 60, the manual's "six from the bottom"). Called once after a
+ * PRINTER file is opened when the program assigns an overflow indicator. */
+void rpg_rt_set_overflow(int file_id, int lines_per_page, int overflow_line);
+
+/* Return 1 if the overflow line was reached since the last call, then clear the
+ * latch (Section F, F22). The cycle polls this at total time to drive the
+ * overflow indicator (OA-OG/OV). */
+int rpg_rt_take_overflow(int file_id);
+
 /* Close every opened file. Called on LR (last record). */
 void rpg_rt_close_all(void);
 
@@ -96,12 +155,15 @@ void rpg_rt_close_all(void);
 int rpg_rt_cmp_str(const char *a, int alen, const char *b, int blen);
 
 /* LOKUP a numeric `key` in `arr` (count elements). Starts at index *idx (1-based)
- * and scans. On an equal match, sets *idx to that element and returns 0. If no
- * equal but a higher element exists, returns +1 (and sets *idx to it). If a
- * lower element exists, returns -1. Else returns -2 (nothing). For an unsorted
- * array only equality (0) is meaningful; high/low require an ascending array.
- * Phase 10. */
-int rpg_rt_lokup(long key, const int *arr, int count, int *idx);
+ * and scans. On an equal match, sets *idx to that element and returns 0.
+ * Otherwise finds the NEAREST qualifying element (manual 113147-113162), not
+ * merely "does one exist": if a higher element exists, returns +1 and sets
+ * *idx to the nearest one; if a lower element exists, returns -1 and sets
+ * *idx to the nearest one (A11). Else returns -2 and sets *idx to 1. `ascending`
+ * (nonzero for E-spec column 45 == 'A', zero for 'D'/unspecified) determines
+ * which end of a scan run is "nearest" -- see B2 for where this flag is read
+ * from the E-spec parse. Phase 10 / A11. */
+int rpg_rt_lokup(long key, const int *arr, int count, int *idx, int ascending);
 
 /* Format a numeric value into `out` (capacity out_cap) using an RPG II edit
  * code (codes '1'-'4', 'A'-'D', 'J'-'M', 'N', 'O'). Returns the string length.
@@ -111,14 +173,18 @@ int rpg_rt_edit(long value, char edit_code, int width, char *out, int out_cap);
 
 /* Like rpg_rt_edit, but the stored value is a scaled integer whose last
  * `decimals` digits are the fractional part (Section C). decimals<=0 behaves
- * like rpg_rt_edit. Returns the string length. */
+ * like rpg_rt_edit. `fill` (A13) is a floating fill character from O-spec
+ * columns 45-47 -- a currency symbol or '*' -- printed immediately to the
+ * left of the first digit; 0 means none. Returns the string length. */
 int rpg_rt_edit_dec(long value, char edit_code, int width, int decimals,
-                    char *out, int out_cap);
+                    char fill, char *out, int out_cap);
 
 /* Format `value` (a scaled integer with `decimals` fractional digits) using an
  * RPG II edit word (Section D, D16). The word's blanks are replaceable (filled
  * by source digits), the first '0' stops zero-suppression, the first '*' does
- * check-protection, a trailing '-' or "CR" is a sign, '&' forces a blank.
+ * check-protection, a trailing '-' or "CR" is a sign, '&' forces a blank. A
+ * '$' directly followed by '0' floats to just left of the first significant
+ * digit instead of printing at its own position (A13, manual 63666-63669).
  * Returns the string length. */
 int rpg_rt_edit_word(long value, const char *word, int word_len,
                      int decimals, char *out, int out_cap);
@@ -157,6 +223,13 @@ int rpg_rt_overpunch_out(long value, char *out, int len);
  * leaves the unused tail as zero. */
 int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
                        int total, int *out_a, int *out_b);
+
+/* Alphameric counterpart of rpg_rt_load_arrays (A9): same file layout and
+ * partner semantics, but copies raw `len_a`/`len_b`-byte fields verbatim
+ * instead of parsing them as decimal digits, and blank-fills (not zero-fills)
+ * a missing partner field. */
+int rpg_rt_load_char_arrays(const char *path, int len_a, int len_b,
+                            int total, char *out_a, char *out_b);
 
 /* Close every opened file. Called on LR (last record). */
 void rpg_rt_close_all(void);

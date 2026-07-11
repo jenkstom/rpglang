@@ -42,7 +42,12 @@ Col 9/12/15 = `N` (negation) or blank; 10–11/13–14/16–17 = 2-char indicato
 | File Designation  | 16      | P / S / F / C / R / T / D                        |
 | File Format       | 19      | F (fixed) common; also V/S/M/D/E                 |
 | Record Length     | 24–27   | ends col 27                                      |
+| Mode of Processing| 28      | blank / L (within limits) / R (random)           |
+| Key Length        | 29–30   | length of the key / record-address field         |
+| Record-Addr Type  | 31      | blank / A (zoned key) / I (RRN) / P (packed key) |
+| Organization      | 32      | blank / I (indexed) / T (address-output)         |
 | Overflow Indicator| 33–34   | OA–OG, OV                                        |
+| Key Start         | 35–38   | 1-based record position of the key field         |
 | Extension Code    | 39      | E / L                                            |
 | Device            | 40–46   | DISK / WORKSTN / PRINTER / SPECIAL / ...         |
 
@@ -126,6 +131,10 @@ start); **D** prints once per record at detail time; **T** prints at total time
 | `MOVEA` | blank   | required| required      | none; left-justified byte move (array↔field) |
 | `TESTZ` | blank   | blank   | required(char)| HI plus zone, LO minus zone, EQ other (leftmost char) |
 | `TESTB` | blank   | required| required(char)| HI all-off, LO mixed, EQ all-on for masked bits |
+| `CHAIN` | required| required(file)| blank | cols 54-55 no-record; random read by key or RRN |
+| `SETLL` | required| required(file)| blank | none; position file at first key >= F1 |
+| `READE` | required| required(file)| blank | cols 58-59 EOF/unequal; read next if key == F1 |
+| `READ`  | blank   | required(file)| blank | cols 58-59 EOF; read next (full-procedural/demand) |
 
 **Phase 9 additions.** Alphanumeric fields (I-spec col 52 blank) compile to
 `[N x i8]` globals; `MOVE`/`MOVEL` do right/left-justified byte copies; quoted
@@ -220,6 +229,45 @@ extracted only when that indicator is on. **Field indicators** (cols 65–66 /
 that follow are decoded from the *next* (uncommitted) record via
 `rpg_rt_peek_next`, and fill with 9s at end-of-file.
 
+**Section F additions — cycle & matching.** When a program declares a **primary
+file plus one or more secondary files** (F-spec designation `S`), it is compiled
+to a separate multifile cycle rather than the single-file cycle. Each input
+file's current record is held in its own buffer (`rpg_rec_<file>`, with a `got_`
+valid flag); each cycle selects one record to process. An input field tagged
+**M1** (I-spec cols 61–62) is a match field — files carrying M1 are merged in
+ascending key order (ties keep the higher-priority file, primary first), and the
+**MR** indicator turns on when the selected record's M1 equals another held
+record's M1. Files *without* an M1 are processed by priority (primary fully,
+then secondaries in F-spec order). The selected record is copied into the shared
+`rpg_rec` and only that file's fields are decoded, so the rest of the cycle
+(total/detail calc and output) is identical to the single-file path. Only a
+single numeric M1 field is supported; combined M1–M9 keys and alphameric match
+fields are future work.
+
+**Overflow** (F22): a PRINTER file may carry an overflow indicator in **F-spec
+cols 33–34** (`OA`–`OG` or `OV`). The overflow line is taken from a line-counter
+**L-spec** (form type `L`: cols 7–14 filename, 15–17 lines per page, 20–22
+overflow line), defaulting to six lines from the bottom of a 66-line page. The
+runtime latches overflow when printed output reaches the overflow line; after
+total output each cycle the compiler polls the latch (`rpg_rt_take_overflow`),
+turns the overflow indicator on, runs the overflow-conditioned Heading/Detail/
+Total output, and turns the indicator off. (Indicator-driven; automatic form-
+feed advance without an assigned indicator is future work.)
+
+**Section G additions — file handling.** `CHAIN`/`SETLL`/`READE`/`READ` provide
+keyed and positioned access to DISK files (C-specs). An indexed file declares
+its key on the F-spec (cols 29–30 length, 35–38 start); the runtime builds an
+in-memory key→offset index on first use, and `CHAIN` binary-searches it (or,
+with no key, reads by relative-record number). `SETLL` positions at the lower
+bound; `READ`/`READE` advance sequentially (`READE` only while the key matches).
+The no-record indicator is cols 54–55; EOF/unequal is cols 58–59.
+
+**Update files** (F-spec type `U`, G25) open `r+` for in-place rewrite. The
+record operation is driven by the **O-spec**: `ADD` in cols 16–18 appends,
+type `U` in col 15 (or `UPDATE` semantics) rewrites the last-read record, and
+`DEL` in cols 16–18 marks it deleted (filled with 0xFF). ADD (cycle append)
+and CHAIN-based UPDATE are exercised by the tests.
+
 Control levels (L1–L9) are assigned to input fields on the **I-spec, cols
 59–60**. The cycle detects a break when a control field's value changes
 between records; the broken level and all lower levels turn on (cascade:
@@ -227,6 +275,10 @@ L3 → L1, L2, L3). C-specs conditioned by `L1`..`L9` (cols 7–8) run at total
 time when that level or higher is on; `L0` runs every total time; `LR` runs
 at last record. At LR all of L1–L9 turn on, so the final group's subtotals
 print. Total calcs/output run in ascending level order (L0, L1, …, L9, LR).
+Per the manual's first-cycle rule, the first record establishes the control-
+field baseline but does **not** cascade L1–L9 — totals (and hence breaks) are
+bypassed until after the first record carrying control fields is processed
+(Section F, F23).
 
 `xx` for IF/DOW/DOU is one of `GT LT EQ NE GE LE` (compare F1 to F2).
 
@@ -268,12 +320,16 @@ tested bit is off, LO if mixed, EQ if every tested bit is on.
 - General: `01`–`99`
 - Control level: `L0`–`L9` (`L0` always on at total time)
 - Last record: `LR`
-- Matching record: `MR`
+- Matching record: `MR` *(on when the selected record's M1 equals another held
+  record's M1 in the multifile cycle; Section F)*
 - Halt: `H1`–`H9`
-- Overflow: `OA`–`OG`, `OV`  *(no `OF`/`ON` in SC09-1818)*
+- Overflow: `OA`–`OG`, `OV`  *(no `OF`/`ON` in SC09-1818); latched by the runtime
+  when output reaches the overflow line, polled at total time, Section F)*
 - External: `U1`–`U8`
 - Function keys: `KA`–`KN`, `KP`–`KY` (`KO` reserved)
 - First page: `1P` (output only, internal)
 
-For Phase 2 we model `01`–`99` + `LR` as a flat array of `i1`; other specials
-are accepted lexically but only `LR` carries behavior yet.
+Internally each special is a dedicated `i1` global: `01`–`99` live in a single
+`[100 x i1]` array (`@rpg_in`), and `LR`, `L1`–`L9`, `1P`, `MR`, `OA`–`OG`, `OV`
+each get their own global. `H1`–`H9`, `U1`–`U8`, and the function-key indicators
+are accepted lexically but carry no behavior yet.

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 12 — Loops and Branching</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 12 — Loops and Branching</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II gives you three loop constructs and one branching mechanism.
+    The loops are: <code>DOWxx</code> (do-while — test at the top, like a modern
+    <code>while</code>), <code>DOUxx</code> (do-until — test at the bottom, like a
+    modern <code>do-while</code>), and <code>DO</code> (a counted loop with start,
+    limit, and increment — like a modern <code>for</code>). The branching
+    mechanism is <code>GOTO</code>/<code>TAG</code>: an unconditional jump to a
+    labeled position. All three loops close with <code>END</code> and reuse the
+    same six comparison operators (GT/LT/EQ/NE/GE/LE) you met in
+    <a href="10-conditional-logic.html">Chapter&nbsp;11</a>. This chapter covers
+    each construct, when the body runs (zero-or-more vs. one-or-more times),
+    nesting, and the patterns for early exit.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.1 The "you already know" analogy</h2>
+
+  <p>You already know three kinds of loop from every language you have used: a
+  pre-test loop (<code>while</code>), a post-test loop (<code>do-while</code>),
+  and a counted loop (<code>for</code>). RPG&nbsp;II maps onto them directly:</p>
+
+  <ul>
+    <li><code>DOWxx</code> = <code>while</code> loop. The test comes first; the
+      body may run zero times.</li>
+    <li><code>DOUxx</code> = <code>do-while</code> loop. The body runs first; the
+      test comes at the bottom; the body always runs at least once.</li>
+    <li><code>DO</code> = <code>for</code> loop with a start value, a limit, and
+      an increment.</li>
+    <li><code>GOTO</code>/<code>TAG</code> = <code>goto</code> and label — yes,
+      RPG&nbsp;II has them, and they are genuinely useful for early-exit
+      patterns.</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>The one twist.</strong> In a modern language you write the loop
+    condition inside parentheses: <code>while (cnt &lt; 5)</code>. In RPG&nbsp;II
+    the comparison is embedded in the operation name itself —
+    <code>DOWLT</code> means "do-while less-than." Factor&nbsp;1 and Factor&nbsp;2
+    are the two operands being compared, exactly as in <code>IFxx</code>.</p>
+  </div>
+
+  <!-- SVG: Loop comparison -->
+  <div class="svg-container">
+    <svg width="820" height="310" viewBox="0 0 820 310" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Three Loop Constructs</text>
+
+      <!-- DOWxx -->
+      <rect x="20" y="40" width="250" height="260" rx="12" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="145" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">DOWxx (do-while)</text>
+      <text x="145" y="78" text-anchor="middle" font-size="9" fill="#565f89">Test at top · 0+ iterations</text>
+      <polygon points="145,90 210,120 145,150 80,120" fill="#24283b" stroke="#7aa2f7"/>
+      <text x="145" y="118" text-anchor="middle" font-size="9" fill="#7dcfff">condition</text>
+      <text x="145" y="130" text-anchor="middle" font-size="9" fill="#7dcfff">true?</text>
+      <line x1="145" y1="150" x2="145" y2="165" stroke="#9ece6a" stroke-width="2" marker-end="url(#al1)"/>
+      <text x="160" y="160" font-size="8" fill="#9ece6a">yes</text>
+      <rect x="95" y="170" width="100" height="30" rx="4" fill="#24283b" stroke="#9ece6a"/>
+      <text x="145" y="190" text-anchor="middle" font-size="10" fill="#9ece6a">body</text>
+      <path d="M 95 185 Q 50 185 50 120 Q 50 90 80 120" fill="none" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#al2)"/>
+      <line x1="210" y1="120" x2="235" y2="120" stroke="#f7768e" stroke-width="2" marker-end="url(#al3)"/>
+      <text x="218" y="112" font-size="8" fill="#f7768e">no</text>
+      <text x="145" y="225" text-anchor="middle" font-size="9" fill="#565f89">≡ while (cond) { body }</text>
+      <text x="145" y="245" text-anchor="middle" font-size="9" fill="#565f89">Body may NOT run at all</text>
+      <text x="145" y="270" text-anchor="middle" font-size="9" fill="#565f89">if condition is initially false</text>
+
+      <!-- DOUxx -->
+      <rect x="285" y="40" width="250" height="260" rx="12" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="410" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#ff9e64">DOUxx (do-until)</text>
+      <text x="410" y="78" text-anchor="middle" font-size="9" fill="#565f89">Test at bottom · 1+ iterations</text>
+      <rect x="360" y="95" width="100" height="30" rx="4" fill="#24283b" stroke="#9ece6a"/>
+      <text x="410" y="115" text-anchor="middle" font-size="10" fill="#9ece6a">body</text>
+      <line x1="410" y1="125" x2="410" y2="140" stroke="#ff9e64" stroke-width="2" marker-end="url(#al4)"/>
+      <polygon points="410,145 475,175 410,205 345,175" fill="#24283b" stroke="#ff9e64"/>
+      <text x="410" y="173" text-anchor="middle" font-size="9" fill="#ff9e64">condition</text>
+      <text x="410" y="185" text-anchor="middle" font-size="9" fill="#ff9e64">true?</text>
+      <path d="M 345 175 Q 300 175 300 110 Q 300 95 360 110" fill="none" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#al2)"/>
+      <text x="310" y="145" font-size="8" fill="#7dcfff">no (loop)</text>
+      <line x1="475" y1="175" x2="500" y2="175" stroke="#f7768e" stroke-width="2" marker-end="url(#al3)"/>
+      <text x="482" y="167" font-size="8" fill="#f7768e">yes</text>
+      <text x="410" y="225" text-anchor="middle" font-size="9" fill="#565f89">≡ do { body } while (!cond)</text>
+      <text x="410" y="245" text-anchor="middle" font-size="9" fill="#565f89">Body ALWAYS runs at least once</text>
+      <text x="410" y="270" text-anchor="middle" font-size="9" fill="#565f89">Exits when condition becomes true</text>
+
+      <!-- DO -->
+      <rect x="550" y="40" width="250" height="260" rx="12" fill="#1f2335" stroke="#9ece6a" stroke-width="2"/>
+      <text x="675" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#9ece6a">DO (counted)</text>
+      <text x="675" y="78" text-anchor="middle" font-size="9" fill="#565f89">Start, limit, increment</text>
+      <rect x="605" y="90" width="140" height="24" rx="4" fill="#24283b" stroke="#9ece6a"/>
+      <text x="675" y="107" text-anchor="middle" font-size="10" fill="#9ece6a">index = start</text>
+      <polygon points="675,125 740,150 675,175 610,150" fill="#24283b" stroke="#9ece6a"/>
+      <text x="675" y="148" text-anchor="middle" font-size="9" fill="#9ece6a">index ≤ limit?</text>
+      <line x1="675" y1="175" x2="675" y2="190" stroke="#9ece6a" stroke-width="2" marker-end="url(#al1)"/>
+      <rect x="625" y="195" width="100" height="24" rx="4" fill="#24283b" stroke="#9ece6a"/>
+      <text x="675" y="212" text-anchor="middle" font-size="10" fill="#9ece6a">body</text>
+      <rect x="610" y="228" width="130" height="20" rx="4" fill="#24283b" stroke="#7dcfff"/>
+      <text x="675" y="242" text-anchor="middle" font-size="9" fill="#7dcfff">index += increment</text>
+      <path d="M 740 150 Q 770 150 770 100 Q 770 85 745 102" fill="none" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#al2)"/>
+      <text x="675" y="275" text-anchor="middle" font-size="9" fill="#565f89">≡ for (i=start; i≤limit; i+=incr)</text>
+      <text x="675" y="292" text-anchor="middle" font-size="9" fill="#565f89">{ body }</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs>
+      <marker id="al1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#9ece6a"/></marker>
+      <marker id="al2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker>
+      <marker id="al3" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#f7768e"/></marker>
+      <marker id="al4" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ff9e64"/></marker>
+    </defs>
+  </svg>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.2 DOWxx — do-while (test at top)</h2>
+
+  <p><code>DOWxx</code> tests the condition <em>before</em> each iteration. If
+  the condition is false on the very first test, the body never runs at all —
+  zero iterations. The body executes only while the condition stays true.</p>
+
+  <p>Factor&nbsp;1 and Factor&nbsp;2 are the two operands; the two-letter suffix
+  picks the operator. <code>DOWLT</code> means "do while less-than," so
+  <code>CNT&nbsp;DOWLT&nbsp;5</code> reads as "while <code>CNT</code>&nbsp;&lt;&nbsp;5,
+  run the body." Here is a complete loop that sums the integers 1 through 5:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         SUM
+     C           CNT       DOWLT5                   ← while CNT < 5
+     C                     ADD  1         CNT       ←   CNT += 1
+     C                     ADD  CNT       SUM       ←   SUM += CNT
+     C                     END                      ← loop back to test</code></pre>
+
+  <p>Count the columns: <code>CNT</code> is at col&nbsp;18 (Factor&nbsp;1),
+  <code>DOWLT</code> occupies cols&nbsp;28–32 (a five-character token — Factor&nbsp;2
+  follows immediately at col&nbsp;33), and <code>5</code> is the limit. The
+  <code>END</code> at cols&nbsp;28–30 closes the loop and branches back to the
+  <code>DOWLT</code> test. Trace it: <code>CNT</code> starts at 0, the test
+  <code>0&nbsp;&lt;&nbsp;5</code> is true, so the body adds 1 to <code>CNT</code>
+  (now 1) and 1 to <code>SUM</code> (now 1). The loop repeats until
+  <code>CNT</code> reaches 5, at which point <code>5&nbsp;&lt;&nbsp;5</code> is
+  false and the loop exits. <code>SUM</code> holds 1+2+3+4+5 = 15.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.3 DOUxx — do-until (test at bottom)</h2>
+
+  <p><code>DOUxx</code> runs the body first, then tests at the bottom. The body
+  <strong>always runs at least once</strong>. The loop exits when the condition
+  becomes <em>true</em> — note this is the opposite sense from
+  <code>DOWxx</code>, which continues <em>while</em> true. Think of it as
+  "do the body until the condition is met."</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         SUM
+     C           CNT       DOUGE3                   ← do ... until CNT ≥ 3
+     C                     ADD  1         CNT       ←   CNT += 1
+     C                     ADD  1         SUM       ←   SUM += 1
+     C                     END                      ← test at bottom</code></pre>
+
+  <p><code>DOUGE</code> fills cols&nbsp;28–32; <code>3</code> is the limit at
+  col&nbsp;33. The body runs, then <code>END</code> tests whether
+  <code>CNT&nbsp;&gt;=&nbsp;3</code>. If not, it loops back; if so, it exits.
+  Trace: <code>CNT</code> starts at 0, the body runs unconditionally (CNT=1,
+  SUM=1), then tests <code>1&nbsp;&gt;=&nbsp;3</code> — false, loop again.
+  Second iteration: CNT=2, SUM=2, test false. Third: CNT=3, SUM=3, test true —
+  exit. <code>SUM</code> = 3.</p>
+
+  <div class="callout">
+    <p><strong>DOW vs. DOU — when the body runs.</strong> <code>DOWxx</code>
+    tests first, so the body may run zero times (if the condition starts false).
+    <code>DOUxx</code> runs the body first, so it always runs at least once. If
+    you need "read a record, then check if it's the one I want," use
+    <code>DOUxx</code> — you need at least one read before you can test.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.4 DO — counted loop</h2>
+
+  <p><code>DO</code> is the counted loop — RPG&nbsp;II's <code>for</code>.
+  Factor&nbsp;1 is the starting value, Factor&nbsp;2 is the limit, and the result
+  field (cols&nbsp;43–48) is the index variable. The loop sets the index to the
+  start value, runs the body while the index is ≤ the limit, and at
+  <code>END</code> adds the increment. The default start is 1 and the default
+  increment is 1.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD0         SUM
+     C           1         DO   5         IDX       ← for IDX = 1 to 5
+     C                     ADD  IDX       SUM       ←   SUM += IDX
+     C                     END                      ← IDX += 1, loop back</code></pre>
+
+  <p>Here <code>1</code> is at col&nbsp;18 (Factor&nbsp;1 = start),
+  <code>DO</code> at cols&nbsp;28–29, <code>5</code> at col&nbsp;33 (Factor&nbsp;2
+  = limit), and <code>IDX</code> at col&nbsp;43 (result = the index). The body
+  runs for IDX = 1, 2, 3, 4, 5. <code>SUM</code> = 15.</p>
+
+  <p>To use a different increment, put the increment value in the <code>END</code>
+  line's Factor&nbsp;2 (col&nbsp;33). The default increment is 1; specifying
+  <code>2</code> steps the index by two each time:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD0         SUM
+     C           2         DO   10        IDX       ← for IDX = 2 to 10
+     C                     ADD  IDX       SUM       ←   SUM += IDX
+     C                     END  2                   ← increment by 2</code></pre>
+
+  <p>The <code>END&nbsp;&nbsp;2</code> line: <code>END</code> at cols&nbsp;28–30,
+  then <code>2</code> at col&nbsp;33 (Factor&nbsp;2 = increment). Now
+  <code>IDX</code> takes the values 2, 4, 6, 8, 10. <code>SUM</code> = 30.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.5 GOTO and TAG</h2>
+
+  <p><code>TAG</code> marks a position in the code — it does nothing except serve
+  as a jump target. The label name goes in Factor&nbsp;1 (cols&nbsp;18–27).
+  <code>GOTO</code> jumps unconditionally to the matching <code>TAG</code>; the
+  target label goes in Factor&nbsp;2 (cols&nbsp;33–42). Both forward and backward
+  jumps work.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           LOOP      TAG                      ← label "LOOP"
+     C                     ADD  1         CNT
+     C                     ADD  CNT       SUM
+     C           CNT       COMP 5                    99
+     C  N99                GOTO LOOP                 ← if CNT not yet > 5, loop</code></pre>
+
+  <p>This is a hand-rolled loop. <code>LOOP&nbsp;TAG</code> plants the label.
+  The body increments <code>CNT</code> and adds it to <code>SUM</code>. The
+  <code>COMP</code> sets indicator&nbsp;99 in the HI slot (cols&nbsp;54–55) when
+  <code>CNT&nbsp;&gt;&nbsp;5</code>. The <code>GOTO</code> is conditioned on
+  <code>N99</code> (cols&nbsp;9–11: indicator&nbsp;99 OFF), so it jumps back to
+  <code>LOOP</code> only while <code>CNT</code> has not exceeded 5. Once
+  <code>CNT</code> reaches 6, indicator&nbsp;99 turns ON, the <code>N99</code>
+  condition fails, and execution falls through past the <code>GOTO</code>.
+  <code>SUM</code> = 1+2+3+4+5 = 15.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> <code>TAG</code> is a label;
+    <code>GOTO</code> is <code>goto</code>. The common use is <strong>early
+    exit</strong> from a loop body — jump to a <code>TAG</code> after the
+    <code>END</code> to break out. RPG&nbsp;II has no <code>BREAK</code> or
+    <code>CONTINUE</code> operation, so <code>GOTO</code> is how you emulate
+    them.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.6 Nesting and END</h2>
+
+  <p>Loops and <code>IFxx</code> blocks can nest arbitrarily deep. Each level
+  needs its own <code>END</code>, and the compiler matches each <code>END</code>
+  to the innermost open block — just like closing braces in a modern language.</p>
+
+  <p>Here a <code>DOWLE</code> loop contains an <code>IFEQ</code> that sums only
+  the even numbers from 1 to 6:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     Z-ADD0         CNT
+     C                     Z-ADD0         SUM
+     C           CNT       DOWLE6                   ← while CNT ≤ 6
+     C                     ADD  1         CNT
+     C           CNT       DIV  2         Q         ← Q = CNT / 2
+     C                     MVR            R         ← R = remainder
+     C           R         IFEQ 0                   ← if R = 0 (even)
+     C                     ADD  CNT       SUM       ←   SUM += CNT
+     C                     END                      ← closes IFEQ
+     C                     END                      ← closes DOWLE</code></pre>
+
+  <p>The inner <code>END</code> (cols&nbsp;28–30) closes the <code>IFEQ</code>;
+  the outer <code>END</code> closes the <code>DOWLE</code>. The body adds 1 to
+  <code>CNT</code>, divides by 2 to get quotient <code>Q</code> and remainder
+  <code>R</code> (via <code>MVR</code>), then tests whether <code>R</code> is
+  zero. Only even values of <code>CNT</code> (2, 4, 6) pass the test, so
+  <code>SUM</code> = 2+4+6 = 12.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.7 The xx comparison operators</h2>
+
+  <p><code>DOWxx</code> and <code>DOUxx</code> use the same six two-letter
+  operators as <code>IFxx</code>. The table below shows what each means in both
+  loop forms — note again the opposite exit sense:</p>
+
+  <table>
+    <tr><th>Operator</th><th>DOWxx — continue while</th><th>DOUxx — exit when</th></tr>
+    <tr><td><code>GT</code></td><td>F1 &gt; F2</td><td>F1 &gt; F2</td></tr>
+    <tr><td><code>LT</code></td><td>F1 &lt; F2</td><td>F1 &lt; F2</td></tr>
+    <tr><td><code>EQ</code></td><td>F1 = F2</td><td>F1 = F2</td></tr>
+    <tr><td><code>NE</code></td><td>F1 ≠ F2</td><td>F1 ≠ F2</td></tr>
+    <tr><td><code>GE</code></td><td>F1 ≥ F2</td><td>F1 ≥ F2</td></tr>
+    <tr><td><code>LE</code></td><td>F1 ≤ F2</td><td>F1 ≤ F2</td></tr>
+  </table>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>12.8 Which loop to choose</h2>
+
+  <ul>
+    <li><strong><code>DO</code></strong> when you know the count up front —
+      iterating a fixed number of times, walking an array by index. Closest to a
+      <code>for</code> loop.</li>
+    <li><strong><code>DOWxx</code></strong> when the body might not need to run
+      at all — "while there is more data, keep going." Closest to a
+      <code>while</code> loop.</li>
+    <li><strong><code>DOUxx</code></strong> when the body must run at least once
+      before you can test — "process one item, then check whether to stop."
+      Closest to a <code>do-while</code> loop.</li>
+    <li><strong><code>GOTO</code>/<code>TAG</code></strong> for early exit from a
+      loop (there is no <code>BREAK</code>), or for flow that does not fit the
+      three structured forms.</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Common pitfalls</h2>
+
+  <ul>
+    <li><strong>No <code>BREAK</code> or <code>CONTINUE</code>.</strong> To exit
+      a loop early, <code>GOTO</code> a <code>TAG</code> placed after the
+      <code>END</code>. To skip the rest of an iteration, <code>GOTO</code> the
+      <code>END</code> itself.</li>
+    <li><strong>Five-character opcodes pack tightly.</strong> <code>DOWLT</code>,
+      <code>DOUGE</code>, and <code>DOWLE</code> fill cols&nbsp;28–32 completely,
+      so Factor&nbsp;2 begins immediately at col&nbsp;33 with no gap — e.g.
+      <code>DOWLT5</code>. This is correct, not a typo.</li>
+    <li><strong><code>DOU</code> always runs once.</strong> If the condition is
+      already true at the start, <code>DOWxx</code> skips the body but
+      <code>DOUxx</code> still runs it once. Choose accordingly.</li>
+    <li><strong><code>GOTO</code> cannot cross a subroutine boundary.</strong> A
+      <code>GOTO</code> may only target a <code>TAG</code> in the same scope
+      (main body or the same subroutine). See
+      <a href="12-subroutines.html">Chapter&nbsp;13</a>.</li>
+  </ul>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now have comparisons, conditionals, loops, and branching. The next
+  chapter introduces <strong>subroutines</strong> — RPG&nbsp;II's reusable code
+  blocks — and the <code>CASxx</code> case-select operation that dispatches to
+  subroutines based on a comparison. Subroutines are the closest thing RPG&nbsp;II
+  has to functions, though with a crucial restriction: no parameters, no local
+  variables, and no recursion.</p>
+
+  <p>That is <a href="12-subroutines.html">Chapter&nbsp;13 — Subroutines and
+  CAS</a>.</p>
+
+  <div class="nav">
+    <a href="10-conditional-logic.html">← Chapter 11: Conditional Logic</a>
+    <a href="12-subroutines.html">Chapter 13: Subroutines and CAS →</a>
+  </div>
+
+</body>
+</html>

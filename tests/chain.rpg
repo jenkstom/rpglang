@@ -1,0 +1,13 @@
+     C* G24: CHAIN keyed random read. Master CMASTER keyed by 2-digit
+     C* code (col 1) with value (cols 3-4). Transaction keys 02,04;
+     C* CHAIN finds 02 (val 20), misses 04. RPGRET = 20.
+     FCTX     IP  F      80            DISK
+     FCMASTER IF  F      80  2AI     1 DISK
+     ICTX        01
+     I                                        1   20TKEY
+     ICMASTER    02
+     I                                        1   20MKEY
+     I                                        3   40MVAL
+     C           TKEY      CHAINCMASTER              99
+     C                     ADD  MVAL      RPGRET
+     CLR                   SETOF

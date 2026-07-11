@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 3 — The Program Cycle</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; color: #7aa2f7; padding-bottom: .3rem; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; color: #7dcfff; padding-bottom: .2rem; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 3 — The Program Cycle</h1>
+
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>The <strong>program cycle</strong> is the single most important concept
+    in RPG&nbsp;II, and this chapter is devoted to it. When a program declares a
+    primary input file, the language automatically wraps the program's
+    calculation and output logic in an invisible loop: <em>read a record
+    → extract fields → run detail calculations → run total calculations on
+    control breaks → repeat until end-of-file → run last-record (LR) totals
+    → terminate</em>. The programmer never writes <code>while</code> or
+    <code>readLine()</code> — the cycle handles all of it. This chapter
+    explains the cycle's phases, when each type of calculation and output
+    fires, and how the LR (last-record) indicator signals the end. Without
+    this mental model, RPG&nbsp;II programs appear to do magic; with it,
+    everything clicks into place.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>3.1 The "you already know" analogy</h2>
+
+  <p>Think about the last time you wrote a program that produced a report
+  from a file. No matter what language you used, the skeleton was almost
+  certainly the same. You opened the file, then looped: read a record, pull
+  the fields out of it, do whatever per-record work the job required, emit
+  some output, and check whether more records remained. When the file ran
+  out, you printed your grand totals, closed the file, and stopped. In
+  pseudo-code it looks like this:</p>
+
+  <pre><code>open file
+while (record = read_next()):
+    extract_fields(record)
+    do_calculations()
+    write_output()
+write_totals()
+close file</code></pre>
+
+  <p>You wrote the <code>while</code> loop, the <code>read</code> call, the
+  end-of-file test, and the total logic — every time, for every report. The
+  loop is yours: you own it, you debug its off-by-one errors, and you are
+  responsible for making sure the totals run exactly once at the end.</p>
+
+  <div class="callout">
+    <p><strong>You already know</strong> this shape — it is the
+    iterate-over-records loop you have written many times. Now consider what
+    happens if the language itself <em>supplies</em> that entire outer loop
+    for you, so that you never write it again. That is exactly what RPG&nbsp;II
+    does.</p>
+  </div>
+
+  <p>In RPG&nbsp;II, the <em>entire outer loop is implicit</em>. You declare
+  four things, and nothing else:</p>
+
+  <ul>
+    <li>the <strong>file</strong> to read (an F-spec),</li>
+    <li>the <strong>record layout</strong> — which byte positions map to which
+      field names (I-specs),</li>
+    <li>the <strong>per-record calculations</strong> — the logic that runs for
+      each record (C-specs with a blank control level), and</li>
+    <li>the <strong>output format</strong> — what the report lines look like
+      (O-specs).</li>
+  </ul>
+
+  <p>The cycle supplies everything else: the open, the read, the field
+  extraction, the loop-back, the end-of-file detection, and the final
+  total-time pass. You write only the <em>body</em> and the <em>totals</em>.
+  This is the core of the "report program generator" philosophy: the batch
+  report pattern is so common that the language <em>is</em> the pattern.</p>
+
+  <p>The rest of this chapter explains exactly what the cycle does and
+  <em>when</em> your code runs inside it. Timing is everything: in RPG&nbsp;II,
+  a line of calculation can run once per record, once per group, or once at
+  the very end — and which one happens depends on a single pair of columns
+  you set when you write that line.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>3.2 The cycle, step by step</h2>
+
+  <p>Here is the full cycle as a flowchart. Read it top to bottom: the blue
+  path is the per-record loop that runs for every input record; the red path
+  is the end-of-file path that runs once at the very end. We will walk
+  through each box in turn.</p>
+
+  <!-- SVG: The full program cycle -->
+  <div class="svg-container">
+    <svg width="860" height="520" viewBox="0 0 860 520" xmlns="http://www.w3.org/2000/svg">
+      <text x="430" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#004488">The RPG II Program Cycle</text>
+
+      <!-- Start -->
+      <ellipse cx="430" cy="55" rx="60" ry="22" fill="#eef3f8" stroke="#004488" stroke-width="2"/>
+      <text x="430" y="60" text-anchor="middle" font-size="12" fill="#004488">Program start</text>
+
+      <!-- Arrow down -->
+      <line x1="430" y1="77" x2="430" y2="95" stroke="#004488" stroke-width="2" marker-end="url(#ac1)"/>
+
+      <!-- Open files -->
+      <rect x="345" y="100" width="170" height="30" rx="6" fill="#fff" stroke="#004488"/>
+      <text x="430" y="120" text-anchor="middle" font-size="11" fill="#333">Open all files (F-specs)</text>
+      <line x1="430" y1="130" x2="430" y2="145" stroke="#004488" stroke-width="2" marker-end="url(#ac1)"/>
+
+      <!-- Cycle head: read record -->
+      <polygon points="430,150 540,190 430,230 320,190" fill="#fff8ee" stroke="#e88a00" stroke-width="2"/>
+      <text x="430" y="185" text-anchor="middle" font-size="11" fill="#e88a00">Read next</text>
+      <text x="430" y="198" text-anchor="middle" font-size="11" fill="#e88a00">record</text>
+
+      <!-- Branch: EOF? -->
+      <line x1="540" y1="190" x2="580" y2="190" stroke="#888" stroke-width="2" marker-end="url(#ac1)"/>
+      <text x="548" y="182" font-size="10" fill="#888">EOF?</text>
+      <text x="430" y="248" text-anchor="middle" font-size="10" fill="#2a8a2a">not EOF</text>
+      <line x1="430" y1="230" x2="430" y2="250" stroke="#2a8a2a" stroke-width="2" marker-end="url(#ac2)"/>
+
+      <!-- Extract fields -->
+      <rect x="345" y="255" width="170" height="30" rx="6" fill="#eef3f8" stroke="#004488"/>
+      <text x="430" y="275" text-anchor="middle" font-size="11" fill="#333">Extract fields (I-specs)</text>
+      <line x1="430" y1="285" x2="430" y2="300" stroke="#004488" stroke-width="2" marker-end="url(#ac1)"/>
+
+      <!-- Total calcs -->
+      <rect x="325" y="305" width="210" height="30" rx="6" fill="#fff8ee" stroke="#e88a00"/>
+      <text x="430" y="325" text-anchor="middle" font-size="11" fill="#333">Total calcs (L1-L9 breaks) → Total output</text>
+      <line x1="430" y1="335" x2="430" y2="350" stroke="#004488" stroke-width="2" marker-end="url(#ac1)"/>
+
+      <!-- Detail calcs -->
+      <rect x="325" y="355" width="210" height="30" rx="6" fill="#eef3f8" stroke="#004488"/>
+      <text x="430" y="375" text-anchor="middle" font-size="11" fill="#333">Detail calcs (blank level) → Detail output</text>
+      <line x1="430" y1="385" x2="430" y2="400" stroke="#004488" stroke-width="2" marker-end="url(#ac1)"/>
+
+      <!-- Loop back -->
+      <path d="M 535 370 Q 600 370 600 190 Q 600 150 540 150" fill="none" stroke="#004488" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ac1)"/>
+      <text x="610" y="270" font-size="10" fill="#004488" font-style="italic" transform="rotate(90, 610, 270)">loop back automatically</text>
+
+      <!-- EOF path -->
+      <rect x="580" y="175" width="120" height="30" rx="6" fill="#f8d7da" stroke="#cc0000"/>
+      <text x="640" y="195" text-anchor="middle" font-size="11" fill="#cc0000">Set LR ON</text>
+      <line x1="640" y1="205" x2="640" y2="225" stroke="#cc0000" stroke-width="2" marker-end="url(#ac3)"/>
+
+      <!-- LR totals -->
+      <rect x="555" y="230" width="170" height="30" rx="6" fill="#f8d7da" stroke="#cc0000"/>
+      <text x="640" y="250" text-anchor="middle" font-size="11" fill="#333">LR total calcs → LR total output</text>
+      <line x1="640" y1="260" x2="640" y2="280" stroke="#cc0000" stroke-width="2" marker-end="url(#ac3)"/>
+
+      <!-- Close & exit -->
+      <rect x="555" y="285" width="170" height="30" rx="6" fill="#fff" stroke="#cc0000"/>
+      <text x="640" y="305" text-anchor="middle" font-size="11" fill="#333">Close all files</text>
+      <line x1="640" y1="315" x2="640" y2="335" stroke="#cc0000" stroke-width="2" marker-end="url(#ac3)"/>
+
+      <ellipse cx="640" cy="360" rx="60" ry="22" fill="#f8d7da" stroke="#cc0000" stroke-width="2"/>
+      <text x="640" y="365" text-anchor="middle" font-size="12" fill="#cc0000">Program end</text>
+
+      <!-- Legend -->
+      <rect x="30" y="420" width="350" height="80" rx="8" fill="#fafafa" stroke="#ccc"/>
+      <text x="45" y="440" font-size="11" font-weight="bold" fill="#555">Legend</text>
+      <rect x="45" y="448" width="14" height="14" fill="#eef3f8" stroke="#004488"/><text x="66" y="460" font-size="10" fill="#555">Detail phase (per record)</text>
+      <rect x="45" y="466" width="14" height="14" fill="#fff8ee" stroke="#e88a00"/><text x="66" y="478" font-size="10" fill="#555">Total phase (control breaks)</text>
+      <rect x="200" y="448" width="14" height="14" fill="#f8d7da" stroke="#cc0000"/><text x="221" y="460" font-size="10" fill="#555">LR / end-of-file phase</text>
+      <text x="200" y="478" font-size="10" fill="#999">← Dashed line = automatic</text>
+    </svg>
+  </div>
+
+  <svg width="0" height="0" style="position:absolute;">
+    <defs>
+      <marker id="ac1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#004488"/></marker>
+      <marker id="ac2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#2a8a2a"/></marker>
+      <marker id="ac3" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#cc0000"/></marker>
+    </defs>
+  </svg>
+
+  <h3>Step 1 — Open files</h3>
+  <p>When the program starts, all files declared in F-specs are opened
+  automatically. Input files are positioned at the first record; output
+  files are created. You never write an <code>open</code> statement — the
+  F-spec declarations <em>are</em> the open. This happens exactly once,
+  before any record is read.</p>
+
+  <h3>Step 2 — Read the next record</h3>
+  <p>The cycle reads one record from the primary input file into an internal
+  buffer. This is the equivalent of the <code>read_next()</code> call in the
+  pseudo-code above — except you did not write it. If there are no more
+  records (end-of-file), the cycle does <em>not</em> proceed to step 3;
+  instead it branches right to the LR (last-record) path, which we cover in
+  step 7 below.</p>
+
+  <h3>Step 3 — Extract fields</h3>
+  <p>The I-specs define which byte positions in the record map to which named
+  fields. The cycle extracts them automatically — your code never touches the
+  raw record buffer. By the time your calculations run, every field you
+  declared is already populated with the current record's values and ready to
+  use by name. This is the <code>extract_fields(record)</code> call from the
+  pseudo-code, done for you.</p>
+
+  <h3>Step 4 — Total time (control-level breaks)</h3>
+  <p>Before detail processing, the cycle checks whether a control-level field
+  — a field you declared with an <code>L1</code>–<code>L9</code> marker on
+  its I-spec — has changed value since the previous record. If it has, the
+  corresponding control-level indicator turns on, and any C-spec conditioned
+  by that level runs <em>before</em> detail processing for the new record.
+  This is where subtotals get printed and accumulators get reset. If you are
+  not using control levels (many simple programs do not), this step does
+  nothing and you can ignore it. We cover control levels in depth in
+  <a href="14-control-levels.html">Chapter&nbsp;15</a>.</p>
+
+  <h3>Step 5 — Detail time</h3>
+  <p>C-specs with a blank control level — columns&nbsp;7–8 left empty — run
+  once per record. This is where most per-record logic lives: accumulating
+  running totals, validating data, making decisions, setting indicators.
+  Immediately after the detail calculations finish, the detail output
+  (O-spec lines of type <code>D</code>) fires. This is the body of your
+  loop — the <code>do_calculations()</code> and <code>write_output()</code>
+  calls, driven for you once per record.</p>
+
+  <h3>Step 6 — Loop back</h3>
+  <p>After detail processing, the cycle returns to step 2 and reads the next
+  record. This loop is <em>automatic</em> — there is no explicit
+  <code>goto</code>, <code>continue</code>, or back-edge in your source. The
+  dashed line in the diagram above is the loop-back, and it is drawn dashed
+  precisely because you never write it.</p>
+
+  <h3>Step 7 — Last record (LR)</h3>
+  <p>When end-of-file is reached at step 2, the cycle does not process
+  another record. Instead it turns on the <strong>LR (last-record)
+  indicator</strong> and runs the total-time pass one final time. All
+  control levels <code>L1</code>–<code>L9</code> also turn on at LR, so the
+  final group's subtotals print before any grand totals. Then any
+  LR-conditioned calculations and output run — this is where you print grand
+  totals. Finally all files close and the program terminates. This is your
+  <code>write_totals()</code> and <code>close file</code>, supplied
+  automatically.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>3.3 Detail vs. total vs. LR timing</h2>
+
+  <p>The cycle has three timing phases, and knowing <em>when</em> your code
+  runs is the key to reading and writing RPG&nbsp;II. A single C-spec line can
+  run once per record, once per group, or once at the very end — and the
+  difference is just two columns. The diagram below shows exactly when each
+  kind of calculation and output fires across a small set of records.</p>
+
+  <!-- SVG: Timing diagram -->
+  <div class="svg-container">
+    <svg width="820" height="280" viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg">
+      <text x="410" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#004488">When Does Your Code Run? (Timing in the Cycle)</text>
+
+      <!-- Records timeline -->
+      <text x="20" y="50" font-size="11" font-weight="bold" fill="#555">Records:</text>
+      <!-- rec 1 -->
+      <rect x="90" y="38" width="50" height="24" rx="4" fill="#eef3f8" stroke="#004488"/>
+      <text x="115" y="55" text-anchor="middle" font-size="10" fill="#004488">Rec 1</text>
+      <text x="115" y="78" text-anchor="middle" font-size="9" fill="#999">key=A</text>
+      <!-- rec 2 -->
+      <rect x="145" y="38" width="50" height="24" rx="4" fill="#eef3f8" stroke="#004488"/>
+      <text x="170" y="55" text-anchor="middle" font-size="10" fill="#004488">Rec 2</text>
+      <text x="170" y="78" text-anchor="middle" font-size="9" fill="#999">key=A</text>
+      <!-- break -->
+      <line x1="200" y1="30" x2="200" y2="260" stroke="#e88a00" stroke-width="2" stroke-dasharray="3 2"/>
+      <text x="207" y="28" font-size="9" fill="#e88a00">L1 break</text>
+      <!-- rec 3 -->
+      <rect x="205" y="38" width="50" height="24" rx="4" fill="#eef3f8" stroke="#004488"/>
+      <text x="230" y="55" text-anchor="middle" font-size="10" fill="#004488">Rec 3</text>
+      <text x="230" y="78" text-anchor="middle" font-size="9" fill="#999">key=B</text>
+      <!-- rec 4 -->
+      <rect x="260" y="38" width="50" height="24" rx="4" fill="#eef3f8" stroke="#004488"/>
+      <text x="285" y="55" text-anchor="middle" font-size="10" fill="#004488">Rec 4</text>
+      <text x="285" y="78" text-anchor="middle" font-size="9" fill="#999">key=B</text>
+      <!-- rec 5 -->
+      <rect x="315" y="38" width="50" height="24" rx="4" fill="#eef3f8" stroke="#004488"/>
+      <text x="340" y="55" text-anchor="middle" font-size="10" fill="#004488">Rec 5</text>
+      <text x="340" y="78" text-anchor="middle" font-size="9" fill="#999">key=C</text>
+
+      <!-- Detail calcs row -->
+      <text x="20" y="115" font-size="11" font-weight="bold" fill="#004488">Detail calcs:</text>
+      <rect x="90" y="103" width="50" height="20" fill="#d4edda" stroke="#004488"/>
+      <rect x="145" y="103" width="50" height="20" fill="#d4edda" stroke="#004488"/>
+      <rect x="205" y="103" width="50" height="20" fill="#d4edda" stroke="#004488"/>
+      <rect x="260" y="103" width="50" height="20" fill="#d4edda" stroke="#004488"/>
+      <rect x="315" y="103" width="50" height="20" fill="#d4edda" stroke="#004488"/>
+      <text x="400" y="117" font-size="10" fill="#004488">↳ runs every record</text>
+
+      <!-- Total calcs row -->
+      <text x="20" y="155" font-size="11" font-weight="bold" fill="#e88a00">Total calcs (L1):</text>
+      <rect x="190" y="143" width="20" height="20" fill="#fff8ee" stroke="#e88a00"/>
+      <text x="200" y="170" text-anchor="middle" font-size="8" fill="#e88a00">A→B</text>
+      <rect x="295" y="143" width="20" height="20" fill="#fff8ee" stroke="#e88a00"/>
+      <text x="305" y="170" text-anchor="middle" font-size="8" fill="#e88a00">B→C</text>
+      <text x="400" y="157" font-size="10" fill="#e88a00">↳ runs at control breaks</text>
+
+      <!-- Detail output -->
+      <text x="20" y="205" font-size="11" font-weight="bold" fill="#555">Detail output:</text>
+      <rect x="90" y="193" width="50" height="20" fill="#e8f5e9" stroke="#2a8a2a"/>
+      <rect x="145" y="193" width="50" height="20" fill="#e8f5e9" stroke="#2a8a2a"/>
+      <rect x="205" y="193" width="50" height="20" fill="#e8f5e9" stroke="#2a8a2a"/>
+      <rect x="260" y="193" width="50" height="20" fill="#e8f5e9" stroke="#2a8a2a"/>
+      <rect x="315" y="193" width="50" height="20" fill="#e8f5e9" stroke="#2a8a2a"/>
+
+      <!-- Total output -->
+      <text x="20" y="245" font-size="11" font-weight="bold" fill="#e88a00">Total output:</text>
+      <rect x="190" y="233" width="20" height="20" fill="#ffe0b2" stroke="#e88a00"/>
+      <rect x="295" y="233" width="20" height="20" fill="#ffe0b2" stroke="#e88a00"/>
+
+      <!-- LR -->
+      <line x1="375" y1="30" x2="375" y2="260" stroke="#cc0000" stroke-width="2" stroke-dasharray="3 2"/>
+      <text x="382" y="28" font-size="9" fill="#cc0000">LR (EOF)</text>
+      <rect x="385" y="233" width="30" height="20" fill="#ffcdd2" stroke="#cc0000"/>
+      <text x="400" y="248" text-anchor="middle" font-size="8" fill="#cc0000">LR</text>
+    </svg>
+  </div>
+
+  <p>Follow the diagram left to right. Five records arrive, grouped by a key
+  field into three groups: <strong>A</strong> (records 1–2), <strong>B</strong>
+  (records 3–4), and <strong>C</strong> (record 5). Now watch when each kind
+  of work fires:</p>
+
+  <ul>
+    <li><strong>Detail calculations</strong> run for <em>every</em> record —
+      five green boxes, one per record. A detail C-spec is one whose control
+      level (columns&nbsp;7–8) is blank. This is where you accumulate
+      per-record values, for example <code>ADD AMT TOTAL</code>, which adds
+      each record's amount into a running sum.</li>
+    <li><strong>Total calculations</strong> run only when a control field
+      changes — a "break." In the diagram the key changes from A to B and
+      from B to C, so the <code>L1</code> total routine fires twice. A total
+      C-spec is one whose control level is <code>L1</code>–<code>L9</code>.
+      This is where you print subtotals and reset accumulators for the next
+      group. (The deep dive on control levels is in
+      <a href="14-control-levels.html">Chapter&nbsp;15</a>.)</li>
+    <li><strong>LR (last-record) calculations</strong> run once, at
+      end-of-file. This is where you print grand totals. A C-spec conditioned
+      by <code>LR</code> (in columns&nbsp;7–8) runs here. Because all of
+      <code>L1</code>–<code>L9</code> also turn on at LR, the final group's
+      subtotals print <em>before</em> the grand total — so nothing is
+      lost.</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>You already know</strong> all three of these timings from the
+    pseudo-code in section&nbsp;3.1: detail time is the <em>inside of the loop
+    body</em>; total time is the cleanup that runs <em>after a group-by key
+    changes</em>; LR time is the <em>after-the-loop</em> code that runs once
+    when the file is exhausted. RPG&nbsp;II just makes the distinction explicit
+    in the source, via the control-level columns, instead of via where you
+    physically place the code.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>3.4 A complete program</h2>
+
+  <p>Now let's see the cycle in action. Below is a complete, working
+  RPG&nbsp;II program. It reads a file of sales records, each holding a
+  three-digit <code>AMT</code> field, adds each amount into a running
+  <code>TOTAL</code>, prints every amount on a detail line, and prints the
+  grand total once at the end. This is the same job the pseudo-code in
+  section&nbsp;3.1 describes — but notice that the <code>while</code> loop,
+  the <code>read</code>, and the end-of-file test are nowhere to be
+  found.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FSALES   IP  F    80              DISK
+     FREPORT  O   F    132             PRINTER
+
+     ISALES   AA  01
+     I                                        1   30AMT
+
+     C                     ADD  AMT       TOTAL
+
+     OREPORT  D  1
+     O                                   20 'Amount ='
+     O                         AMT       30
+     OREPORT  T  2    LR
+     O                                   20 'Grand total ='
+     O                         TOTAL     30</code></pre>
+
+  <p>Read it section by section, and map each piece onto a step of the
+  cycle:</p>
+
+  <p><strong>The F-specs (lines 1–2)</strong> declare the two files the cycle
+  will open at step&nbsp;1. <code>SALES</code> is an input file on disk — the
+  <code>IP</code> in columns&nbsp;15–16 means "input, primary," which is what
+  tells the language that <em>this</em> file feeds the automatic read loop
+  (step&nbsp;2). <code>REPORT</code> is an output file to a printer. You do
+  not open them; declaring them is enough. (F-specs are covered column by
+  column in <a href="07-file-specs.html">Chapter&nbsp;7</a>.)</p>
+
+  <p><strong>The I-specs (lines 4–5)</strong> describe the record and its
+  fields, which the cycle extracts at step&nbsp;3. Line&nbsp;4 identifies the
+  record type; line&nbsp;5 maps record positions&nbsp;1 through&nbsp;3 to the
+  field name <code>AMT</code>. From now on, every time the cycle reads a
+  record, those three bytes are automatically available as
+  <code>AMT</code>. You never write the extraction code. (I-specs are covered
+  in <a href="08-input-specs.html">Chapter&nbsp;8</a>.)</p>
+
+  <p><strong>The C-spec (line 7)</strong> is the entire detail calculation —
+  step&nbsp;5. Its control level (columns&nbsp;7–8) is blank, so it runs once
+  per record. It adds <code>AMT</code> into <code>TOTAL</code>. Because
+  <code>TOTAL</code> is never reset, it accumulates across every record. This
+  one line is the whole loop body. (C-specs are covered in
+  <a href="09-calc-specs.html">Chapter&nbsp;9</a>.)</p>
+
+  <p><strong>The O-specs (lines 9–14)</strong> describe the output, which the
+  cycle emits at the right moment. The first record line (type
+  <code>D</code>&nbsp;=&nbsp;detail) prints once per record, right after the
+  detail calculation: the literal <code>'Amount ='</code> followed by the
+  value of <code>AMT</code>. The second record line (type
+  <code>T</code>&nbsp;=&nbsp;total, conditioned on <code>LR</code>) prints
+  once at the very end: the literal <code>'Grand total ='</code> followed by
+  <code>TOTAL</code>. You did not write "print" anywhere — you described
+  <em>what</em> each line looks like and <em>when</em> it should appear, and
+  the cycle emitted it. (O-specs are covered in
+  <a href="16-output-specs.html">Chapter&nbsp;16</a>.)</p>
+
+  <h3>Tracing a run</h3>
+
+  <p>Suppose the <code>SALES</code> file contains four records with amounts
+  <code>010</code>, <code>020</code>, <code>005</code>, and
+  <code>007</code>. Here is what the cycle does, step by step:</p>
+
+  <ol>
+    <li><strong>Start:</strong> open <code>SALES</code> and
+      <code>REPORT</code>.</li>
+    <li><strong>Record 1:</strong> read <code>010</code>, extract
+      <code>AMT</code>&nbsp;=&nbsp;10, run <code>ADD AMT TOTAL</code>
+      (<code>TOTAL</code> becomes 10), emit the detail line
+      "<code>Amount =&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;10</code>". Loop
+      back.</li>
+    <li><strong>Record 2:</strong> read <code>020</code>,
+      <code>AMT</code>&nbsp;=&nbsp;20, <code>TOTAL</code> becomes 30, emit
+      detail line. Loop back.</li>
+    <li><strong>Record 3:</strong> read <code>005</code>,
+      <code>AMT</code>&nbsp;=&nbsp;5, <code>TOTAL</code> becomes 35, emit
+      detail line. Loop back.</li>
+    <li><strong>Record 4:</strong> read <code>007</code>,
+      <code>AMT</code>&nbsp;=&nbsp;7, <code>TOTAL</code> becomes 42, emit
+      detail line. Loop back.</li>
+    <li><strong>End-of-file:</strong> no more records. Turn on
+      <code>LR</code>. Run the total-time pass. The <code>LR</code>-conditioned
+      total line fires once: "<code>Grand total =&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;42</code>".
+      Close both files. Terminate.</li>
+  </ol>
+
+  <p>Notice what you did <em>not</em> write: the open, the four reads, the
+  loop-back, the end-of-file test, the LR turn-on, or the close. The cycle
+  supplied all of it. Your source contributed the file declarations, the field
+  map, one accumulation line, and two output descriptions — and that was
+  enough to produce a complete report with a grand total.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>3.5 When there is no primary file</h2>
+
+  <p>Not every program reads files. A pure calculation program — a quick test
+  of some arithmetic, a subroutine you want to exercise — might have only
+  C-specs and no F-specs at all. What happens to the cycle then?</p>
+
+  <p>When there is no primary input file, the cycle <em>degenerates</em>: the
+  C-specs run once, top to bottom, in a single pass. There is no read, no
+  loop, and no automatic end-of-file. The program simply executes its
+  calculations and then would run forever — unless you give it a way to
+  stop.</p>
+
+  <p>The way to stop it is the <code>LR</code> indicator. You can turn
+  <code>LR</code> on manually with the <code>SETON</code> operation, which is
+  the RPG&nbsp;II equivalent of <code>return</code> or <code>exit()</code>:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     SETON                     LR</code></pre>
+
+  <p>Here <code>SETON</code> sits in the operation columns
+  (28–32), and <code>LR</code> names the indicator to turn on, written in the
+  resulting-indicator columns (54–55). When this line executes, <code>LR</code>
+  turns on, the cycle runs its final total-time pass, and the program
+  terminates. In a program with a primary file you rarely need this — the
+  cycle sets <code>LR</code> for you at end-of-file — but in a no-file
+  program it is the only way to finish cleanly.</p>
+
+  <div class="callout">
+    <p><strong>You already know</strong> this pattern. A no-file RPG&nbsp;II
+    program is like a script with no input loop: it runs its body once and
+    exits. <code>SETON&nbsp;LR</code> is the explicit <code>return</code> that
+    a file-driven program gets for free at end-of-file.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>3.6 The LR indicator</h2>
+
+  <p><code>LR</code> — "last record" — is the cycle's most important special
+  indicator, and it deserves a section of its own because it appears
+  everywhere. It turns ON automatically when the input file reaches
+  end-of-file, and that single event drives the entire end-of-program
+  sequence.</p>
+
+  <p>There are two ways <code>LR</code> turns on:</p>
+
+  <ul>
+    <li><strong>Automatically</strong>, when the cycle tries to read the next
+      record and finds end-of-file instead. This is the normal case in any
+      program with a primary input file. You do nothing — the cycle sets it
+      for you.</li>
+    <li><strong>Manually</strong>, when your code executes
+      <code>SETON&nbsp;LR</code>. This is useful in no-file programs (as above)
+      or when you want to stop early — for example, after finding the record
+      you were looking for, or after hitting an error condition.</li>
+  </ul>
+
+  <p>Once <code>LR</code> is on, two things happen, in order:</p>
+
+  <ol>
+    <li>The cycle runs the total-time pass one final time. Because every
+      control level <code>L1</code>–<code>L9</code> also turns on alongside
+      <code>LR</code>, any pending group subtotals print first — so the last
+      group is not left half-finished.</li>
+    <li>Then <code>LR</code>-conditioned calculations and output run. This is
+      where grand totals go. After that, all files close and the program
+      ends.</li>
+  </ol>
+
+  <p>The practical consequence is that <code>LR</code> is how you say "do this
+  once, at the very end." You put <code>LR</code> in the control-level columns
+  of a C-spec (7–8) or in the conditioning columns of an O-spec, and the cycle
+  guarantees it runs exactly once, after every record has been processed. You
+  saw this in the complete program above: the total output line carried
+  <code>LR</code> in its conditioning columns, so it printed the grand total
+  only at the very end.</p>
+
+  <p><code>LR</code> is an indicator, and we treat the whole indicator system
+  — conditioning, resulting, the general-purpose <code>01</code>–<code>99</code>
+  flags, and how they wire calculations to output — in
+  <a href="04-indicators.html">Chapter&nbsp;4</a>.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>A mental shortcut</h2>
+
+  <div class="callout">
+    <p>If you remember only one thing from this chapter, remember the timing
+    rhyme:</p>
+    <p style="font-size: 1.1em; text-align: center; margin: 1rem 0;">
+      <strong>detail = per record, &nbsp; total = per group, &nbsp; LR = once
+      at end.</strong>
+    </p>
+    <p>Every calculation and every output line in an RPG&nbsp;II program
+    belongs to exactly one of those three moments. When you read a line, ask
+    which moment it belongs to, and you will know when it runs.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You now understand the program cycle: the invisible read-process loop,
+  the three timing phases, and the <code>LR</code> indicator that marks the
+  end. This is the single biggest mental shift in learning RPG&nbsp;II, and
+  everything that follows builds on it.</p>
+
+  <p>The cycle leans heavily on <strong>indicators</strong> — the
+  <code>LR</code> flag is one, the control levels <code>L1</code>–<code>L9</code>
+  are others, and there are ninety-nine general-purpose flags besides.
+  Indicators are how RPG&nbsp;II expresses conditions and records the outcomes
+  of operations, and they are the subject of
+  <a href="04-indicators.html">Chapter&nbsp;4</a>.</p>
+
+  <div class="nav">
+    <a href="02-source-layout.html">← Chapter 2: The Source Layout</a>
+    <a href="04-indicators.html">Chapter 4: Indicators →</a>
+  </div>
+
+</body>
+</html>

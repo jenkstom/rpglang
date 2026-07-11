@@ -1,0 +1,10 @@
+     C* B3: match-field comparison is sign-blind (manual 52317-52319):
+     C* -5 (packed) in SBPRIM must match +5 (packed) in SBSEC -> MR on.
+     C* RPGRET = 1 if MR fired, else 0.
+     FSBPRIM  IP  F    1               DISK
+     FSBSEC   IS  F    1               DISK
+     ISBPRIM       1
+     I                                    P   1   10PKEY    M1
+     ISBSEC        2
+     I                                    P   1   10SKEY    M1
+     C           MR        Z-ADD1         RPGRET

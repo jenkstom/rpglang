@@ -1,0 +1,8 @@
+     C* G25: O-spec ADD. Cycle reads ADATA (10,20,30), appends each VAL
+     C* to output DISK file AOUT via ADD. AOUT holds 10/20/30.
+     FADATA   IP  F      80            DISK
+     FAOUT    O   F      80            DISK
+     IADATA      01
+     I                                        1   20VAL
+     OAOUT    DADD
+     O                         VAL        2

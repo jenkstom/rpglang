@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 15 — Control Levels and Report Breaks</title>
+  <style>
+    body { font-family: "Segoe UI", system-serif, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 15 — Control Levels and Report Breaks</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>Summary</h2>
+    <p>Control levels (L1–L9) are RPG II's mechanism for <strong>automatic
+    grouping and subtotalling</strong>. You tag a field on the I-spec as a
+    control field (e.g. L1 for department code), and whenever that field's
+    value changes between records, the cycle fires a <em>control break</em>:
+    the corresponding level indicator turns ON, total-time calculations run
+    (subtotals, accumulator resets), and total-time output prints. At LR (end-
+    of-file), all levels turn ON so the final group's subtotals and the grand
+    total both print. This chapter covers assigning control levels, the
+    cascade rule (a break at L3 also fires L1 and L2), total-time execution
+    order, and the practical pattern of accumulating in detail calcs and
+    printing/resetting at total time.</p>
+  </div>
+
+  <h2>Outline</h2>
+
+  <h3>15.1 The "you already know" analogy</h3>
+  <ul class="outline">
+    <li>In a modern language, producing a subtotal report means:
+      <pre><code>records = sorted(records, key=lambda r: r.dept)
+for group, items in groupby(records, key=lambda r: r.dept):
+    subtotal = sum(i.amount for i in items)
+    print(f"{group}: {subtotal}")
+print(f"Grand total: {grand}")</code></pre>
+      You manually sort, group, accumulate, and print subtotals.</li>
+    <li>In RPG II, if the input file is already sorted by department, you tag
+      the department field as L1 on the I-spec, accumulate in detail calcs,
+      and write total-time calcs/output conditioned on L1 and LR. The cycle
+      handles break detection, cascading, and timing automatically. It's
+      built-in <code>GROUP BY</code> with automatic subtotal output.</li>
+  </ul>
+
+  <!-- SVG: Control break timeline -->
+  <div class="svg-container">
+    <svg width="840" height="420" viewBox="0 0 840 420" xmlns="http://www.w3.org/2000/svg">
+      <text x="420" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">Control Break Timeline: Subtotals and Grand Total</text>
+
+      <!-- Record stream -->
+      <text x="20" y="50" font-size="11" font-weight="bold" fill="#7dcfff">Input (sorted by KEY):</text>
+
+      <!-- Group A -->
+      <rect x="140" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="167" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">A/10</text>
+      <rect x="195" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="222" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">A/20</text>
+      <!-- break -->
+      <line x1="255" y1="30" x2="255" y2="400" stroke="#ff9e64" stroke-width="2" stroke-dasharray="4 3"/>
+      <text x="258" y="28" font-size="9" fill="#ff9e64">L1 break (A→B)</text>
+
+      <!-- Group B -->
+      <rect x="260" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="287" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">B/15</text>
+      <rect x="315" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="342" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">B/25</text>
+      <!-- break -->
+      <line x1="375" y1="30" x2="375" y2="400" stroke="#ff9e64" stroke-width="2" stroke-dasharray="4 3"/>
+      <text x="378" y="28" font-size="9" fill="#ff9e64">L1 break (B→C)</text>
+
+      <!-- Group C -->
+      <rect x="380" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="407" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">C/05</text>
+      <!-- LR -->
+      <line x1="445" y1="30" x2="445" y2="400" stroke="#f7768e" stroke-width="2" stroke-dasharray="4 3"/>
+      <text x="448" y="28" font-size="9" fill="#f7768e">LR (EOF)</text>
+
+      <!-- Detail calcs row -->
+      <text x="20" y="90" font-size="11" font-weight="bold" fill="#7dcfff">Detail calcs (ADD AMT):</text>
+      <rect x="140" y="78" width="55" height="20" fill="#24283b" stroke="#9ece6a"/><text x="167" y="92" text-anchor="middle" font-size="9" font-family="monospace" fill="#9ece6a">SUB=10</text>
+      <rect x="195" y="78" width="55" height="20" fill="#24283b" stroke="#9ece6a"/><text x="222" y="92" text-anchor="middle" font-size="9" font-family="monospace" fill="#9ece6a">SUB=30</text>
+      <rect x="260" y="78" width="55" height="20" fill="#24283b" stroke="#9ece6a"/><text x="287" y="92" text-anchor="middle" font-size="9" font-family="monospace" fill="#9ece6a">SUB=15</text>
+      <rect x="315" y="78" width="55" height="20" fill="#24283b" stroke="#9ece6a"/><text x="342" y="92" text-anchor="middle" font-size="9" font-family="monospace" fill="#9ece6a">SUB=40</text>
+      <rect x="380" y="78" width="55" height="20" fill="#24283b" stroke="#9ece6a"/><text x="407" y="92" text-anchor="middle" font-size="9" font-family="monospace" fill="#9ece6a">SUB=05</text>
+
+      <!-- Total calcs at L1 -->
+      <text x="20" y="140" font-size="11" font-weight="bold" fill="#ff9e64">Total calcs (L1):</text>
+      <!-- A subtotal -->
+      <rect x="220" y="128" width="60" height="40" rx="4" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="250" y="145" text-anchor="middle" font-size="9" fill="#ff9e64">MOVE SUB→PSUB</text>
+      <text x="250" y="160" text-anchor="middle" font-size="9" fill="#ff9e64">Z-ADD 0→SUB</text>
+      <text x="330" y="140" font-size="9" fill="#565f89">prints "A: 30"</text>
+      <text x="330" y="153" font-size="9" fill="#565f89">resets SUB=0</text>
+
+      <rect x="340" y="128" width="60" height="40" rx="4" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
+      <text x="370" y="145" text-anchor="middle" font-size="9" fill="#ff9e64">MOVE SUB→PSUB</text>
+      <text x="370" y="160" text-anchor="middle" font-size="9" fill="#ff9e64">Z-ADD 0→SUB</text>
+      <text x="450" y="140" font-size="9" fill="#565f89">prints "B: 40"</text>
+      <text x="450" y="153" font-size="9" fill="#565f89">resets SUB=0</text>
+
+      <!-- Detail output -->
+      <text x="20" y="200" font-size="11" font-weight="bold" fill="#7dcfff">Detail output (D):</text>
+      <g font-size="9" font-family="monospace" fill="#c0caf5">
+        <rect x="140" y="188" width="55" height="18" fill="#24283b" stroke="#565f89"/><text x="167" y="201" text-anchor="middle">A  10</text>
+        <rect x="195" y="188" width="55" height="18" fill="#24283b" stroke="#565f89"/><text x="222" y="201" text-anchor="middle">A  20</text>
+        <rect x="260" y="188" width="55" height="18" fill="#24283b" stroke="#565f89"/><text x="287" y="201" text-anchor="middle">B  15</text>
+        <rect x="315" y="188" width="55" height="18" fill="#24283b" stroke="#565f89"/><text x="342" y="201" text-anchor="middle">B  25</text>
+        <rect x="380" y="188" width="55" height="18" fill="#24283b" stroke="#565f89"/><text x="407" y="201" text-anchor="middle">C  05</text>
+      </g>
+
+      <!-- Total output -->
+      <text x="20" y="245" font-size="11" font-weight="bold" fill="#ff9e64">Total output (T/L1):</text>
+      <rect x="225" y="233" width="70" height="18" fill="#2a1f2e" stroke="#ff9e64"/><text x="260" y="246" text-anchor="middle" font-size="9" font-family="monospace" fill="#ff9e64">Sub: 30</text>
+      <rect x="345" y="233" width="70" height="18" fill="#2a1f2e" stroke="#ff9e64"/><text x="380" y="246" text-anchor="middle" font-size="9" font-family="monospace" fill="#ff9e64">Sub: 40</text>
+
+      <!-- LR total -->
+      <text x="20" y="295" font-size="11" font-weight="bold" fill="#f7768e">LR total:</text>
+      <rect x="420" y="283" width="80" height="18" fill="#f8d7da" stroke="#f7768e"/><text x="460" y="296" text-anchor="middle" font-size="9" font-family="monospace" fill="#f7768e">Sub: 05</text>
+      <rect x="420" y="303" width="80" height="18" fill="#f8d7da" stroke="#f7768e"/><text x="460" y="316" text-anchor="middle" font-size="9" font-family="monospace" fill="#f7768e">Grand: 75</text>
+      <text x="510" y="296" font-size="9" fill="#f7768e">← final L1 subtotal (C: 5)</text>
+      <text x="510" y="316" font-size="9" fill="#f7768e">← grand total (10+20+15+25+5)</text>
+
+      <!-- Summary box -->
+      <rect x="20" y="350" width="800" height="50" rx="8" fill="#24283b" stroke="#7aa2f7"/>
+      <text x="35" y="370" font-size="10" font-weight="bold" fill="#7aa2f7">Key insight:</text>
+      <text x="35" y="388" font-size="10" fill="#c0caf5">Detail calcs accumulate every record (SUB += AMT). Total calcs at L1 copy SUB to print, then zero it. At LR, all levels fire → final subtotal + grand total.</text>
+    </svg>
+  </div>
+
+  <h3>15.2 Assigning control levels on I-specs</h3>
+  <ul class="outline">
+    <li>I-spec columns 59–60 assign a control level (L1–L9) to a field. When
+      that field's value changes between records, the level turns ON.</li>
+    <li>Example: <code>KEY L1</code> in cols 53–60 means "this field is a
+      level-1 control field."</li>
+    <li>The input file must be sorted by the control field — RPG II detects
+      changes, it doesn't sort.</li>
+  </ul>
+
+  <h3>15.3 The cascade rule</h3>
+  <ul class="outline">
+    <li>When a break occurs at level Ln, <strong>all lower levels also turn
+      ON</strong>. A break at L3 fires L1, L2, and L3.</li>
+    <li>This means C-specs conditioned on L1 run for <em>any</em> break (L1
+      through L9), L2 runs for breaks at L2 or higher, etc.</li>
+    <li>Total-time calcs and output run in <strong>ascending level order</strong>:
+      L0 (always), then L1, L2, …, L9, then LR. This ensures subtotals
+      accumulate correctly within nested groups.</li>
+    <li>L0 is a special level that is always ON at total time — use it for
+      calcs that should run at every total-time pass.</li>
+  </ul>
+
+  <h3>15.4 The accumulator-and-reset pattern</h3>
+  <ul class="outline">
+    <li>The standard subtotal pattern uses two fields:
+      <ul>
+        <li><strong>SUB</strong> — the running subtotal, accumulated in detail
+          calcs (<code>ADD AMT SUB</code> every record).</li>
+        <li><strong>PSUB</strong> — a "print subtotal" that SUB is moved into
+          at total time, so the printed value isn't affected by the reset.</li>
+      </ul>
+    </li>
+    <li>Total-time calcs (conditioned on L1): <code>MOVE SUB PSUB</code>
+      (save for printing), <code>Z-ADD 0 SUB</code> (reset for next group).</li>
+    <li>Total-time output (type T, conditioned on L1): prints PSUB.</li>
+    <li>GRAND total accumulates across all records (never reset until LR):
+      <code>ADD AMT GRAND</code> in detail calcs, printed at LR total
+      time.</li>
+  </ul>
+
+  <h3>15.5 LR and final subtotals</h3>
+  <ul class="outline">
+    <li>At EOF, LR turns ON and all L1–L9 also turn ON. This ensures the
+      <em>last group's</em> subtotal prints (the last break never happens
+      naturally because there's no "next" record with a different key).</li>
+    <li>Execution order at LR: total calcs/output run L0→L1→…→L9 (printing
+      the last group's subtotals), then LR-specific calcs/output (grand
+      totals).</li>
+  </ul>
+
+  <h3>15.6 First-record bypass</h3>
+  <ul class="outline">
+    <li>On the very first record, total time is skipped — the control-field
+      baseline is being established, and there's no "previous value" to
+      compare against. No spurious break fires on record 1.</li>
+  </ul>
+
+  <h3>15.7 Nested control levels</h3>
+  <ul class="outline">
+    <li>Multiple control fields create nested groups. Example: region = L1,
+      department = L2. A change in region fires both L1 and L2; a change in
+      department (within the same region) fires only L2.</li>
+    <li>The cascade rule and ascending execution order handle this correctly
+      — inner-group (higher-level) subtotals print before outer-group
+      subtotals.</li>
+  </ul>
+
+  <h2>What to write into this chapter</h2>
+  <ul class="outline">
+    <li>Include the control-break timeline SVG as the central diagram.</li>
+    <li>Show a complete control-break report: input sorted by key, detail calcs
+      accumulating, L1 total calcs printing/resetting subtotals, LR printing
+      grand total.</li>
+    <li>Show a nested-level example (L1 = region, L2 = department).</li>
+    <li>Explain the cascade rule with a diagram showing which levels fire for
+      a given break.</li>
+    <li>Include the "accumulator-and-reset" pattern as a reusable idiom.</li>
+    <li>Cross-reference <a href="03-program-cycle.html">Chapter 3</a> for
+      cycle timing and <a href="16-output-specs.html">Chapter 10</a> for
+      total-time O-specs.</li>
+  </ul>
+
+  <div class="nav">
+    <a href="13-field-operations.html">← Chapter 14: Field Operations</a>
+    <a href="15-arrays-tables.html">Chapter 16: Arrays and Tables →</a>
+  </div>
+
+</body>
+</html>

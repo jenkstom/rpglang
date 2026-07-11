@@ -62,6 +62,11 @@ enum class Op {
     // Compare/test (zone & bit):
     TESTZ,  // test zone of leftmost char of result; set HI/LO/EQ
     TESTB,  // test bits of result field per factor2 mask; set HI/LO/EQ
+    // Section G (G24) file access:
+    CHAIN,  // random read: f1=key/RRN, f2=file; cols 54-55 = no-record indicator
+    SETLL,  // position f2 at key >= f1 (lower limit)
+    READE,  // read next from f2 if key == f1; cols 58-59 = EOF/unequal indicator
+    READ,   // read next from f2 (full-proc/demand); cols 58-59 = EOF indicator
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks

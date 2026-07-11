@@ -221,6 +221,7 @@ int main(int argc, char **argv) {
 
     rpgc::Program prog;
     prog.files      = rpgc::parse_fspecs(src);
+    prog.line_counters = rpgc::parse_lspecs(src);
     rpgc::ISpecs is = rpgc::parse_ispecs(src);
     prog.in_records = std::move(is.records);
     prog.in_fields  = std::move(is.fields);

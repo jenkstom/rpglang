@@ -1,0 +1,10 @@
+     C* B6: F-spec cols 35-38 "EXTK" (composite/noncontiguous key) is not
+     C* implemented; must be a hard compile error, not a silent key_start=0.
+     FSRTX    IP  F      80            DISK
+     FSRFILE  IF  F      80  2AI  EXTK DISK
+     ISRTX       01
+     I                                        1   20STKEY
+     ISRFILE     02
+     I                                        1   20SKEY
+     C           STKEY     SETLLSRFILE
+     CLR                   Z-ADD0         RPGRET

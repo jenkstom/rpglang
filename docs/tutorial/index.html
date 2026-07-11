@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Programming in RPG II — A Tutorial</title>
+  <style>
+    /* ── Page layout ───────────────────────────────────────────── */
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      line-height: 1.6;
+      color: #c0caf5;
+      background: #1a1b26;
+    }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; color: #7aa2f7; padding-bottom: .3rem; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; color: #7dcfff; padding-bottom: .2rem; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; }
+    code { font-family: "Consolas", "Courier New", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote {
+      border-left: 4px solid #7aa2f7; background: #24283b;
+      margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0;
+    }
+    .callout {
+      border-left: 4px solid #ff9e64; background: #2a1f2e;
+      margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+    .toc-chapter { display: flex; gap: 1rem; align-items: baseline; }
+    .toc-num { font-weight: bold; color: #004488; min-width: 2.5rem; }
+    .summary-box {
+      background: #f0f7ff; border: 1px solid #99c5e8; border-radius: 8px;
+      padding: 1rem 1.5rem; margin: 1.5rem 0;
+    }
+    .summary-box h3 { margin-top: 0; color: #7aa2f7; }
+    .phase-part {
+      font-size: 1.25rem; font-weight: bold; color: #7aa2f7;
+      margin-top: 2rem; padding-bottom: .3rem;
+      border-bottom: 2px solid #333653;
+    }
+    a { color: #7dcfff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+  </style>
+</head>
+<body>
+
+  <h1>Programming in RPG II — A Tutorial</h1>
+
+  <p>A hands-on guide to the <strong>RPG II</strong> programming language,
+  written from first principles for the modern programmer.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <div class="summary-box">
+    <h3>Who this tutorial is for</h3>
+
+    <blockquote>
+      <p><strong>This tutorial assumes you already know how to program in
+      Python, C#, or Java.</strong> It does not teach programming from scratch.
+      Instead it maps the concepts you already understand — variables, types,
+      conditionals, loops, functions, arrays, file I/O, and report generation —
+      onto RPG II's (often unfamiliar) vocabulary and mechanics.</p>
+    </blockquote>
+
+    <p>This audience targeting should guide <strong>all future writing and
+    editing</strong> of every chapter in this tutorial. Specifically:</p>
+
+    <ul>
+      <li><strong>Use language-agnostic conceptual examples.</strong> When
+        illustrating an idea, draw on constructs common to all three languages
+        — e.g. "an integer variable," "a <code>while</code> loop," "a
+        <code>switch</code>/<code>case</code> statement," "a function that
+        takes no arguments," "a fixed-length record." Do <strong>not</strong>
+        show Python, C#, or Java syntax. The reader is expected to supply the
+        modern analogy internally.</li>
+      <li><strong>Name the modern concept, then introduce the RPG II
+        equivalent.</strong> Each new topic should open with "you already know
+        X; RPG II does this via Y."</li>
+      <li><strong>Call out the three paradigm shocks early and often.</strong>
+        RPG II differs from modern languages in three fundamental ways, and the
+        tutorial must keep returning to them:
+        <ol>
+          <li><strong>Column-based source.</strong> Meaning lives in fixed
+            character <em>positions</em>, not in tokens separated by
+            whitespace. There are (almost) no braces, keywords as you know
+            them, or statement terminators.</li>
+          <li><strong>The implicit program cycle.</strong> A program does not
+            explicitly "read a record, process it, loop." The language supplies
+            an invisible outer loop that reads every record automatically; your
+            code is the <em>body</em> of that loop.</li>
+          <li><strong>Indicators.</strong> A flat set of global, persistent
+            boolean flags — not boolean variables you declare — drive
+            conditional execution and record the outcome of operations.</li>
+        </ol>
+      </li>
+      <li><strong>Favor the conceptual over the historical.</strong> Explain
+        <em>what</em> a construct does and <em>when you would use it</em>, not
+        the 1960s batch-mainframe lineage, except where the history genuinely
+        aids understanding (e.g. why columns exist).</li>
+      <li><strong>Keep it practical.</strong> Every concept should connect to a
+        realistic business-programming task: reading a file of transactions,
+        accumulating totals, producing a printed report, looking up a value in
+        a table.</li>
+      <li><strong>Cross-reference, don't duplicate.</strong> Concepts like
+        indicators and the cycle appear throughout; each chapter should link to
+        its foundational chapter rather than re-explaining from scratch.</li>
+    </ul>
+
+    <!-- ── SVG: The three paradigm shifts ─────────────────────── -->
+    <div class="svg-container">
+      <svg width="820" height="210" viewBox="0 0 820 210" xmlns="http://www.w3.org/2000/svg">
+        <!-- Panel 1: Column-based source -->
+        <rect x="10" y="10" width="260" height="190" rx="12" fill="#eef3f8" stroke="#004488" stroke-width="2"/>
+        <text x="140" y="35" text-anchor="middle" font-size="14" font-weight="bold" fill="#004488">1 · Column-based source</text>
+        <text x="140" y="55" text-anchor="middle" font-size="11" fill="#555">Meaning lives in fixed positions</text>
+        <!-- Ruler -->
+        <text x="30" y="80" font-family="monospace" font-size="11" fill="#004488">....+....1....+....2....+</text>
+        <!-- Code line -->
+        <rect x="20" y="88" width="240" height="22" fill="none" stroke="#ccc" stroke-width="1"/>
+        <!-- Highlighted columns -->
+        <rect x="20" y="88" width="6" height="22" fill="#ffd700" opacity="0.7"/>
+        <rect x="26" y="88" width="12" height="22" fill="#90ee90" opacity="0.6"/>
+        <rect x="74" y="88" width="20" height="22" fill="#ffb6c1" opacity="0.7"/>
+        <rect x="94" y="88" width="20" height="22" fill="#87ceeb" opacity="0.6"/>
+        <text x="30" y="104" font-family="monospace" font-size="12" fill="#1a1a1a">     C    42   ADD  AMT   TOTAL</text>
+        <text x="140" y="140" text-anchor="middle" font-size="10" fill="#666">No braces · no keywords</text>
+        <text x="140" y="155" text-anchor="middle" font-size="10" fill="#666">No semicolons or tokens</text>
+        <text x="140" y="180" text-anchor="middle" font-size="11" fill="#e88a00" font-style="italic">Position = meaning</text>
+
+        <!-- Panel 2: The cycle -->
+        <rect x="280" y="10" width="260" height="190" rx="12" fill="#fff8ee" stroke="#e88a00" stroke-width="2"/>
+        <text x="410" y="35" text-anchor="middle" font-size="14" font-weight="bold" fill="#e88a00">2 · Implicit program cycle</text>
+        <text x="410" y="55" text-anchor="middle" font-size="11" fill="#555">An invisible read-process loop</text>
+        <!-- Cycle boxes -->
+        <rect x="310" y="70" width="80" height="24" rx="4" fill="#fff" stroke="#e88a00"/>
+        <text x="350" y="87" text-anchor="middle" font-size="10" font-family="monospace">read rec</text>
+        <rect x="410" y="70" width="80" height="24" rx="4" fill="#fff" stroke="#e88a00"/>
+        <text x="450" y="87" text-anchor="middle" font-size="10" font-family="monospace">your code</text>
+        <!-- Forward arrow: read rec → your code -->
+        <line x1="390" y1="82" x2="408" y2="82" stroke="#e88a00" stroke-width="2" marker-end="url(#arrow1)"/>
+        <!-- Loop-back arrow: your code → (down, left, up) → read rec -->
+        <path d="M 490 94 L 490 150 L 350 150 L 350 97" fill="none" stroke="#e88a00" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrow1)"/>
+        <text x="420" y="164" text-anchor="middle" font-size="10" fill="#999" font-style="italic">auto</text>
+        <text x="410" y="180" text-anchor="middle" font-size="11" fill="#e88a00" font-style="italic">You write the body, not the loop</text>
+
+        <!-- Panel 3: Indicators -->
+        <rect x="550" y="10" width="260" height="190" rx="12" fill="#f0f7f0" stroke="#2a8a2a" stroke-width="2"/>
+        <text x="680" y="35" text-anchor="middle" font-size="14" font-weight="bold" fill="#2a8a2a">3 · Indicators</text>
+        <text x="680" y="55" text-anchor="middle" font-size="11" fill="#555">Global persistent boolean flags</text>
+        <!-- Grid of indicators -->
+        <g font-family="monospace" font-size="9" fill="#555">
+          <rect x="575" y="72" width="20" height="14" fill="#f8d7da" stroke="#ccc"/><text x="585" y="82" text-anchor="middle">01</text>
+          <rect x="597" y="72" width="20" height="14" fill="#d4edda" stroke="#ccc"/><text x="607" y="82" text-anchor="middle">02</text>
+          <rect x="619" y="72" width="20" height="14" fill="#f8d7da" stroke="#ccc"/><text x="629" y="82" text-anchor="middle">03</text>
+          <rect x="641" y="72" width="20" height="14" fill="#e9ecef" stroke="#ccc"/><text x="651" y="82" text-anchor="middle">04</text>
+          <rect x="663" y="72" width="20" height="14" fill="#e9ecef" stroke="#ccc"/><text x="673" y="82" text-anchor="middle">05</text>
+          <rect x="685" y="72" width="20" height="14" fill="#d4edda" stroke="#ccc"/><text x="695" y="82" text-anchor="middle">06</text>
+          <rect x="707" y="72" width="20" height="14" fill="#e9ecef" stroke="#ccc"/><text x="717" y="82" text-anchor="middle">07</text>
+          <rect x="729" y="72" width="20" height="14" fill="#e9ecef" stroke="#ccc"/><text x="739" y="82" text-anchor="middle">08</text>
+        </g>
+        <text x="575" y="108" font-size="10" fill="#2a8a2a">■ = ON</text>
+        <rect x="575" y="105" width="12" height="10" fill="#d4edda" stroke="#ccc"/>
+        <text x="640" y="108" font-size="10" fill="#888">■ = OFF</text>
+        <rect x="640" y="105" width="12" height="10" fill="#e9ecef" stroke="#ccc"/>
+        <text x="680" y="130" text-anchor="middle" font-size="10" fill="#555">Gate execution:</text>
+        <text x="680" y="145" text-anchor="middle" font-size="10" font-family="monospace" fill="#2a8a2a">"if indicator 10 is ON…"</text>
+        <text x="680" y="165" text-anchor="middle" font-size="10" fill="#555">Record results:</text>
+        <text x="680" y="180" text-anchor="middle" font-size="10" font-family="monospace" fill="#2a8a2a">"COMP sets HI / LO / EQ"</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>How this tutorial is organized</h2>
+
+  <div class="callout">
+    <p><strong>Partially written.</strong> Chapters in <strong>Part&nbsp;I</strong>,
+    <strong>Part&nbsp;II</strong>, <strong>Part&nbsp;III</strong>, and
+    <strong>Part&nbsp;IV</strong> are fully written. The remaining chapters
+    (Part&nbsp;V) are still <strong>scaffolds</strong>: each contains</p>
+    <ol>
+      <li>A <strong>summary</strong> — what the chapter covers and why it
+        matters.</li>
+      <li>A <strong>detailed outline</strong> — the sections, sub-topics, and
+        example programs that should be written into it.</li>
+    </ol>
+    <p>The summaries and outlines are the blueprint for those chapters: they
+    define scope, ordering, and the examples to build, so that future writing
+    can fill each one in consistently with the completed chapters.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Table of contents</h2>
+
+  <div class="phase-part">Part I — Foundations</div>
+  <p>Get oriented: how RPG II source is laid out, how a program runs, and the
+  single biggest mental shift (the program cycle).</p>
+
+  <table>
+    <tr><th>#</th><th>Chapter</th><th>What you'll learn</th></tr>
+    <tr>
+      <td>1</td>
+      <td><a href="01-introduction.html">Introduction</a></td>
+      <td>What RPG II is, the business-reporting mindset, and the three paradigm shifts to expect.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><a href="02-source-layout.html">The Source Layout</a></td>
+      <td>The fixed-column card-image format and the four spec types (F, I, C, O).</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><a href="03-program-cycle.html">The Program Cycle</a></td>
+      <td>The invisible read-process loop that frames every program — the #1 concept to internalize.</td>
+    </tr>
+  </table>
+
+  <div class="phase-part">Part II — Core building blocks</div>
+  <p>The three mechanisms you meet in essentially every program.</p>
+
+  <table>
+    <tr><th>#</th><th>Chapter</th><th>What you'll learn</th></tr>
+    <tr>
+      <td>4</td>
+      <td><a href="04-indicators.html">Indicators</a></td>
+      <td>The global boolean-flag system: conditioning indicators (gating code) and resulting indicators (operation outcomes).</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><a href="05-data-fields.html">Data Types and Fields</a></td>
+      <td>Numeric vs alphameric fields, decimal scaling, packed/binary encodings, and the field-length/decimal-position model.</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><a href="06-arithmetic.html">Arithmetic Operations</a></td>
+      <td>ADD, SUB, MULT, DIV, MVR, Z-ADD, Z-SUB, SQRT, and half-adjust rounding.</td>
+    </tr>
+  </table>
+
+  <div class="phase-part">Part III — The four specifications</div>
+  <p>RPG II programs are built from spec types. These chapters walk each one
+  column by column.</p>
+
+  <table>
+    <tr><th>#</th><th>Chapter</th><th>What you'll learn</th></tr>
+    <tr>
+      <td>7</td>
+      <td><a href="07-file-specs.html">File Specifications (F-specs)</a></td>
+      <td>Declaring input and output files: type, designation, device, record length.</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><a href="08-input-specs.html">Input Specifications (I-specs)</a></td>
+      <td>Mapping record positions to named fields, multiple record types, field indicators.</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><a href="09-calc-specs.html">Calculation Specifications (C-specs)</a></td>
+      <td>The column anatomy of every calculation line — the heart of program logic.</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><a href="16-output-specs.html">Output Specifications (O-specs)</a></td>
+      <td>Describing reports declaratively: heading, detail, and total lines.</td>
+    </tr>
+  </table>
+
+  <div class="phase-part">Part IV — Logic and control flow</div>
+  <p>Translating modern control-flow concepts into RPG II operations.</p>
+
+  <table>
+    <tr><th>#</th><th>Chapter</th><th>What you'll learn</th></tr>
+    <tr>
+      <td>11</td>
+      <td><a href="10-conditional-logic.html">Comparisons and Conditional Logic</a></td>
+      <td>COMP, the IFxx/ELSE/END family, and indicator-based branching.</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td><a href="11-loops-branching.html">Loops and Branching</a></td>
+      <td>DOWxx, DOUxx, DO counted loops, and GOTO/TAG.</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td><a href="12-subroutines.html">Subroutines and CAS</a></td>
+      <td>BEGSR/ENDSR/EXSR subroutines and the CASxx case-select operation.</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td><a href="13-field-operations.html">Field and String Operations</a></td>
+      <td>MOVE, MOVEL, MOVEA, character comparison, TESTZ, TESTB.</td>
+    </tr>
+  </table>
+
+  <div class="phase-part">Part V — Advanced topics</div>
+  <p>The features that make RPG II powerful for reporting and data
+  processing.</p>
+
+  <table>
+    <tr><th>#</th><th>Chapter</th><th>What you'll learn</th></tr>
+    <tr>
+      <td>15</td>
+      <td><a href="14-control-levels.html">Control Levels and Report Breaks</a></td>
+      <td>L1–L9: automatic subtotalling when a group key changes, plus grand totals.</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td><a href="15-arrays-tables.html">Arrays and Tables</a></td>
+      <td>E-specs, compile-time/prerun-time data, element access, XFOOT, LOKUP, tables.</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td><a href="17-output-formatting.html">Output Formatting</a></td>
+      <td>Edit codes and edit words for commas, decimals, signs, zero-suppression, and currency.</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td><a href="18-file-access.html">File Access</a></td>
+      <td>CHAIN, SETLL, READ, READE — keyed and positioned access beyond the cycle.</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td><a href="19-multifile.html">Multifile Processing</a></td>
+      <td>Primary/secondary files, matching records (MR), and merging by key.</td>
+    </tr>
+  </table>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Suggested reading order</h2>
+
+  <p><strong>Newcomers:</strong> read Parts I–II in order — the cycle and
+  indicators are prerequisites for everything else. Then read the spec chapters
+  (Part III) before the logic chapters (Part IV), because calculations
+  reference fields you declared in I-specs and files you declared in
+  F-specs.</p>
+
+  <p><strong>Quick reference:</strong> jump straight to the spec chapter you
+  need (F/I/C/O) or to the operation index in
+  <a href="09-calc-specs.html">Chapter 9</a>.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>Conventions used in this tutorial</h2>
+
+  <ul>
+    <li><strong>RPG II source</strong> is shown in fixed-column blocks. The
+      ruler line at the top of examples marks the tens digit:
+      <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</code></pre>
+      Column numbers are <strong>1-based</strong>.</li>
+    <li><strong>Diagrams</strong> are embedded SVG, illustrating concepts
+      visually — column layouts, cycle flow, indicator interactions, etc.</li>
+    <li><strong>Concept callouts</strong> translate an RPG II idea into
+      modern-programmer terms.</li>
+    <li><strong>"You already know X"</strong> boxes precede each new
+      construct.</li>
+  </ul>
+
+  <!-- Shared SVG arrow marker definitions -->
+  <svg width="0" height="0" style="position:absolute;">
+    <defs>
+      <marker id="arrow1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#e88a00"/>
+      </marker>
+      <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#004488"/>
+      </marker>
+      <marker id="arrow-gray" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#888"/>
+      </marker>
+    </defs>
+  </svg>
+
+</body>
+</html>

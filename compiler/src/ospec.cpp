@@ -71,11 +71,13 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
 
         const std::string &t = sl.text;
 
-        // Record line: column 15 has H/D/T/E.
+        // Record line: column 15 has H/D/T/E (or U for an update record, G25).
         std::string typech = upper(col_trim(t, 15, 15));
+        // Cols 16-18 may carry ADD / DEL / UPDATE for disk update records (G25).
+        std::string op16  = upper(col_trim(t, 16, 18));
         bool is_record = (!typech.empty() &&
                           (typech[0]=='H' || typech[0]=='D' ||
-                           typech[0]=='T' || typech[0]=='E'));
+                           typech[0]=='T' || typech[0]=='E' || typech[0]=='U'));
 
         if (is_record) {
             ORecord rec;
@@ -92,7 +94,12 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
                 case 'D': rec.type = OType::Detail;    break;
                 case 'T': rec.type = OType::Total;     break;
                 case 'E': rec.type = OType::Exception; break;
+                case 'U': rec.type = OType::Detail; rec.rec_op = ORecOp::Update; break;
             }
+            // ADD/DEL/UPDATE in cols 16-18 override the record operation (G25).
+            if (op16 == "ADD")         rec.rec_op = ORecOp::Add;
+            else if (op16 == "DEL")    rec.rec_op = ORecOp::Delete;
+            else if (op16 == "UPDATE") rec.rec_op = ORecOp::Update;
             // Space before/after (cols 17/18): digit 0-3.
             std::string sb = col_trim(t, 17, 17);
             if (!sb.empty() && std::isdigit((unsigned char)sb[0]))
@@ -134,11 +141,8 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
         std::string ec = col_trim(t, 38, 38);
         if (!ec.empty()) fld.edit_code = ec[0];
 
-        // Constant? Look for a leading apostrophe in cols 45-70.
-        std::string conArea = col(t, 45, 70);
         std::string nameArea = col_trim(t, 32, 37);
-        bool quoted = (!conArea.empty() && conArea[0] == '\'');
-        // Strip apostrophes / collapse '' -> ' from the quoted region.
+        // Strip apostrophes / collapse '' -> ' from a quoted region.
         auto unquote = [&](const std::string &region) -> std::string {
             std::string raw = region;
             auto last = raw.find_last_of('\'');
@@ -154,20 +158,44 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
             }
             return outc;
         };
-        if (quoted && !nameArea.empty() && fld.edit_code == 0) {
-            // Edit word (D16): a numeric field with a quoted pattern in
-            // cols 45-70 and no edit code.
+
+        if (fld.edit_code != 0 && !nameArea.empty()) {
+            // A13: field name + edit code both present. Columns 45-47 (a
+            // narrower region than the 45-70 constant/edit-word area used
+            // when no edit code is present) may carry a floating fill
+            // character: a bare '*' (asterisk fill) or a quoted currency
+            // symbol like '$' (manual 62678-62762, Figures 166-168). Without
+            // this branch the quoted fill was previously mis-read as an
+            // unrelated standalone constant, silently dropping the field
+            // name/edit-code association entirely.
             fld.name = nameArea;
-            fld.edit_word = unquote(conArea);
-        } else if (quoted) {
-            // Plain constant.
-            fld.is_const = true;
-            fld.text = unquote(conArea);
-        } else if (!nameArea.empty()) {
-            fld.name = nameArea;
+            std::string fillArea = col(t, 45, 47);
+            std::string fillTrim = col_trim(t, 45, 47);
+            if (fillTrim == "*") {
+                fld.fill_char = '*';
+            } else if (!fillArea.empty() && fillArea[0] == '\'') {
+                std::string un = unquote(fillArea);
+                if (!un.empty()) fld.fill_char = un[0];
+            }
         } else {
-            // Neither constant nor field name; ignore.
-            continue;
+            // Constant? Look for a leading apostrophe in cols 45-70.
+            std::string conArea = col(t, 45, 70);
+            bool quoted = (!conArea.empty() && conArea[0] == '\'');
+            if (quoted && !nameArea.empty()) {
+                // Edit word (D16): a numeric field with a quoted pattern in
+                // cols 45-70 and no edit code.
+                fld.name = nameArea;
+                fld.edit_word = unquote(conArea);
+            } else if (quoted) {
+                // Plain constant.
+                fld.is_const = true;
+                fld.text = unquote(conArea);
+            } else if (!nameArea.empty()) {
+                fld.name = nameArea;
+            } else {
+                // Neither constant nor field name; ignore.
+                continue;
+            }
         }
 
         // End position (cols 40-43), right-justified.

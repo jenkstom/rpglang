@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chapter 10 — Output Specifications (O-specs)</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
+    h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
+    h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
+    code { font-family: "Consolas", monospace; background: #2a2b3d; color: #e0af68; padding: .1em .3em; border-radius: 3px; font-size: .9em; }
+    pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
+    pre code { background: none; color: inherit; padding: 0; }
+    blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .callout { border-left: 4px solid #ff9e64; background: #2a1f2e; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
+    .summary-box { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+    .summary-box h2 { margin-top: 0; border: none; color: #7aa2f7; }
+    .outline li { margin-bottom: .4rem; }
+    a { color: #7dcfff; }
+    .nav { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; }
+    .svg-container { text-align: center; margin: 1.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; }
+    th { background: #7aa2f7; color: #1a1b26; }
+    tr:nth-child(even) { background: #1f2335; }
+  </style>
+</head>
+<body>
+
+  <h1>Chapter 10 — Output Specifications (O-specs)</h1>
+  <p><a href="index.html">↑ Table of contents</a></p>
+
+  <div class="summary-box">
+    <h2>In this chapter</h2>
+    <p>The O-spec (column&nbsp;6 = <code>O</code>) describes <em>what the program
+    outputs</em> — declaratively, not imperatively. Instead of writing
+    <code>print()</code> or <code>printf</code> statements, you describe output
+    lines: which file they go to, what type (heading, detail, total, exception),
+    when they fire (conditioned by indicators), and what fields or constants
+    appear at what positions. The program cycle handles the actual printing at
+    the right time.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.1 The "you already know" analogy</h2>
+
+  <p>In a modern language, generating a report means imperative format strings
+  embedded in your logic:</p>
+
+  <pre><code>print(f"{'Amount':<20}{amt:>10}")
+print(f"{'Total':<20}{total:>10}")</code></pre>
+
+  <p>You write the <code>print</code> call, construct the format string, and
+  decide when to call it. In RPG&nbsp;II, you <em>declare</em> the report layout
+  as O-specs and the cycle emits them at the right time. You describe
+  <em>what</em> the line looks like and <em>when</em> it should print; the
+  language handles the printing.</p>
+
+  <div class="callout">
+    <p><strong>You already know this.</strong> O-specs are a declarative report
+    template — similar to an HTML template or a SQL <code>SELECT</code> with
+    formatting. You do not write <code>print()</code> calls. You declare "at
+    detail time, print a line with the constant 'Amount =' ending at column&nbsp;20,
+    followed by the field <code>AMT</code> ending at column&nbsp;30." The cycle
+    does the rest.</p>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.2 Two line types: record lines and field lines</h2>
+
+  <p>Like I-specs, O-specs come in two kinds of line:</p>
+
+  <ul>
+    <li><strong>Record line</strong> — starts a new output line. It carries the
+      filename (cols&nbsp;7–14), the type (col&nbsp;15: H/D/T/E), spacing and
+      skipping (cols&nbsp;17–22), and conditioning indicators
+      (cols&nbsp;23–31).</li>
+    <li><strong>Field line</strong> — describes one field or constant on the
+      current line. Cols&nbsp;7–31 are blank; the field name (cols&nbsp;32–37),
+      edit code (col&nbsp;38), end position (cols&nbsp;40–43), and constant
+      (cols&nbsp;45–70) define what prints and where.</li>
+  </ul>
+
+  <p>One record line can be followed by many field lines — each adds another
+  field or constant to the same printed line. The record line controls
+  <em>when</em> the line prints; the field lines control <em>what</em> is on
+  it.</p>
+
+  <!-- SVG: O-spec record + field lines -->
+  <div class="svg-container">
+    <svg width="860" height="380" viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg">
+      <text x="430" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#7aa2f7">O-spec: Record Line + Field Lines → Printed Output</text>
+
+      <!-- Source O-specs -->
+      <rect x="30" y="35" width="380" height="160" rx="8" fill="#24283b" stroke="#7aa2f7"/>
+      <text x="45" y="55" font-size="10" font-weight="bold" fill="#7dcfff">O-spec source:</text>
+
+      <!-- Record line -->
+      <rect x="40" y="62" width="360" height="22" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="45" y="77" font-family="monospace" font-size="11" fill="#9ece6a">     OREPORT  D  1</text>
+      <text x="260" y="77" font-size="9" fill="#7dcfff">← record line: type D, space 1</text>
+
+      <!-- Field line: constant -->
+      <rect x="40" y="86" width="360" height="22" fill="none" stroke="#565f89"/>
+      <text x="45" y="101" font-family="monospace" font-size="11" fill="#9ece6a">     O                   20 'Amount ='</text>
+      <text x="280" y="101" font-size="9" fill="#ff9e64">← constant at col 20</text>
+
+      <!-- Field line: field -->
+      <rect x="40" y="110" width="360" height="22" fill="none" stroke="#565f89"/>
+      <text x="45" y="125" font-family="monospace" font-size="11" fill="#9ece6a">     O               AMT       30</text>
+      <text x="280" y="125" font-size="9" fill="#ff9e64">← AMT at col 30</text>
+
+      <!-- Total record line -->
+      <rect x="40" y="134" width="360" height="22" fill="#1f2335" stroke="#7aa2f7" stroke-width="2"/>
+      <text x="45" y="149" font-family="monospace" font-size="11" fill="#9ece6a">     OREPORT  T  2    LR</text>
+      <text x="280" y="149" font-size="9" fill="#7dcfff">← total line at LR, space 2</text>
+
+      <rect x="40" y="158" width="360" height="22" fill="none" stroke="#565f89"/>
+      <text x="45" y="173" font-family="monospace" font-size="11" fill="#9ece6a">     O                   20 'Grand total ='</text>
+
+      <!-- Arrow to output -->
+      <line x1="430" y1="115" x2="480" y2="115" stroke="#7dcfff" stroke-width="2" marker-end="url(#ao1)"/>
+      <text x="455" y="107" font-size="9" fill="#7dcfff">generates</text>
+
+      <!-- Output preview -->
+      <rect x="490" y="35" width="340" height="200" rx="8" fill="#1f2335" stroke="#9ece6a"/>
+      <text x="505" y="55" font-size="10" font-weight="bold" fill="#9ece6a">Output (REPORT file):</text>
+
+      <!-- Output lines -->
+      <rect x="505" y="65" width="310" height="22" fill="#24283b" stroke="#565f89"/>
+      <text x="580" y="80" font-family="monospace" font-size="11" fill="#e0af68">           Amount =    42</text>
+
+      <rect x="505" y="92" width="310" height="22" fill="#24283b" stroke="#565f89"/>
+      <text x="580" y="107" font-family="monospace" font-size="11" fill="#e0af68">           Amount =    17</text>
+
+      <rect x="505" y="119" width="310" height="22" fill="#24283b" stroke="#565f89"/>
+      <text x="580" y="134" font-family="monospace" font-size="11" fill="#e0af68">           Amount =     3</text>
+
+      <text x="505" y="160" font-size="9" fill="#565f89">↳ (blank line — space 2 on total)</text>
+
+      <rect x="505" y="167" width="310" height="22" fill="#2a1f2e" stroke="#ff9e64"/>
+      <text x="570" y="182" font-family="monospace" font-size="11" fill="#ff9e64">         Grand total =    62</text>
+
+      <text x="505" y="210" font-size="9" fill="#565f89">Detail lines print per-record (D)</text>
+      <text x="505" y="225" font-size="9" fill="#565f89">Total line prints once at LR end-of-file</text>
+
+      <!-- Column ruler on output -->
+      <text x="505" y="250" font-family="monospace" font-size="8" fill="#565f89">     ....+....1....+....2....+....3</text>
+    </svg>
+  </div>
+  <svg width="0" height="0" style="position:absolute;">
+    <defs><marker id="ao1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7dcfff"/></marker></defs>
+  </svg>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.3 Output types (col 15)</h2>
+
+  <p>The record line's type column (col&nbsp;15) determines <em>when</em> in the
+  program cycle the line prints. This is the O-spec's equivalent of choosing
+  "when to call <code>print()</code>" — but the cycle manages the timing for
+  you:</p>
+
+  <table>
+    <tr><th>Type</th><th>Letter</th><th>When it fires</th></tr>
+    <tr><td>Heading</td><td><code>H</code></td><td>At heading time — typically once at program start (conditioned by the <code>1P</code> indicator) or on page overflow</td></tr>
+    <tr><td>Detail</td><td><code>D</code></td><td>After detail calculations, once per record</td></tr>
+    <tr><td>Total</td><td><code>T</code></td><td>At total time — on control breaks (<code>L1</code>–<code>L9</code>) and at <code>LR</code> (end-of-file)</td></tr>
+    <tr><td>Exception</td><td><code>E</code></td><td>On demand via the <code>EXCPT</code> operation in C-specs (not cycle-driven)</td></tr>
+  </table>
+
+  <p>The three cycle-driven types — H, D, T — correspond to the three phases of
+  the program cycle described in <a href="03-program-cycle.html">Chapter&nbsp;3</a>.
+  Heading lines print before detail lines; detail lines print once per record;
+  total lines print when a control break fires or at end-of-file. Exception
+  output is the escape hatch: it prints whenever your C-spec code explicitly
+  requests it.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.4 Spacing and skipping (cols 17–22)</h2>
+
+  <p>Two pairs of columns control vertical positioning on the page:</p>
+
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Effect</th></tr>
+    <tr><td>Space Before</td><td>17</td><td>Number of blank lines (0–3) before this line prints</td></tr>
+    <tr><td>Space After</td><td>18</td><td>Number of blank lines (0–3) after this line prints. If cols 17–22 are all blank, the default is single-space after.</td></tr>
+    <tr><td>Skip Before</td><td>19–20</td><td>Advance to an absolute line number (01–99) before printing. A skip to a line at or before the current position starts a new page.</td></tr>
+    <tr><td>Skip After</td><td>21–22</td><td>Advance to an absolute line number after printing</td></tr>
+  </table>
+
+  <p>The most common setting is a single digit in col&nbsp;18 — "space after this
+  many lines." For example, <code>D  1</code> on a record line means type&nbsp;D
+  (detail), space&nbsp;1 after (one blank line between detail rows). A total line
+  with <code>T  2</code> double-spaces for visual separation from the detail
+  rows above:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  D  1                                  ← detail: space 1 after
+     OREPORT  T  2    LR                            ← total: space 2 after, at LR</code></pre>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.5 Conditioning indicators (cols 23–31)</h2>
+
+  <p>Both record lines and field lines carry conditioning indicators in
+  cols&nbsp;23–31 — three 3-column groups in the same format as C-specs
+  (see <a href="09-calc-specs.html">Chapter&nbsp;9</a>). They gate whether the
+  line (or individual field) prints:</p>
+
+  <ul>
+    <li><strong>Record lines:</strong> if the conditioning indicators are not
+      satisfied, the entire line — including all its field lines — is
+      skipped.</li>
+    <li><strong>Field lines:</strong> per-field conditioning gates individual
+      fields. A field whose conditions do not hold is omitted, while the rest of
+      the line still prints.</li>
+  </ul>
+
+  <p>The <strong><code>1P</code></strong> (first-page) indicator is the standard
+  way to print headings once at the start. It turns ON before the first record
+  and OFF immediately after, so a heading conditioned on <code>1P</code> prints
+  exactly once:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  H  1    1P                            ← heading: prints once (1P)
+     O                                   40 'SALES REPORT'
+     OREPORT  D  1                                  ← detail: prints per record
+     O                                   20 'Amount ='
+     O                         AMT       30
+     OREPORT  T  2    LR                            ← total: prints at end-of-file
+     O                                   20 'Grand total ='
+     O                         TOTAL     30</code></pre>
+
+  <p>The total line is conditioned on <code>LR</code> (last record) at
+  cols&nbsp;23–24 — it prints once, after all records are processed.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.6 Field name, end position, and constants</h2>
+
+  <p>Field lines use three column groups to place content on the printed line:</p>
+
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Description</th></tr>
+    <tr><td>Field Name</td><td>32–37</td><td>The field to print. Its value is placed right-justified ending at the end position.</td></tr>
+    <tr><td>Edit Code</td><td>38</td><td>Formatting code for numeric fields (commas, decimals, signs — see <a href="17-output-formatting.html">Chapter&nbsp;17</a>)</td></tr>
+    <tr><td>Blank After</td><td>39</td><td><code>B</code> resets the field to blanks/zeros after printing</td></tr>
+    <tr><td>End Position</td><td>40–43</td><td>The rightmost output column this field occupies. If blank, the field packs immediately after the previous field.</td></tr>
+    <tr><td>Constant / Edit Word</td><td>45–70</td><td>A quoted string like <code>'Total:'</code>. When present, the field-name columns are blank.</td></tr>
+  </table>
+
+  <p>The key concept is <strong>end position</strong>. Fields and constants are
+  <em>right-justified</em> to the end position — they end at that column and
+  extend leftward. A field ending at column&nbsp;30 with a 3-digit value places
+  the last digit at column&nbsp;30, the middle digit at 29, and the first digit
+  at 28.</p>
+
+  <p>Constants, by contrast, are <em>left-justified</em> ending at the end
+  position — they start from the left and their last character lands at the end
+  position. So <code>'Amount ='</code> ending at column&nbsp;20 places the
+  <code>=</code> at column&nbsp;20 and the <code>A</code> at column&nbsp;13.</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     O                                   20 'Amount ='    ← constant, ends at col 20
+     O                         AMT       30               ← field, ends at col 30</code></pre>
+
+  <p>The <code>20</code> for the constant sits at cols&nbsp;42–43 (within the
+  40–43 end-position field, right-justified). The constant itself starts at
+  col&nbsp;45 with the opening quote. For the <code>AMT</code> field line, the
+  field name occupies cols&nbsp;32–34, and the end position <code>30</code> sits
+  at cols&nbsp;42–43.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.7 Blank After — resetting accumulators (col 39)</h2>
+
+  <p>Putting a <code>B</code> in col&nbsp;39 tells the runtime to clear the field
+  to blanks (for alphameric) or zeros (for numeric) <em>after</em> it prints.
+  This is essential for accumulators that reset on control breaks: you print the
+  subtotal, then blank-after zeroes it so the next group starts fresh:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     O                         SUBTOT B  40           ← print SUBTOT, then zero it</code></pre>
+
+  <p>Here <code>SUBTOT</code> is at cols&nbsp;32–37, <code>B</code> at
+  col&nbsp;39 (blank after), and <code>40</code> at cols&nbsp;42–43 (end
+  position). After printing, <code>SUBTOT</code> is reset to zero automatically.
+  See <a href="14-control-levels.html">Chapter&nbsp;15</a> for the full
+  control-break pattern.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.8 EXCPT — exception output</h2>
+
+  <p>Type-E output lines do not fire automatically. They print only when an
+  <code>EXCPT</code> operation in the C-specs explicitly names them. This gives
+  you a way to produce output at arbitrary points in your calculation logic,
+  outside the cycle's heading/detail/total rhythm:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  E  1                             ← exception record (unnamed)
+     O                                   10 'ERROR: invalid code'
+           ...
+     C           CODE      COMP 99                   50     ← if CODE &gt; 99 ...
+     C  N50                EXCPT                            ← fire unnamed E-records</code></pre>
+
+  <p>Here the O-spec record line has type&nbsp;<code>E</code> at col&nbsp;15
+  with no name in cols&nbsp;32–37, making it an <em>unnamed</em> exception record.
+  The <code>EXCPT</code> operation in the C-specs (with blank Factor&nbsp;2)
+  fires all unnamed E-records. You can also name exception records by putting a
+  name in cols&nbsp;32–37 of the O-spec record line and matching it in
+  Factor&nbsp;2 of the <code>EXCPT</code> operation — but note that
+  <code>EXCPT</code> fills all five operation columns (28–32), so the name starts
+  immediately at col&nbsp;33 with no gap:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  E  1             ERR                   ← named exception: ERR
+     C  N50                EXCPTERR                     ← Factor 2 at col 33 (no gap)</code></pre>
+
+  <p>Use exception output for error messages, prompts, or any output that does
+  not fit the cycle's heading/detail/total rhythm. The <code>EXCPT</code>
+  operation lives in C-specs (see <a href="09-calc-specs.html">Chapter&nbsp;9</a>).</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.9 PAGE fields</h2>
+
+  <p>The reserved field name <code>PAGE</code> (or <code>PAGE1</code>–
+  <code>PAGE7</code>) prints a per-file page counter. It starts at 1 and
+  increments on each form feed (new page). Commonly used in heading lines so
+  every page shows its number:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  H  1    1P
+     O                                   10 'Page'
+     O                         PAGE1     20</code></pre>
+
+  <p>Here the constant <code>'Page'</code> ends at column&nbsp;10, and the
+  <code>PAGE1</code> counter field ends at column&nbsp;20 — so the heading reads
+  <code>Page             1</code>, <code>Page             2</code>, and so on as
+  the report paginates.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>10.10 Putting it together — a complete report</h2>
+
+  <p>Here is a complete O-spec section for a simple report: a heading that prints
+  once, a detail line per record showing each amount, and a grand total at
+  end-of-file. It combines headings, constants, fields, conditioning
+  indicators, and spacing:</p>
+
+  <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OREPORT  H  1    1P                            ← heading: once, 1P, space 1
+     O                                   40 'SALES REPORT'
+     OREPORT  D  1                                  ← detail: per record, space 1
+     O                                   20 'Amount ='
+     O                         AMT       30
+     OREPORT  T  2    LR                            ← total: at LR, space 2
+     O                                   20 'Grand total ='
+     O                         TOTAL     30</code></pre>
+
+  <p>Walk through the execution: at program start, <code>1P</code> turns ON and
+  the heading prints — the constant <code>'SALES REPORT'</code> right-justified
+  ending at column&nbsp;40. Then <code>1P</code> turns OFF. For each input
+  record, the detail line prints: <code>'Amount ='</code> ending at column&nbsp;20,
+  then <code>AMT</code> ending at column&nbsp;30, single-spaced. When all records
+  are exhausted, <code>LR</code> turns ON and the total line prints with a
+  double-space: <code>'Grand total ='</code> at column&nbsp;20, then
+  <code>TOTAL</code> at column&nbsp;30.</p>
+
+  <p>The result, for three records with amounts 42, 17, and 3:</p>
+
+  <pre><code>                              SALES REPORT
+         Amount =                   42
+         Amount =                   17
+         Amount =                    3
+
+         Grand total =              62</code></pre>
+
+  <p>No <code>print()</code> calls. No format strings. No loops over records. The
+  F-spec declared the file, the I-spec parsed each record into <code>AMT</code>,
+  one C-spec accumulated <code>TOTAL</code>, and the O-specs described the layout.
+  The program cycle tied it all together.</p>
+
+  <!-- ═════════════════════════════════════════════════════════════ -->
+  <h2>What's next</h2>
+
+  <p>You have now completed Part&nbsp;III — the four specification types that
+  every RPG&nbsp;II program is built from. You know how to declare files
+  (F-specs), describe input layouts (I-specs), write calculations (C-specs), and
+  describe output (O-specs). Together with the cycle, indicators, data types,
+  and arithmetic from Parts&nbsp;I–II, you have the full skeleton of an RPG&nbsp;II
+  program.</p>
+
+  <p>The next part dives into <em>logic and control flow</em> — translating the
+  conditional and looping constructs you know from modern languages into RPG&nbsp;II
+  operations. We start with comparisons and conditional logic: the
+  <code>COMP</code> operation and the <code>IFxx</code> family.</p>
+
+  <p>That is <a href="10-conditional-logic.html">Chapter&nbsp;11 — Comparisons
+  and Conditional Logic</a>.</p>
+
+  <div class="nav">
+    <a href="09-calc-specs.html">← Chapter 9: Calculation Specs</a>
+    <a href="10-conditional-logic.html">Chapter 11: Conditional Logic →</a>
+  </div>
+
+</body>
+</html>
