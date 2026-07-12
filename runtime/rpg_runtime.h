@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * rpg_runtime.h -- Public API of the C runtime that RPG-generated programs
  *                  link against (librpgruntime.a).

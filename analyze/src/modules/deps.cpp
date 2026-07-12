@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* deps -- external dependency inventory (TOOLS_IDEAS.md §4.18).
  *
  * `CALL`/`CABL` inter-program calls aren't in this compiler's opcode set (an

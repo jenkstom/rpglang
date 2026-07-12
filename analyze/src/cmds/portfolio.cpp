@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* portfolio -- codebase-wide metrics dashboard across many files (TOOLS_IDEAS.md §8.8). */
 #include "cmds.h"
 #include "../ir.h"

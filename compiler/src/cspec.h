@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * cspec.h -- parse Calculation Specifications into typed structs.
  *

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* dataflow -- output-field data-flow traces (TOOLS_IDEAS.md §4.17).
  *
  * v1 traces only the most recent straight-line result-write for each output

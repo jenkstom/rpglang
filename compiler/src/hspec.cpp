@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * hspec.cpp -- parse the Control (Header) Specification (D1).
  * ========================================================================== */

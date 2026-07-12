@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* subroutines -- intra-program subroutine map (TOOLS_IDEAS.md §4.7). */
 #include "modules.h"
 #include "../util.h"

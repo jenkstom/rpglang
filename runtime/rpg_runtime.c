@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * rpg_runtime.c -- Implementation of the C runtime linked into every program
  *                 produced by the RPG II compiler.

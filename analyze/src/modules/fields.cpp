@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* fields -- field definition catalog (TOOLS_IDEAS.md §4.4). */
 #include "modules.h"
 #include "../util.h"

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * report.h -- runs the enabled modules, merges findings, produces a Report.
  * ========================================================================== */

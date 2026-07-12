@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* format -- lint / canonicalize formatting, check-only (TOOLS_IDEAS.md §8.4).
  * Reports column-overflow, sequence errors, trailing whitespace, and
  * form-type misalignment. Never rewrites (see TOOLS_IDEAS.md §12: rewriting

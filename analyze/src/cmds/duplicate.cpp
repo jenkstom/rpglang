@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* duplicate -- clone / copy-paste detector across many files (TOOLS_IDEAS.md §8.7).
  * v1 similarity signal: cosine similarity of opcode-frequency vectors, plus
  * an always-reported exact signal (identically-named subroutines). */

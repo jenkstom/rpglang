@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* condlogic -- conditioning-indicator reconstruction (TOOLS_IDEAS.md §4.14). */
 #include "modules.h"
 #include "../util.h"

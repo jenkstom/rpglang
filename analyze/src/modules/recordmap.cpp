@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* recordmap -- record layout reconstruction (TOOLS_IDEAS.md §4.3).
  *
  * In this compiler's I-spec encoding, From/To (cols 44-51) are byte offsets

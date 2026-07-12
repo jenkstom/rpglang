@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* compat -- compiler-coverage checker (TOOLS_IDEAS.md §4.13).
  *
  * Runs against the same lenient IR the rest of the tool uses; unsupported

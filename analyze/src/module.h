@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * module.h -- the analysis module contract (TOOLS_IDEAS.md §4, "Module
  * contract") and the module registry (catalog order = registration order).

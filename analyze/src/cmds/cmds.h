@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * cmds/cmds.h -- the utility subcommands (TOOLS_IDEAS.md §8), each a small
  * self-contained function over one or more ProgramIRs. Unlike the report

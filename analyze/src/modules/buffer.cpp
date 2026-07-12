@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* buffer -- buffer integrity check (TOOLS_IDEAS.md §4.15).
  *
  * File-record BUF-OVERLAP/OVERRUN/GAP are covered by `recordmap`; this module

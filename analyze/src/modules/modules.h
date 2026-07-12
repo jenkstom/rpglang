@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * modules/modules.h -- factory declarations for every analysis module.
  * Catalog order (registry.cpp) matches TOOLS_IDEAS.md §4.1-4.20.

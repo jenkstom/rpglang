@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* docgen -- documentation generator (TOOLS_IDEAS.md §8.5).
  * Emits a Markdown reference page: comments, files, field table,
  * subroutines, indicator usage. */

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* decode -- column decoder (TOOLS_IDEAS.md §8.1). Pretty-prints each line
  * with every column field labeled per docs/SPEC_MAP.md. The first thing to
  * run on an unfamiliar line. */

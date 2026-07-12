@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* comments -- comment / TODO mining (TOOLS_IDEAS.md §4.19). */
 #include "modules.h"
 #include "../util.h"

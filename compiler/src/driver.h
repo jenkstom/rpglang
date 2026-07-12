@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* ========================================================================== *
  * driver.h -- backend driver: turn an llvm::Module into IR text / assembly /
  *             object / executable by invoking llc and clang.

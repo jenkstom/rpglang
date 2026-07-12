@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* diff -- semantic structural diff between two programs (TOOLS_IDEAS.md §8.3).
  * Compares field/opcode/indicator-level structure, ignoring whitespace and
  * sequence-number renumbering (it never looks at raw text, only the parsed

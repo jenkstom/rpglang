@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* deadcode -- unused-definition & dead-path finder (TOOLS_IDEAS.md §4.11).
  *
  * Consolidates the dead-code findings that xref/indicators/subroutines/

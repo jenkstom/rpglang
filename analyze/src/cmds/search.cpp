@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* search -- structured column-aware query across files (TOOLS_IDEAS.md §8.2).
  * Query DSL: space-separated `key:value` terms, ANDed together.
  *   op:COMP         C-spec opcode equals COMP

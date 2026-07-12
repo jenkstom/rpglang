@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* migrate -- migration-difficulty scoring across many files (TOOLS_IDEAS.md §8.9).
  * Scores each program (unsupported opcodes, indicator logic, cycle
  * dependence, GOTO density) into tiers: trivial / moderate / rewrite. */

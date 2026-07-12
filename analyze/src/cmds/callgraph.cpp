@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* callgraph -- inter-program CALL/shared-file dependency graph (TOOLS_IDEAS.md §8.6).
  * This compiler has no CALL/CABL opcode (it's not in the Op enum -- an
  * attempt would surface as COMPAT-OP), so the only cross-program edges it

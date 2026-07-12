@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Tom White
+
 /* complexity -- complexity metrics (TOOLS_IDEAS.md §4.10). */
 #include "modules.h"
 #include "../util.h"
