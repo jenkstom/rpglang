@@ -6,7 +6,8 @@
  * IBM auto-report preprocessor into ordinary F/I/C/O-specs before the RPG
  * compiler proper ever runs. That expansion (deriving headings, spacing, and
  * field placement from just a field list) is a large, separate preprocessing
- * feature this compiler does not implement -- see docs/TODO.md D3.
+ * feature this compiler does not implement -- lowest priority among this
+ * compiler's known gaps unless a specific legacy program library needs it.
  *
  * Silently ignoring 'U' lines would be worse than refusing them: an Auto
  * Report source program typically has no ordinary O-specs of its own (the
