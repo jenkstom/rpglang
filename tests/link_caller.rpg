@@ -1,0 +1,16 @@
+     H                                                                    CALLR 
+     C           PLIST1    PLIST
+     C                     PARM           CA
+     C                     PARM           CB
+     C                     PARM           CR
+     C                     Z-ADD6         CA
+     C                     Z-ADD7         CB
+     C                     Z-ADD0         CR
+     C                     FREE CALEE                  60
+     C                     CALL CALEE     PLIST1       5051
+     C                     FREE CALEE                  61
+     C                     Z-ADDCR        RPGRET
+     C  50                 ADD  1         RPGRET
+     C  N51                ADD  1         RPGRET
+     C  N60                ADD  10        RPGRET
+     C  61                 ADD  20        RPGRET

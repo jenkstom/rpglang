@@ -1354,3 +1354,100 @@ long rpg_rt_time(void) {
     localtime_r(&t, &tmv);
     return (long)tmv.tm_hour * 10000 + (long)tmv.tm_min * 100 + (long)tmv.tm_sec;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Program linkage: a runtime name -> entry-point registry. Every compiled    */
+/* program self-registers at process startup; CALL becomes a lookup +        */
+/* indirect call here instead of a direct LLVM call.                         */
+/* -------------------------------------------------------------------------- */
+#define RPG_RT_MAX_PROGRAMS   64
+#define RPG_RT_MAX_CALL_DEPTH 32
+#define RPG_RT_PROG_NAME_LEN  32
+
+static struct {
+    char name[RPG_RT_PROG_NAME_LEN];
+    rpg_entry_fn fn;
+    int initialized;
+} g_programs[RPG_RT_MAX_PROGRAMS];
+static int g_program_count = 0;
+
+/* The programs currently "on the stack" (a CALL in progress), used to
+ * reject a program calling itself or a program higher in the stack (manual
+ * restriction). */
+static char g_call_stack[RPG_RT_MAX_CALL_DEPTH][RPG_RT_PROG_NAME_LEN];
+static int  g_call_depth = 0;
+
+static int find_program(const char *name) {
+    for (int i = 0; i < g_program_count; ++i) {
+        if (strcmp(g_programs[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+void rpg_rt_register_program(const char *name, rpg_entry_fn fn) {
+    int idx = find_program(name);
+    if (idx < 0) {
+        if (g_program_count >= RPG_RT_MAX_PROGRAMS) {
+            fprintf(stderr, "rpg_rt: too many registered programs (max %d)\n",
+                    RPG_RT_MAX_PROGRAMS);
+            return;
+        }
+        idx = g_program_count++;
+        strncpy(g_programs[idx].name, name, RPG_RT_PROG_NAME_LEN - 1);
+        g_programs[idx].name[RPG_RT_PROG_NAME_LEN - 1] = '\0';
+        g_programs[idx].initialized = 0;
+    }
+    g_programs[idx].fn = fn;
+}
+
+int rpg_rt_call(const char *name, void **parm_ptrs, int parm_count,
+               int *out_error_ind, int *out_lr_ind) {
+    *out_error_ind = 0;
+    *out_lr_ind = 0;
+
+    int idx = find_program(name);
+    if (idx < 0) {
+        fprintf(stderr,
+                "rpg_rt: CALL '%s': no such program compiled into this "
+                "executable\n", name);
+        *out_error_ind = 1;
+        return -1;
+    }
+    for (int i = 0; i < g_call_depth; ++i) {
+        if (strcmp(g_call_stack[i], name) == 0) {
+            fprintf(stderr,
+                    "rpg_rt: CALL '%s': a program cannot call itself or a "
+                    "program higher in the program stack\n", name);
+            *out_error_ind = 1;
+            return -1;
+        }
+    }
+    if (g_call_depth >= RPG_RT_MAX_CALL_DEPTH) {
+        fprintf(stderr, "rpg_rt: CALL '%s': program stack too deep (max %d)\n",
+                name, RPG_RT_MAX_CALL_DEPTH);
+        *out_error_ind = 1;
+        return -1;
+    }
+
+    int first_call = !g_programs[idx].initialized;
+    g_programs[idx].initialized = 1;
+
+    strncpy(g_call_stack[g_call_depth], name, RPG_RT_PROG_NAME_LEN - 1);
+    g_call_stack[g_call_depth][RPG_RT_PROG_NAME_LEN - 1] = '\0';
+    g_call_depth++;
+
+    int status = g_programs[idx].fn(parm_ptrs, parm_count, first_call);
+
+    g_call_depth--;
+
+    *out_error_ind = (status == 2);
+    *out_lr_ind    = (status == 1);
+    return 0;
+}
+
+int rpg_rt_free(const char *name) {
+    int idx = find_program(name);
+    if (idx < 0 || !g_programs[idx].initialized) return 1;
+    g_programs[idx].initialized = 0;
+    return 0;
+}

@@ -42,6 +42,8 @@ add_executable(rpgc
 #   codegen   - emit object code / asm
 #   target    + native - the host target backend (x86-64 on this machine)
 #   passes    - the new pass-manager infrastructure for optimization
+#   linker    - llvm::Linker, to merge multiple compiled RPG programs into
+#               one module for a multi-file CALL build (program linkage)
 llvm_map_components_to_libnames(LLVM_LIBS
     core
     support
@@ -51,6 +53,7 @@ llvm_map_components_to_libnames(LLVM_LIBS
     target
     native
     passes
+    linker
 )
 
 target_include_directories(rpgc PRIVATE

@@ -2,13 +2,12 @@
 
 **Status: planning only. No implementation has started.** This document
 covers the two remaining `docs/TODO.md` opcode items that don't belong in
-`CALL_LINKAGE_PLAN.md` or `KEYBORD_PLAN.md`: `DEBUG` (from the former C7
-group) and `FORCE` (from the former C9 group). Unlike the CALL-linkage
-family or the KEYBORD/CONSOLE/CRT device family, these two share no
-mechanism with each other or with the other two plans — they're grouped
-here only because each is small enough that a standalone document would be
-mostly boilerplate. Treat the two sections below as fully independent;
-implement in either order, or in parallel.
+`KEYBORD_PLAN.md` or program linkage: `DEBUG` (from the former C7 group) and
+`FORCE` (from the former C9 group). Unlike the KEYBORD/CONSOLE/CRT device
+family, these two share no mechanism with each other or with that plan —
+they're grouped here only because each is small enough that a standalone
+document would be mostly boilerplate. Treat the two sections below as fully
+independent; implement in either order, or in parallel.
 
 ---
 
@@ -159,9 +158,8 @@ lands rather than blocking on it.
 ## 3. Sequencing
 
 Both sections are ready to implement now, in either order — neither has an
-open design question blocking it, unlike `CALL_LINKAGE_PLAN.md` (needs a
-registry-vs-static-link decision) or `KEYBORD_PLAN.md` (needs the message-
-member format and column mechanics settled). `FORCE` is the smaller of the
-two (one opcode, one new global, reuses the existing multifile selection
-loop); `DEBUG` is slightly larger (one new H-spec column plus a
+open design question blocking it, unlike `KEYBORD_PLAN.md` (needs the
+message-member format and column mechanics settled). `FORCE` is the smaller
+of the two (one opcode, one new global, reuses the existing multifile
+selection loop); `DEBUG` is slightly larger (one new H-spec column plus a
 fixed-format dual-record writer) but still fully self-contained.

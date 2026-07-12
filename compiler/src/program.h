@@ -32,6 +32,8 @@ struct Program {
     std::vector<CSpec>      calcs;
     std::vector<ORecord>    outputs;
     std::vector<ESpecArray> arrays;
+    std::vector<ParamList>  param_lists;  // program linkage: PLIST/PARM
+    std::vector<ExitDecl>   exit_decls;
 };
 
 } // namespace rpgc

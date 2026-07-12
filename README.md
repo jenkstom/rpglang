@@ -185,6 +185,9 @@ Man pages are installed to `<prefix>/share/man/man1/` and are also available in
   structured ops (IF/ELSE/END, DOW, DOU, DO, CAS), GOTO/TAG, MOVE/MOVEL/MOVEA,
   COMP, SETON/SETOFF, EXSR/BEGSR/ENDSR subroutines, EXCPT, CHAIN/SETLL/READE/READ,
   XFOOT, LOKUP, TESTZ/TESTB, arrays and tables
+- Program linkage: CALL/PARM/PLIST/RETRN/FREE (calling another compiled RPG
+  program by address, across a multi-file build) and EXIT/RLABL (calling an
+  external, non-RPG subroutine)
 - O-specs: detail/total/heading/exception output, edit codes and edit words,
   skip/space, overflow, field conditioning, PAGE fields
 - E-specs: compile-time and prerun-time arrays/tables, alternating arrays
@@ -204,10 +207,9 @@ Man pages are installed to `<prefix>/share/man/man1/` and are also available in
 - Zoned, packed, and binary numeric field decoding
 - Sign-overpunch encoding for character/numeric conversion
 
-**Not yet implemented:** WORKSTN/display files, CALL to external programs,
-DEBUG operation, externally-described files. See the plan documents
-(`WRKSTN_PLAN.md`, `CALL_LINKAGE_PLAN.md`, `MISC_OPCODES_PLAN.md`) for design
-status.
+**Not yet implemented:** WORKSTN/display files, DEBUG operation,
+externally-described files. See the plan documents (`WRKSTN_PLAN.md`,
+`MISC_OPCODES_PLAN.md`) for design status.
 
 ## Project layout
 

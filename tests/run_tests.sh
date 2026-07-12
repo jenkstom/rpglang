@@ -510,6 +510,53 @@ run_out_test fetch_overflow fetch_overflow.rpg FETOUT \
 # this compiler does not support -- hard compile error, same E8 precedent.
 expect_compile_fail neg_orelease neg_orelease.rpg
 
+# --- Section N: program linkage -----------------------------------------------
+hr; echo "Section N: PLIST/PARM/CALL/RETRN/FREE program linkage"; hr
+# Two-program build: link_caller.rpg (CALLR, top-level) CALLs link_callee.rpg
+# (CALEE) through a PLIST, exercising by-address parameter passing (CA=6,
+# CB=7 in -> CR=42 out), RETRN's early-return (dead code after it must not
+# run), the CALL resulting indicators (50=error off, 51=callee LR on), and
+# FREE's "not successful" resulting indicator (60=on before CALEE was ever
+# called, 61=off after it was). RPGRET starts at CR and every indicator
+# bump is a distinct wrong-behavior signal, so only 42 means everything
+# above passed; run_test's plain two-arg form doesn't take two source
+# files, hence the direct invocation here (same precedent as the "cycle"
+# test above).
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_link "$ROOT/tests/link_caller.rpg" "$ROOT/tests/link_callee.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_link ]]; then
+    /tmp/rpgc_link; got=$?
+    if [[ "$got" -eq 42 ]]; then ok "link: CALL/PARM/RETRN/FREE, exit $got (expected 42)"
+    else bad "link: exit $got (expected 42)"; fi
+    rm -f /tmp/rpgc_link
+else
+    bad "link: did not compile"
+fi
+
+# EXIT/RLABL calling a hand-written, non-RPG external subroutine (SUBRA in
+# exit_rlabl_stub.c): the one program-linkage op that needs a real C stub to
+# verify end-to-end, since the compiler has no second
+# language front end to generate the "external" side itself. rpgc only
+# emits an object for exit_rlabl.rpg (--emit-obj); the stub is compiled and
+# linked in separately here, same as a real hand-written subroutine would
+# be, bypassing rpgc's own --emit-exe (which only links against the RPG
+# runtime). RLABL passes X (in) and Y (out) by address plus their attribute
+# descriptors; SUBRA self-checks the descriptors and sets Y = X*2 (10*2=20)
+# only if they match what the .rpg source declared.
+"$BIN/rpgc" --emit-obj -o /tmp/rpgc_exit.o "$ROOT/tests/exit_rlabl.rpg" >/dev/null 2>&1
+CC="$(command -v cc || command -v clang || command -v gcc)"
+if [[ -f /tmp/rpgc_exit.o && -n "$CC" ]]; then
+    "$CC" -c "$ROOT/tests/exit_rlabl_stub.c" -o /tmp/rpgc_exit_stub.o 2>/dev/null \
+        && "$CC" -no-pie /tmp/rpgc_exit.o /tmp/rpgc_exit_stub.o "$RT" -o /tmp/rpgc_exit_bin 2>/dev/null
+fi
+if [[ -x /tmp/rpgc_exit_bin ]]; then
+    /tmp/rpgc_exit_bin; got=$?
+    if [[ "$got" -eq 20 ]]; then ok "exit_rlabl: EXIT/RLABL external subroutine, exit $got (expected 20)"
+    else bad "exit_rlabl: exit $got (expected 20)"; fi
+else
+    bad "exit_rlabl: did not compile/link"
+fi
+rm -f /tmp/rpgc_exit.o /tmp/rpgc_exit_stub.o /tmp/rpgc_exit_bin
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

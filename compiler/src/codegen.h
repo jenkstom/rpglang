@@ -34,11 +34,20 @@ namespace rpgc {
  * implicit RPG cycle is generated (fetch → extract fields → detail calcs →
  * LR total → close). Otherwise the Phase 2 linear form is used (C-specs run
  * once, in order). The caller MUST own `ctx` and keep it alive for as long as
- * the returned module is used. */
+ * the returned module is used.
+ *
+ * `is_top_level` (program linkage) selects the shape of the
+ * generated entry function: true (the default, and every existing caller's
+ * behavior) produces today's `i32 @main()`; false produces a uniquely-named
+ * `rpg_prog_<NAME>` function matching the rpg_entry_fn ABI (see
+ * runtime/rpg_runtime.h) and self-registers it into the runtime program
+ * registry, for a "library" program only reachable via CALL in a multi-file
+ * build (see main.cpp). */
 std::unique_ptr<llvm::Module> generate_module(
     const Program &prog,
     const std::string &module_name,
-    llvm::LLVMContext &ctx);
+    llvm::LLVMContext &ctx,
+    bool is_top_level = true);
 
 /* Phase 2 entry retained for tests/back-compat: linear codegen from C-specs
  * only. */

@@ -81,6 +81,18 @@ enum class Op {
     MHLZO,  // move zone: leftmost byte of f2 -> rightmost byte of result
     MLHZO,  // move zone: rightmost byte of f2 -> leftmost byte of result
     MLLZO,  // move zone: rightmost byte of f2 -> rightmost byte of result
+    // Program linkage:
+    PLIST,  // declare a named parameter list (factor1 = name or *ENTRY); grouped
+            // with the PARM lines that follow it, see group_param_lists()
+    PARM,   // one parameter within the preceding PLIST; result = the parameter
+            // field, factor1/factor2 = optional copy-in/copy-out shim fields
+    CALL,   // call another compiled RPG program by name (factor2); result
+            // optionally names the PLIST supplying the parameters
+    EXIT,   // call an external (non-RPG) subroutine named in factor2
+            // (SUBRnnnnn); grouped with the RLABL lines that follow it
+    RLABL,  // one parameter passed to the preceding EXIT's external subroutine
+    RETRN,  // return control to the caller (or end the program if not called)
+    FREE,   // drop a called program's "initialized" state (factor2 = name)
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks
@@ -120,10 +132,56 @@ struct CSpec {
     ResultInd hi, lo, eq;               // cols 54-55 / 56-57 / 58-59
 };
 
+/* One PARM line within a PLIST. `name` is the
+ * parameter field itself (the by-address parameter, cols 43-48); factor1/
+ * factor2 are the optional copy-in/copy-out shim fields (cols 18-27/33-42). */
+struct ParmDecl {
+    int lineno = 0;
+    std::string factor1;   // optional copy-in source (caller) / extra copy-in
+    std::string factor2;   // optional copy-out target (caller) / extra copy-out
+    std::string name;      // the parameter field (by-address)
+    int len = 0;
+    int dec = -1;
+};
+
+/* A PLIST and the PARM lines grouped under it. `is_entry` marks the single
+ * `*ENTRY PLIST` a called program declares for its own formal parameters. */
+struct ParamList {
+    int lineno = 0;
+    std::string name;      // list name, or "*ENTRY"
+    bool is_entry = false;
+    std::vector<ParmDecl> parms;
+};
+
+/* One RLABL line following an EXIT. */
+struct RlablDecl {
+    int lineno = 0;
+    std::string name;      // field/DS/array/table/indicator name
+    int len = 0;
+    int dec = -1;
+};
+
+/* An EXIT and the RLABL lines grouped under it. */
+struct ExitDecl {
+    int lineno = 0;
+    std::string subr_name; // SUBRnnnnn, upper-cased
+    std::vector<RlablDecl> labels;
+};
+
 /* Parse all C-specs out of a source file. Non-C lines are ignored. Returns the
  * vector by value; on hard parse errors it still returns what it could and
  * reports via diagnostics. */
 std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src);
+
+/* Group PLIST/PARM runs into ParamList records (same shape as CASxx...END
+ * grouping in codegen.cpp). Reports a hard error for a PLIST with no PARM
+ * lines, and for a second `*ENTRY PLIST`. Call once per program after
+ * parse_cspecs(). */
+std::vector<ParamList> group_param_lists(const std::vector<CSpec> &calcs);
+
+/* Group EXIT/RLABL runs into ExitDecl records. Call once per program after
+ * parse_cspecs(). */
+std::vector<ExitDecl> group_exit_decls(const std::vector<CSpec> &calcs);
 
 /* Helper: turn a column text like "47" or "LR" into an indicator index. 0 if
  * blank/unknown. 'LR' is reserved index -1 here and resolved at codegen. */

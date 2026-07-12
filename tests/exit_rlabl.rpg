@@ -1,0 +1,7 @@
+     H                                                                    EXTEST
+     C                     Z-ADD10        X       50
+     C                     Z-ADD0         Y       50
+     C                     EXIT SUBRA
+     C                     RLABL          X       50
+     C                     RLABL          Y       50
+     C                     Z-ADDY         RPGRET

@@ -6,9 +6,10 @@ device support to the RPG II → LLVM compiler, replacing the current hard
 compile error (`fspec.cpp`'s E8) with actual codegen and a runtime backend.
 
 This is a materially bigger lift than any item previously closed in the
-compiler's finish-out work (see `CALL_LINKAGE_PLAN.md` and
-`MISC_OPCODES_PLAN.md` for the other large remaining items, and git history
-for the closed groups): most other work was "the manual defines X, the
+compiler's finish-out work (see `MISC_OPCODES_PLAN.md` for the other large
+remaining item, and git history for the closed groups, including program
+linkage's `CALL`/`PARM`/`PLIST`/`RETRN`/`EXIT`/`RLABL`/`FREE`): most other
+work was "the manual defines X, the
 compiler either mishandles or omits it, fix the existing code path." WORKSTN
 has **no existing code path to extend** — it needs a new display-format definition
 mechanism (the manual's SDA/S-D-spec equivalent, which today is produced by a
@@ -22,8 +23,8 @@ function keys) that doesn't resemble anything the codegen currently does.
 ## 0. Scope-defining finding: not everything in the old C9 grouping is actually WORKSTN
 
 Before phasing this out, one correction to the compiler finish-out work's
-former C9 item (now retired along with `docs/TODO.md` — see
-`CALL_LINKAGE_PLAN.md` §0 and `MISC_OPCODES_PLAN.md`), which grouped
+former C9 item (now retired along with `docs/TODO.md`; see
+`MISC_OPCODES_PLAN.md`), which grouped
 `ACQ`/`REL`/`NEXT`/`KEY`/`POST`/`FORCE`/`FREE`/`SHTDN` together as
 "WORKSTN-adjacent." Reading each operation's actual manual entry shows three
 of the eight don't belong in a WORKSTN effort at all:
@@ -41,10 +42,9 @@ of the eight don't belong in a WORKSTN effort at all:
 - **`FREE`** (111422-111466) deactivates a *called program* (forces
   re-initialization on the next `CALL`) — its factor 2 is a program name, not
   a device. It is entirely dependent on the `CALL`/`PARM`/`PLIST`/`RETRN`/
-  `EXIT` linkage family, itself unimplemented and explicitly noted as needing
-  its own design pass before any coding starts. It has nothing to do with
-  WORKSTN devices beyond being listed in the same manual section. Now has a
-  real plan: `CALL_LINKAGE_PLAN.md` §0 and phase L5.
+  `EXIT` linkage family. It has nothing to do with WORKSTN devices beyond
+  being listed in the same manual section. Implemented as part of program
+  linkage.
 
 **This plan's actual opcode scope is: `ACQ`, `REL`, `NEXT`, `POST`, `SHTDN`,**
 **plus making `READ`/`EXCPT`/O-spec output WORKSTN-aware.** `FORCE`, `FREE`,
@@ -308,10 +308,9 @@ to `rpg_rt_ws_read` instead of `rpg_rt_read_next` when the target file is
 - `docs/ARCHITECTURE.md`: new section documenting the terminal-backend
   porting decision (§3) alongside the existing "Record format (porting
   decision)" note in §4, and the headless-mode testing rationale.
-- Cross-check `CALL_LINKAGE_PLAN.md` and `KEYBORD_PLAN.md` once this plan
-  lands: mark their respective mentions of `FREE`/`KEY` as no longer
-  blocked on "a future WORKSTN effort" phrasing that predates this plan's
-  existence.
+- Cross-check `KEYBORD_PLAN.md` once this plan lands: mark its mention of
+  `KEY` as no longer blocked on "a future WORKSTN effort" phrasing that
+  predates this plan's existence.
 
 ---
 

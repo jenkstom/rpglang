@@ -173,6 +173,14 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "MHLZO")  return Op::MHLZO;
     if (u == "MLHZO")  return Op::MLHZO;
     if (u == "MLLZO")  return Op::MLLZO;
+    // Program linkage.
+    if (u == "PLIST")  return Op::PLIST;
+    if (u == "PARM")   return Op::PARM;
+    if (u == "CALL")   return Op::CALL;
+    if (u == "EXIT")   return Op::EXIT;
+    if (u == "RLABL")  return Op::RLABL;
+    if (u == "RETRN")  return Op::RETRN;
+    if (u == "FREE")   return Op::FREE;
     return Op::Unknown;
 }
 
@@ -307,6 +315,67 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
             }
         }
 
+        if (c.op == Op::PLIST) {
+            // PLIST: factor1 = list name or *ENTRY (manual 123455-123561);
+            // result must be blank -- PARM lines carry the actual fields.
+            if (c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "PLIST requires a list name (or *ENTRY) in factor 1");
+            }
+            if (!c.result.empty()) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "PLIST result field must be blank");
+            }
+        }
+        if (c.op == Op::PARM) {
+            if (c.result.empty()) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "PARM requires a parameter field in the result field");
+            }
+        }
+        if (c.op == Op::CALL) {
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "CALL requires a program name in factor 2");
+            }
+        }
+        if (c.op == Op::EXIT) {
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "EXIT requires a subroutine name (SUBRnnnnn) in factor 2");
+            } else {
+                std::string u2 = upper(c.factor2);
+                if (u2.rfind("SUBR", 0) != 0 || u2.size() < 5 || u2.size() > 6) {
+                    report("input", sl.lineno, 33, DiagKind::Warning,
+                           "EXIT target '" + c.factor2 + "' does not follow the "
+                           "SUBRnnnnn naming rule (manual: 5-6 chars, first four "
+                           "'SUBR')");
+                }
+            }
+        }
+        if (c.op == Op::RLABL) {
+            if (c.result.empty()) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "RLABL requires a field/array/table/indicator name in "
+                       "the result field");
+            }
+            // Manual: cols 9-17, 18-27, 33-42, 53, 54-59 must all be blank.
+            if (!c.conditions.empty() || !c.factor1.empty() ||
+                !c.factor2.empty() || c.half_adjust ||
+                c.hi.indicator || c.lo.indicator || c.eq.indicator) {
+                report("input", sl.lineno, 9, DiagKind::Error,
+                       "RLABL allows only the result field (and its length/"
+                       "decimals) -- conditioning, factor 1/2, half-adjust, and "
+                       "resulting indicators must be blank");
+            }
+        }
+        if (c.op == Op::FREE) {
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "FREE requires a program name in factor 2");
+            }
+        }
+
         out.push_back(std::move(c));
     }
 
@@ -369,6 +438,70 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
         }
     }
 
+    return out;
+}
+
+std::vector<ParamList> group_param_lists(const std::vector<CSpec> &calcs) {
+    std::vector<ParamList> out;
+    bool seen_entry = false;
+    for (size_t i = 0; i < calcs.size(); ) {
+        if (calcs[i].op != Op::PLIST) { ++i; continue; }
+
+        ParamList pl;
+        pl.lineno = calcs[i].lineno;
+        std::string f1 = upper(calcs[i].factor1);
+        pl.is_entry = (f1 == "*ENTRY");
+        pl.name = pl.is_entry ? std::string("*ENTRY") : calcs[i].factor1;
+        if (pl.is_entry) {
+            if (seen_entry) {
+                report("input", calcs[i].lineno, 18, DiagKind::Error,
+                       "only one *ENTRY PLIST is allowed per program");
+            }
+            seen_entry = true;
+        }
+
+        size_t j = i + 1;
+        for (; j < calcs.size() && calcs[j].op == Op::PARM; ++j) {
+            ParmDecl pd;
+            pd.lineno  = calcs[j].lineno;
+            pd.factor1 = calcs[j].factor1;
+            pd.factor2 = calcs[j].factor2;
+            pd.name    = calcs[j].result;
+            pd.len     = calcs[j].result_len;
+            pd.dec     = calcs[j].result_dec;
+            pl.parms.push_back(std::move(pd));
+        }
+        if (pl.parms.empty()) {
+            report("input", calcs[i].lineno, 18, DiagKind::Error,
+                   "PLIST '" + pl.name + "' has no following PARM lines");
+        }
+        out.push_back(std::move(pl));
+        i = j;
+    }
+    return out;
+}
+
+std::vector<ExitDecl> group_exit_decls(const std::vector<CSpec> &calcs) {
+    std::vector<ExitDecl> out;
+    for (size_t i = 0; i < calcs.size(); ) {
+        if (calcs[i].op != Op::EXIT) { ++i; continue; }
+
+        ExitDecl ed;
+        ed.lineno    = calcs[i].lineno;
+        ed.subr_name = upper(calcs[i].factor2);
+
+        size_t j = i + 1;
+        for (; j < calcs.size() && calcs[j].op == Op::RLABL; ++j) {
+            RlablDecl rd;
+            rd.lineno = calcs[j].lineno;
+            rd.name   = calcs[j].result;
+            rd.len    = calcs[j].result_len;
+            rd.dec    = calcs[j].result_dec;
+            ed.labels.push_back(std::move(rd));
+        }
+        out.push_back(std::move(ed));
+        i = j;
+    }
     return out;
 }
 

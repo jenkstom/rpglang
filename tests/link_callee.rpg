@@ -1,0 +1,9 @@
+     H                                                                    CALEE 
+     C           *ENTRY    PLIST
+     C                     PARM           A       50
+     C                     PARM           B       50
+     C                     PARM           R       50
+     C           A         MULT B         R
+     C                     SETON                         LR
+     C                     RETRN
+     C                     Z-ADD999       R

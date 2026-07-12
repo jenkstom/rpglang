@@ -39,6 +39,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Config/llvm-config.h>
+#include <llvm/Linker/Linker.h>
 
 #include <cstdio>
 #include <fstream>
@@ -107,7 +108,12 @@ std::string default_runtime_lib() {
 }
 
 struct Options {
-    std::string input_file;          // the .rpg source
+    // The .rpg source file(s). Program linkage's multi-file build:
+    // input_files[0] is the top-level program (compiled to the process's
+    // own `main`); every other file is a "library" program only reachable
+    // via CALL, compiled into its own rpg_prog_<NAME> and linked into the
+    // same executable. A single file is the (unchanged) common case.
+    std::vector<std::string> input_files;
     std::string output_file;         // -o ; default derived from input
     std::string emit;                // --emit-ir (LLVM IR) | --emit-asm | --emit-obj | --emit-exe (default)
     std::string llc_path   = RPGC_DEFAULT_LLC;
@@ -222,12 +228,9 @@ bool parse_args(int argc, char **argv, Options &opts) {
             rpgc::error("unknown option: " + a);
             return false;
         } else {
-            if (!opts.input_file.empty()) {
-                rpgc::error("multiple input files not supported (got '"
-                            + a + "' after '" + opts.input_file + "')");
-                return false;
-            }
-            opts.input_file = a;
+            // Multiple positional .rpg files: a multi-program build
+            // (program linkage). The first is the top-level program.
+            opts.input_files.push_back(a);
         }
     }
     return true;
@@ -251,84 +254,128 @@ int main(int argc, char **argv) {
     if (opts.print_help)    { print_help();    return 0; }
     if (opts.print_version) { print_version(); return 0; }
 
-    if (opts.input_file.empty()) {
+    if (opts.input_files.empty()) {
         rpgc::error("no input file");
         std::cerr << "run 'rpgc --help' for usage\n";
         return 1;
     }
 
-    std::string source;
-    if (!read_file(opts.input_file, source)) {
-        rpgc::fatal("cannot open input file: " + opts.input_file);
-        return 1;
-    }
-
     if (opts.output_file.empty()) {
-        opts.output_file = default_output(opts.input_file, opts.emit);
+        opts.output_file = default_output(opts.input_files[0], opts.emit);
     }
     if (opts.runtime_lib.empty()) {
         opts.runtime_lib = default_runtime_lib();
     }
 
-    // ---- Phase 3: parse F/I/C -> codegen -> drive ---------------------------
-    std::vector<rpgc::SourceLine> src;
-    if (!rpgc::load_source(opts.input_file, src)) {
-        rpgc::fatal("cannot read source: " + opts.input_file);
-        return 1;
-    }
-    // D3: expand /COPY directives before any spec parser sees the source --
-    // each parser just filters a flat line list by form_type, so splicing in
-    // copied members here (rather than teaching every parser about /COPY)
-    // keeps every downstream pass unchanged.
-    {
-        auto slash = opts.input_file.find_last_of('/');
-        std::string base_dir = (slash == std::string::npos)
-            ? std::string(".") : opts.input_file.substr(0, slash);
-        if (!rpgc::expand_copy_statements(src, base_dir)) {
+    // The LLVMContext MUST outlive every module; keep it in main's scope and
+    // pass it down to codegen. All per-file modules below share it so they
+    // can be linked together into one final module.
+    llvm::LLVMContext ctx;
+    std::vector<std::unique_ptr<llvm::Module>> mods;
+
+    // ---- Phase 3: parse F/I/C -> codegen, once per input file ---------------
+    // Program linkage: input_files[0] is the top-level program
+    // (compiled to `main`); every other file is a "library" program only
+    // reachable via CALL from something compiled alongside it, compiled to
+    // its own rpg_prog_<NAME> and self-registered into the runtime program
+    // registry. All resulting modules are linked into one before handing off
+    // to the backend driver.
+    for (size_t fi = 0; fi < opts.input_files.size(); ++fi) {
+        const std::string &input_file = opts.input_files[fi];
+        bool is_top_level = (fi == 0);
+
+        std::string source;
+        if (!read_file(input_file, source)) {
+            rpgc::fatal("cannot open input file: " + input_file);
             return 1;
         }
-    }
-    // D3: Auto Report Option Specifications ('U' form type) aren't expanded
-    // by this compiler; fail loudly now rather than silently compiling a
-    // program with no real output specs (see uspec.h).
-    rpgc::reject_uspecs(src);
 
-    rpgc::Program prog;
-    prog.hspec      = rpgc::parse_hspec(src);
-    prog.files      = rpgc::parse_fspecs(src);
-    prog.line_counters = rpgc::parse_lspecs(src);
-    rpgc::ISpecs is = rpgc::parse_ispecs(src);
-    prog.in_records = std::move(is.records);
-    prog.in_fields  = std::move(is.fields);
-    prog.lookahead_fields = std::move(is.lookahead_fields);
-    prog.data_structures = std::move(is.data_structures);
-    prog.ds_subfields    = std::move(is.ds_subfields);
-    prog.calcs      = rpgc::parse_cspecs(src);
-    prog.outputs    = rpgc::parse_ospecs(src);
-    prog.arrays     = rpgc::parse_especs(src);
-    rpgc::load_compile_time_data(src, prog.arrays);
+        std::vector<rpgc::SourceLine> src;
+        if (!rpgc::load_source(input_file, src)) {
+            rpgc::fatal("cannot read source: " + input_file);
+            return 1;
+        }
+        // D3: expand /COPY directives before any spec parser sees the source
+        // -- each parser just filters a flat line list by form_type, so
+        // splicing in copied members here (rather than teaching every parser
+        // about /COPY) keeps every downstream pass unchanged.
+        {
+            auto slash = input_file.find_last_of('/');
+            std::string base_dir = (slash == std::string::npos)
+                ? std::string(".") : input_file.substr(0, slash);
+            if (!rpgc::expand_copy_statements(src, base_dir)) {
+                return 1;
+            }
+        }
+        // D3: Auto Report Option Specifications ('U' form type) aren't
+        // expanded by this compiler; fail loudly now rather than silently
+        // compiling a program with no real output specs (see uspec.h).
+        rpgc::reject_uspecs(src);
 
-    if (opts.verbose) {
-        std::cerr << "rpgc: parsed "
-                  << prog.files.size()     << " F-spec(s), "
-                  << prog.in_fields.size() << " I-field(s), "
-                  << prog.calcs.size()     << " C-spec(s), "
-                  << prog.outputs.size()   << " O-record(s), "
-                  << prog.arrays.size()    << " E-array(s)\n";
+        rpgc::Program prog;
+        prog.hspec      = rpgc::parse_hspec(src);
+        prog.files      = rpgc::parse_fspecs(src);
+        prog.line_counters = rpgc::parse_lspecs(src);
+        rpgc::ISpecs is = rpgc::parse_ispecs(src);
+        prog.in_records = std::move(is.records);
+        prog.in_fields  = std::move(is.fields);
+        prog.lookahead_fields = std::move(is.lookahead_fields);
+        prog.data_structures = std::move(is.data_structures);
+        prog.ds_subfields    = std::move(is.ds_subfields);
+        prog.calcs      = rpgc::parse_cspecs(src);
+        prog.outputs    = rpgc::parse_ospecs(src);
+        prog.arrays     = rpgc::parse_especs(src);
+        rpgc::load_compile_time_data(src, prog.arrays);
+        prog.param_lists = rpgc::group_param_lists(prog.calcs);
+        prog.exit_decls  = rpgc::group_exit_decls(prog.calcs);
+
+        if (opts.verbose) {
+            std::cerr << "rpgc: parsed " << input_file << ": "
+                      << prog.files.size()     << " F-spec(s), "
+                      << prog.in_fields.size() << " I-field(s), "
+                      << prog.calcs.size()     << " C-spec(s), "
+                      << prog.outputs.size()   << " O-record(s), "
+                      << prog.arrays.size()    << " E-array(s)\n";
+        }
+
+        if (rpgc::error_count() > 0) {
+            std::cerr << rpgc::error_count() << " error(s)\n";
+            return 1;
+        }
+
+        auto mod = rpgc::generate_module(prog, input_file, ctx, is_top_level);
+        if (rpgc::error_count() > 0 || !mod) {
+            std::cerr << rpgc::error_count() << " error(s)\n";
+            return 1;
+        }
+        mods.push_back(std::move(mod));
     }
 
-    // The LLVMContext MUST outlive the module; keep it in main's scope and
-    // pass it down to codegen.
-    llvm::LLVMContext ctx;
-    auto mod = rpgc::generate_module(prog, opts.input_file, ctx);
-    if (rpgc::error_count() > 0 || !mod) {
-        std::cerr << rpgc::error_count() << " error(s)\n";
-        return 1;
+    // The overwhelmingly common case -- one input file -- uses that module
+    // directly, so a single-file build is byte-for-byte identical to before
+    // multi-file support existed. Only a multi-program build (2+ files) pays
+    // for llvm::Linker merging every program into one module.
+    std::unique_ptr<llvm::Module> linked_mod;
+    if (mods.size() == 1) {
+        linked_mod = std::move(mods[0]);
+    } else {
+        linked_mod = std::make_unique<llvm::Module>(opts.input_files[0], ctx);
+        llvm::Linker linker(*linked_mod);
+        for (size_t fi = 0; fi < mods.size(); ++fi) {
+            if (linker.linkInModule(std::move(mods[fi]))) {
+                rpgc::fatal("failed to link '" + opts.input_files[fi] +
+                            "' with the other compiled program(s) (duplicate "
+                            "program-id or symbol?)");
+                return 1;
+            }
+        }
     }
+
+    llvm::Module *mod = linked_mod.get();
     mod->setTargetTriple(llvm::sys::getDefaultTargetTriple());
 
     if (opts.verbose) {
-        std::cout << "rpgc: " << opts.input_file
+        std::cout << "rpgc: " << opts.input_files[0]
                   << " -> " << opts.emit << " : " << opts.output_file << "\n";
     }
 

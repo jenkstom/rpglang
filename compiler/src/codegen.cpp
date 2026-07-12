@@ -42,6 +42,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Transforms/Utils/ModuleUtils.h>
 
 #include <cstdio>
 #include <algorithm>
@@ -52,6 +53,14 @@
 namespace rpgc {
 
 namespace {
+
+/* Upper-case a copy of `s` (program-linkage names are matched case-
+ * insensitively; the values here are already column-trimmed by the parser). */
+std::string upper_trim(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char ch) { return std::toupper(ch); });
+    return s;
+}
 
 /* ------------------------------------------------------------------------- *
  * IndicatorEmitter -- owns the [100 x i1] indicator array and the LR latch,
@@ -322,11 +331,13 @@ void emit_arith_result_indicators(IndicatorEmitter &ie,
 
 class CodeGen {
 public:
-    CodeGen(llvm::LLVMContext &ctx, const std::string &name)
+    CodeGen(llvm::LLVMContext &ctx, const std::string &name,
+            bool is_top_level = true)
         : mod_(std::make_unique<llvm::Module>(name, ctx)),
           builder_(ctx),
           syms_(*mod_, builder_),
-          inds_(*mod_, builder_) {}
+          inds_(*mod_, builder_),
+          is_top_level_(is_top_level) {}
 
     llvm::Module *module() { return mod_.get(); }
     std::unique_ptr<llvm::Module> take_module() { return std::move(mod_); }
@@ -344,6 +355,15 @@ public:
         currency_symbol_ = prog.hspec.currency_symbol;
         if (!prog.hspec.program_id.empty())
             mod_->setModuleIdentifier(prog.hspec.program_id);
+        // Program linkage: the registry key / entry symbol name is the
+        // H-spec program-id if given, else the module name (input file
+        // stem), upper-cased either way so CALL/FREE name matching is
+        // case-insensitive regardless of source style.
+        program_name_ = upper_trim(!prog.hspec.program_id.empty()
+                                        ? prog.hspec.program_id
+                                        : mod_->getModuleIdentifier());
+        param_lists_ = &prog.param_lists;
+        exit_decls_  = &prog.exit_decls;
         declare_runtime();
         // Create globals for every E-spec array/table, numeric or alphameric
         // (A9). Tables (TAB-prefixed) additionally get a current-element
@@ -396,6 +416,453 @@ public:
             return generate_cycle(prog);
         }
         return generate_linear(prog);
+    }
+
+    /* Program linkage: the function generated
+     * for this program's body, plus (for a non-top-level "library" program)
+     * the incoming parameter-block arguments. */
+    struct EntryInfo {
+        llvm::Function *fn = nullptr;
+        llvm::Value *parm_ptrs  = nullptr;  // ptr;  null for a top-level program
+        llvm::Value *parm_count = nullptr;  // i32;  null for a top-level program
+        llvm::Value *first_call = nullptr;  // i32;  null for a top-level program
+    };
+
+    /* Create this program's entry function and, for a "library" program
+     * (is_top_level_ == false), register it into the runtime program
+     * registry via a global constructor. A top-level program keeps today's
+     * exact shape (`i32 @main()`) so single-file compiles are byte-for-byte
+     * unchanged; a library program instead gets a uniquely-named, uniformly-
+     * shaped rpg_entry_fn (see rpg_runtime.h) that CALL dispatches to
+     * through the registry rather than a direct LLVM call. */
+    EntryInfo create_entry_function() {
+        using namespace llvm;
+        auto &c = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        EntryInfo ei;
+        if (is_top_level_) {
+            FunctionType *ft = FunctionType::get(i32, false);
+            ei.fn = Function::Create(ft, Function::ExternalLinkage, "main", mod_.get());
+            return ei;
+        }
+        auto *ptrTy = PointerType::get(c, 0);
+        FunctionType *ft = FunctionType::get(i32, {ptrTy, i32, i32}, false);
+        ei.fn = Function::Create(ft, Function::ExternalLinkage,
+                                 "rpg_prog_" + program_name_, mod_.get());
+        auto argit = ei.fn->arg_begin();
+        ei.parm_ptrs = &*argit++;  ei.parm_ptrs->setName("parm_ptrs");
+        ei.parm_count = &*argit++; ei.parm_count->setName("parm_count");
+        ei.first_call = &*argit++; ei.first_call->setName("first_call");
+
+        // Self-register: emit a constructor that calls
+        // rpg_rt_register_program(program_name_, &this_function) at process
+        // startup, priority 65535 (default/unspecified) same as any other
+        // global constructor.
+        auto *voidTy = Type::getVoidTy(c);
+        FunctionType *ctorTy = FunctionType::get(voidTy, false);
+        Function *ctor = Function::Create(ctorTy, Function::InternalLinkage,
+                                          "rpg_register_" + program_name_, mod_.get());
+        BasicBlock *cbb = BasicBlock::Create(c, "entry", ctor);
+        IRBuilder<> cb(cbb);
+        Value *nameStr = cb.CreateGlobalStringPtr(program_name_, "prog_name");
+        cb.CreateCall(register_program_fn_, {nameStr, ei.fn});
+        cb.CreateRetVoid();
+        appendToGlobalCtors(*mod_, ctor, 65535);
+        return ei;
+    }
+
+    /* The value this program's entry function returns, for the natural
+     * (non-RETRN) end of its body: for a top-level program, the existing
+     * process-exit-code convention (RPGRET or the LR bit) is unchanged; for
+     * a library program (only reachable via CALL), it's the status
+     * rpg_rt_call decodes into the caller's resulting indicators: 2 if any
+     * halt indicator (H1-H9) is on, else 1 if LR is on, else 0. */
+    llvm::Value *emit_entry_return_value() {
+        using namespace llvm;
+        if (is_top_level_) return emit_exit_value();
+        auto &c = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(c);
+        Value *halt = ConstantInt::getFalse(c);
+        for (int i = 0; i < 9; ++i)
+            halt = builder_.CreateOr(halt, inds_.load_resolved(-29 - i), "halt_any");
+        Value *lr = inds_.load_resolved(-1);
+        Value *st = builder_.CreateSelect(lr, ConstantInt::get(i32, 1),
+                                          ConstantInt::get(i32, 0), "st_lr");
+        st = builder_.CreateSelect(halt, ConstantInt::get(i32, 2), st, "st");
+        return st;
+    }
+
+    /* L4: for a library program with an `*ENTRY PLIST`, copy each incoming
+     * parameter's current value from the caller's address (parm_ptrs[i])
+     * into this program's own local field of the same name, gated so a
+     * short parameter list (fewer args than declared) leaves the unfilled
+     * trailing fields at their zero/blank default instead of reading past
+     * the caller's parm_ptrs array. Numeric parameters are always 4 bytes
+     * (every numeric field is an i32 in this compiler, regardless of
+     * declared digits); character parameters use the PARM's own declared
+     * length (cols 49-51), defaulting to 1.
+     *
+     * This is a documented simplification of "pass by address" (manual
+     * 123591-123613): rather than making the parameter field a live alias
+     * of the caller's storage for the whole call, it copies in here and
+     * copies out in emit_entry_plist_copyout() right before every return.
+     * Observationally identical to true aliasing for a synchronous,
+     * non-reentrant call where each caller field is passed at most once per
+     * call (the overwhelmingly common case) -- a documented simplification. */
+    void emit_entry_plist_prologue(const EntryInfo &ei) {
+        if (is_top_level_ || !param_lists_) return;
+        const ParamList *entry_pl = find_entry_plist();
+        if (!entry_pl) return;
+        using namespace llvm;
+        auto &c = mod_->getContext();
+        auto *ptrTy = PointerType::get(c, 0);
+        auto *i32 = Type::getInt32Ty(c);
+
+        for (size_t i = 0; i < entry_pl->parms.size(); ++i) {
+            const ParmDecl &pd = entry_pl->parms[i];
+            if (pd.name.empty()) continue;
+
+            Function *fn = ei.fn;
+            BasicBlock *haveBB = BasicBlock::Create(c, "parm_have", fn);
+            BasicBlock *afterBB = BasicBlock::Create(c, "parm_after", fn);
+            Value *inRange = builder_.CreateICmpSLT(
+                ConstantInt::get(i32, (int)i), ei.parm_count, "parm_in_range");
+            builder_.CreateCondBr(inRange, haveBB, afterBB);
+
+            builder_.SetInsertPoint(haveBB);
+            Value *slot = builder_.CreateGEP(ptrTy, ei.parm_ptrs,
+                {ConstantInt::get(i32, (int)i)}, "parm_slot");
+            Value *argAddr = builder_.CreateLoad(ptrTy, slot, "parm_addr");
+            if (pd.dec >= 0) {
+                Value *dst = syms_.get_or_create_field(pd.name);
+                syms_.set_numeric_attrs(pd.name, pd.dec);
+                Value *v = builder_.CreateLoad(i32, argAddr, pd.name + "_in");
+                builder_.CreateStore(v, dst);
+            } else {
+                int len = pd.len > 0 ? pd.len : 1;
+                Value *dst = syms_.get_or_create_char_field(pd.name, len);
+                builder_.CreateMemCpy(dst, Align(1), argAddr, Align(1), (uint64_t)len);
+            }
+            builder_.CreateBr(afterBB);
+
+            builder_.SetInsertPoint(afterBB);
+            // Extra shim: PARM's own factor1, if present, overwrites the
+            // just-copied-in value (run unconditionally, matching the
+            // manual's four-shim-points rule).
+            if (!pd.factor1.empty()) copy_param_shim(pd.name, pd.factor1);
+        }
+    }
+
+    /* L4: the callee-side half of the copy-in/copy-out shim, emitted right
+     * before every return from a library program's entry function (the
+     * natural end and every RETRN). Copies each *ENTRY PLIST parameter's
+     * current local value back out through the caller's address, so the
+     * caller's own field sees the mutation once CALL returns. */
+    void emit_entry_plist_copyout() {
+        if (is_top_level_ || !param_lists_) return;
+        const ParamList *entry_pl = find_entry_plist();
+        if (!entry_pl) return;
+        using namespace llvm;
+        auto &c = mod_->getContext();
+        auto *ptrTy = PointerType::get(c, 0);
+        auto *i32 = Type::getInt32Ty(c);
+        // The entry function's own args aren't reachable here by name; look
+        // them up off the current function.
+        llvm::Function *fn = builder_.GetInsertBlock()->getParent();
+        auto argit = fn->arg_begin();
+        Value *parm_ptrs = &*argit++;
+        Value *parm_count = &*argit++;
+
+        for (size_t i = 0; i < entry_pl->parms.size(); ++i) {
+            const ParmDecl &pd = entry_pl->parms[i];
+            if (pd.name.empty() || !syms_.has_field(pd.name)) continue;
+            if (!pd.factor2.empty()) copy_param_shim(pd.factor2, pd.name);
+
+            BasicBlock *haveBB = BasicBlock::Create(c, "parmout_have", fn);
+            BasicBlock *afterBB = BasicBlock::Create(c, "parmout_after", fn);
+            Value *inRange = builder_.CreateICmpSLT(
+                ConstantInt::get(i32, (int)i), parm_count, "parmout_in_range");
+            builder_.CreateCondBr(inRange, haveBB, afterBB);
+
+            builder_.SetInsertPoint(haveBB);
+            Value *slot = builder_.CreateGEP(ptrTy, parm_ptrs,
+                {ConstantInt::get(i32, (int)i)}, "parmout_slot");
+            Value *argAddr = builder_.CreateLoad(ptrTy, slot, "parmout_addr");
+            if (pd.dec >= 0) {
+                Value *v = builder_.CreateLoad(i32, syms_.get_or_create_field(pd.name),
+                                               pd.name + "_out");
+                builder_.CreateStore(v, argAddr);
+            } else {
+                int len = pd.len > 0 ? pd.len : 1;
+                Value *src = syms_.get_or_create_char_field(pd.name, len);
+                builder_.CreateMemCpy(argAddr, Align(1), src, Align(1), (uint64_t)len);
+            }
+            builder_.CreateBr(afterBB);
+            builder_.SetInsertPoint(afterBB);
+        }
+    }
+
+    /* L2/L5: a library program's 1P (first-page) indicator already behaves
+     * correctly across repeat CALLs with no extra work -- @rpg_1p is a
+     * plain global that defaults true and is latched false by
+     * clear_first_page() after the first heading pass, so it naturally
+     * stays false on a second CALL in the same process. FREE needs it to
+     * come back on for the *next* CALL, though, and rpg_rt_free() only
+     * clears the runtime registry's own bookkeeping (it has no reach into
+     * this program's LLVM globals) -- so the callee side has to notice
+     * `first_call` (true on the first CALL, and again on the first CALL
+     * after a FREE) and force 1P back on itself. Only ever forces it TRUE;
+     * never overwrites an already-correct false. */
+    void emit_entry_first_call_reset(const EntryInfo &ei) {
+        if (is_top_level_ || !ei.first_call) return;
+        using namespace llvm;
+        auto &c = mod_->getContext();
+        Value *isFirst = builder_.CreateICmpNE(
+            ei.first_call, ConstantInt::get(Type::getInt32Ty(c), 0), "is_first_call");
+        Value *cur = inds_.load_resolved(-11);
+        inds_.store_resolved(-11, builder_.CreateOr(cur, isFirst, "p1_reset"));
+    }
+
+    const ParamList *find_entry_plist() const {
+        if (!param_lists_) return nullptr;
+        for (const auto &p : *param_lists_) if (p.is_entry) return &p;
+        return nullptr;
+    }
+
+    /* Copy `src`'s current value into `dst` (PARM copy-in/copy-out shim,
+     * used for factor1/factor2 and reused for CALL's caller-side shim). A
+     * best-effort, length-clamped raw copy: real programs keep the shim
+     * field's attributes matching the parameter's (manual 123561-123591),
+     * and this compiler stores every numeric field as a plain i32 regardless
+     * of declared digits, so no decimal rescale is attempted. */
+    void copy_param_shim(const std::string &dst, const std::string &src) {
+        using namespace llvm;
+        if (dst.empty() || src.empty()) return;
+        if (syms_.is_char_field(dst)) {
+            Value *sp; int slen; Value *dp; int dlen;
+            if (syms_.resolve_char_operand(src, sp, slen) &&
+                syms_.resolve_char_operand(dst, dp, dlen)) {
+                int n = std::min(slen, dlen);
+                builder_.CreateMemCpy(dp, Align(1), sp, Align(1), (uint64_t)n);
+            }
+            return;
+        }
+        Value *v = syms_.resolve_operand(src);
+        if (v) builder_.CreateStore(v, syms_.get_or_create_field(dst));
+    }
+
+    /* The raw address of `name`'s storage, auto-declaring it as a numeric
+     * field (matching resolve_operand's existing auto-create convention) if
+     * it isn't already declared. Used for CALL's by-address parameters. */
+    llvm::Value *field_address(const std::string &name) {
+        const FieldInfo *fi = syms_.info(name);
+        if (fi) return fi->gv;
+        return syms_.get_or_create_field(name);
+    }
+
+    /* One shared `void*[n]` global per named PLIST, reused (overwritten) on
+     * every CALL through it -- RPG II is single-threaded and non-reentrant
+     * within one program (self/ancestor CALLs are rejected at runtime), so
+     * there is no concurrent use to race on. */
+    llvm::GlobalVariable *get_or_create_parm_buf(const std::string &plist_name,
+                                                 size_t n) {
+        auto it = parm_bufs_.find(plist_name);
+        if (it != parm_bufs_.end()) return it->second;
+        using namespace llvm;
+        auto &c = mod_->getContext();
+        auto *ptrTy = PointerType::get(c, 0);
+        auto *arrTy = ArrayType::get(ptrTy, (unsigned)(n > 0 ? n : 1));
+        auto *gv = new GlobalVariable(*mod_, arrTy, /*isConstant=*/false,
+            GlobalValue::InternalLinkage, ConstantAggregateZero::get(arrTy),
+            "parm_buf_" + plist_name);
+        parm_bufs_[plist_name] = gv;
+        return gv;
+    }
+
+    /* CALL (L2): resolve the target program name (factor 2 -- a literal
+     * only; a field/array-element-valued dynamic name is not yet supported,
+     * deferred for now). An optional
+     * `LIB/PGM` form has its library segment ignored, same precedent as
+     * WRKSTN_PLAN.md §2's LIBRARY,MEMBER handling. The result field, if
+     * present, names a declared (non-*ENTRY) PLIST supplying the
+     * parameters. Resulting indicators: 56-57 (c.lo) = error, 58-59 (c.eq)
+     * = the callee's LR indicator. */
+    void emit_call(const CSpec &c) {
+        using namespace llvm;
+        auto &cctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(cctx);
+        auto *ptrTy = PointerType::get(cctx, 0);
+
+        if (c.factor2.empty()) return;  // reported in cspec.cpp
+        std::string raw = c.factor2;
+        auto slash = raw.find_last_of('/');
+        std::string pname = upper_trim(slash == std::string::npos
+                                           ? raw : raw.substr(slash + 1));
+        Value *nameStr = builder_.CreateGlobalStringPtr(pname, "callee_name");
+
+        const ParamList *pl = nullptr;
+        if (!c.result.empty()) {
+            std::string want = upper_trim(c.result);
+            if (param_lists_) {
+                for (const auto &p : *param_lists_) {
+                    if (!p.is_entry && upper_trim(p.name) == want) { pl = &p; break; }
+                }
+            }
+            if (!pl) {
+                report("input", c.lineno, 43, DiagKind::Error,
+                       "CALL result field '" + c.result +
+                       "' does not name a declared PLIST");
+            }
+        }
+
+        Value *parmPtrsArg = ConstantPointerNull::get(cast<PointerType>(ptrTy));
+        Value *countArg = ConstantInt::get(i32, 0);
+        if (pl && !pl->parms.empty()) {
+            // Caller-side copy-in shim (step 1).
+            for (const auto &pd : pl->parms)
+                if (!pd.factor1.empty()) copy_param_shim(pd.name, pd.factor1);
+
+            size_t n = pl->parms.size();
+            GlobalVariable *buf = get_or_create_parm_buf(pl->name, n);
+            auto *arrTy = ArrayType::get(ptrTy, (unsigned)n);
+            for (size_t i = 0; i < n; ++i) {
+                Value *addr = field_address(pl->parms[i].name);
+                Value *slot = builder_.CreateConstInBoundsGEP2_32(
+                    arrTy, buf, 0, (unsigned)i);
+                builder_.CreateStore(addr, slot);
+            }
+            parmPtrsArg = builder_.CreateConstInBoundsGEP2_32(arrTy, buf, 0, 0);
+            countArg = ConstantInt::get(i32, (uint32_t)n);
+        }
+
+        if (!call_err_slot_) {
+            call_err_slot_ = new GlobalVariable(*mod_, i32, /*isConstant=*/false,
+                GlobalValue::InternalLinkage, ConstantInt::get(i32, 0), "call_err");
+            call_lr_slot_ = new GlobalVariable(*mod_, i32, /*isConstant=*/false,
+                GlobalValue::InternalLinkage, ConstantInt::get(i32, 0), "call_lr");
+        }
+        builder_.CreateCall(call_fn_,
+            {nameStr, parmPtrsArg, countArg, call_err_slot_, call_lr_slot_});
+
+        // Caller-side copy-out shim (step 4), after the callee has returned.
+        if (pl) {
+            for (const auto &pd : pl->parms)
+                if (!pd.factor2.empty()) copy_param_shim(pd.factor2, pd.name);
+        }
+
+        Value *errv = builder_.CreateICmpNE(
+            builder_.CreateLoad(i32, call_err_slot_, "call_err_v"),
+            ConstantInt::get(i32, 0), "call_err_b");
+        Value *lrv = builder_.CreateICmpNE(
+            builder_.CreateLoad(i32, call_lr_slot_, "call_lr_v"),
+            ConstantInt::get(i32, 0), "call_lr_b");
+        if (c.lo.indicator) inds_.store_resolved(c.lo.indicator, errv);
+        if (c.eq.indicator) inds_.store_resolved(c.eq.indicator, lrv);
+    }
+
+    /* FREE (L5): clear a called program's "initialized" registry flag so its
+     * next CALL re-runs one-time init. Optional 56-57 resulting indicator
+     * (c.lo) = "not successful" (name never registered, or never CALLed). */
+    void emit_free(const CSpec &c) {
+        using namespace llvm;
+        if (c.factor2.empty()) return;  // reported in cspec.cpp
+        std::string raw = c.factor2;
+        auto slash = raw.find_last_of('/');
+        std::string pname = upper_trim(slash == std::string::npos
+                                           ? raw : raw.substr(slash + 1));
+        auto &cctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(cctx);
+        Value *nameStr = builder_.CreateGlobalStringPtr(pname, "free_name");
+        Value *status = builder_.CreateCall(free_fn_, {nameStr}, "free_st");
+        if (c.lo.indicator) {
+            Value *notOk = builder_.CreateICmpNE(status, ConstantInt::get(i32, 0),
+                                                 "free_notok");
+            inds_.store_resolved(c.lo.indicator, notOk);
+        }
+    }
+
+    /* EXIT/RLABL (L3): call an external, non-RPG subroutine (see
+     * runtime/rpg_ext_subr.h for the C ABI it's linked against). Both the
+     * parameter-address array and the attribute-descriptor array are fully
+     * compile-time-known (every field's address is a global, and its
+     * type/length/decimals/count are known from the symbol table and the
+     * RLABL declaration), so both are emitted as constant globals rather
+     * than built at runtime -- emit_exit_op itself only emits the one call. */
+    void emit_exit_op(const CSpec &c) {
+        using namespace llvm;
+        if (!exit_decls_ || c.factor2.empty()) return;  // reported in cspec.cpp
+        std::string want = upper_trim(c.factor2);
+        const ExitDecl *ed = nullptr;
+        for (const auto &e : *exit_decls_) if (e.subr_name == want) { ed = &e; break; }
+        if (!ed) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "EXIT '" + c.factor2 + "' has no following RLABL declarations");
+            return;
+        }
+
+        auto &cctx = mod_->getContext();
+        auto *i8  = Type::getInt8Ty(cctx);
+        auto *i32 = Type::getInt32Ty(cctx);
+        auto *ptrTy = PointerType::get(cctx, 0);
+        auto *attrTy = StructType::get(cctx, {i8, i32, i32, i32});
+
+        size_t n = ed->labels.size();
+        std::vector<Constant *> parmInits, attrInits;
+        parmInits.reserve(n > 0 ? n : 1);
+        attrInits.reserve(n > 0 ? n : 1);
+        for (const auto &rd : ed->labels) {
+            const FieldInfo *fi = syms_.info(rd.name);
+            char type = 'Z';
+            int length = rd.len;
+            int decimals = rd.dec >= 0 ? rd.dec : 0;
+            int count = 1;
+            Constant *addr;
+            if (fi && fi->kind == FieldKind::Array) {
+                type = fi->is_char_array ? 'C' : 'Z';
+                count = fi->array_count;
+                if (length <= 0) length = fi->is_char_array ? fi->length : 0;
+                addr = fi->gv;
+            } else if (fi && fi->kind == FieldKind::Character) {
+                type = 'C';
+                if (length <= 0) length = fi->length;
+                addr = fi->gv;
+            } else {
+                type = 'Z';
+                if (rd.dec < 0 && fi) decimals = fi->decimals < 0 ? 0 : fi->decimals;
+                addr = cast<GlobalVariable>(syms_.get_or_create_field(rd.name));
+            }
+            parmInits.push_back(addr);
+            attrInits.push_back(ConstantStruct::get(attrTy,
+                {ConstantInt::get(i8, (uint8_t)type),
+                 ConstantInt::get(i32, (uint32_t)length, true),
+                 ConstantInt::get(i32, (uint32_t)decimals, true),
+                 ConstantInt::get(i32, (uint32_t)count, true)}));
+        }
+        if (parmInits.empty()) {
+            parmInits.push_back(ConstantPointerNull::get(cast<PointerType>(ptrTy)));
+            attrInits.push_back(ConstantStruct::get(attrTy,
+                {ConstantInt::get(i8, 0), ConstantInt::get(i32, 0),
+                 ConstantInt::get(i32, 0), ConstantInt::get(i32, 0)}));
+        }
+        auto *parmArrTy = ArrayType::get(ptrTy, (unsigned)parmInits.size());
+        auto *attrArrTy = ArrayType::get(attrTy, (unsigned)attrInits.size());
+        auto *parmGV = new GlobalVariable(*mod_, parmArrTy, /*isConstant=*/true,
+            GlobalValue::PrivateLinkage, ConstantArray::get(parmArrTy, parmInits),
+            "exit_parms_" + ed->subr_name);
+        auto *attrGV = new GlobalVariable(*mod_, attrArrTy, /*isConstant=*/true,
+            GlobalValue::PrivateLinkage, ConstantArray::get(attrArrTy, attrInits),
+            "exit_attrs_" + ed->subr_name);
+
+        Function *subrFn = mod_->getFunction(ed->subr_name);
+        if (!subrFn) {
+            subrFn = Function::Create(
+                FunctionType::get(i32, {ptrTy, ptrTy, i32}, false),
+                Function::ExternalLinkage, ed->subr_name, mod_.get());
+        }
+        Value *parmsArg = builder_.CreateConstInBoundsGEP2_32(parmArrTy, parmGV, 0, 0);
+        Value *attrsArg = builder_.CreateConstInBoundsGEP2_32(attrArrTy, attrGV, 0, 0);
+        builder_.CreateCall(subrFn,
+            {parmsArg, attrsArg, ConstantInt::get(i32, (uint32_t)n, true)});
     }
 
     /* Emit prerun-time array/table loads at the current insert point. Each
@@ -477,13 +944,16 @@ public:
         const std::vector<CSpec> &specs = prog.calcs;
         const std::vector<ORecord> &outputs = prog.outputs;
 
-        // Build main.
+        // Build main (or, for a non-top-level library program, its
+        // rpg_entry_fn -- see create_entry_function()).
         auto *i32 = Type::getInt32Ty(mod_->getContext());
-        FunctionType *ft = FunctionType::get(i32, false);
-        Function *main = Function::Create(ft, Function::ExternalLinkage,
-                                          "main", mod_.get());
+        EntryInfo ei = create_entry_function();
+        Function *main = ei.fn;
         BasicBlock *entry = BasicBlock::Create(mod_->getContext(), "entry", main);
         builder_.SetInsertPoint(entry);
+        emit_entry_first_call_reset(ei);
+        emit_entry_plist_prologue(ei);
+        entry = builder_.GetInsertBlock();  // prologue may have added blocks
 
         // Load any prerun-time arrays/tables before the program runs.
         emit_prerun_loads();
@@ -491,7 +961,11 @@ public:
         // Open keyed/random-access input files first (Sections G/G25), then
         // register any update files as their own write targets so the O-spec
         // open doesn't open a second, separate stream for the same file.
-        static std::unordered_map<std::string, llvm::Value *> empty_ids;
+        // Non-static: each compiled program (possibly several per process in
+        // a multi-file CALL build) needs its own map --
+        // a function-local `static` here would leak stale, cross-module
+        // Value pointers into every program compiled after the first.
+        std::unordered_map<std::string, llvm::Value *> empty_ids;
         out_ids_ = &empty_ids;
         open_input_files(prog);
         for (const auto &f : prog.files) {
@@ -517,7 +991,8 @@ public:
         builder_.CreateCall(close_all_);
 
         Value *ret = specs.empty() ? (Value*)ConstantInt::get(i32, 0)
-                                   : emit_exit_value();
+                                   : emit_entry_return_value();
+        emit_entry_plist_copyout();
         builder_.CreateRet(ret);
         return true;
     }
@@ -666,6 +1141,17 @@ private:
         load_char_arrays_ = Function::Create(
             FunctionType::get(i32, {ptr, i32, i32, i32, ptr, ptr}, false),
             Function::ExternalLinkage, "rpg_rt_load_char_arrays", mod_.get());
+
+        // Program linkage.
+        register_program_fn_ = Function::Create(
+            FunctionType::get(voidTy, {ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_register_program", mod_.get());
+        call_fn_ = Function::Create(
+            FunctionType::get(i32, {ptr, ptr, i32, ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_call", mod_.get());
+        free_fn_ = Function::Create(
+            FunctionType::get(i32, {ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_free", mod_.get());
     }
 
     /* D2: pre-declare every ordinary I-spec field's storage up front (see the
@@ -1129,11 +1615,13 @@ private:
         int reclen = pf->reclen > 0 ? pf->reclen : 80;
 
         // Function + entry block.
-        FunctionType *ft = FunctionType::get(i32, false);
-        Function *main = Function::Create(ft, Function::ExternalLinkage,
-                                          "main", mod_.get());
+        EntryInfo ei = create_entry_function();
+        Function *main = ei.fn;
         BasicBlock *entry = BasicBlock::Create(c, "entry", main);
         builder_.SetInsertPoint(entry);
+        emit_entry_first_call_reset(ei);
+        emit_entry_plist_prologue(ei);
+        entry = builder_.GetInsertBlock();  // prologue may have added blocks
 
         // Load any prerun-time arrays/tables before the cycle starts.
         emit_prerun_loads();
@@ -1460,7 +1948,9 @@ private:
         builder_.CreateBr(exitbb);
         builder_.SetInsertPoint(exitbb);
         builder_.CreateCall(close_all_);
-        builder_.CreateRet(emit_exit_value());
+        llvm::Value *ret = emit_entry_return_value();
+        emit_entry_plist_copyout();
+        builder_.CreateRet(ret);
         return true;
     }
 
@@ -1489,11 +1979,13 @@ private:
 
         int reclen = pf->reclen > 0 ? pf->reclen : 80;
 
-        FunctionType *ft = FunctionType::get(i32, false);
-        Function *main = Function::Create(ft, Function::ExternalLinkage,
-                                          "main", mod_.get());
+        EntryInfo ei = create_entry_function();
+        Function *main = ei.fn;
         BasicBlock *entry = BasicBlock::Create(c, "entry", main);
         builder_.SetInsertPoint(entry);
+        emit_entry_first_call_reset(ei);
+        emit_entry_plist_prologue(ei);
+        entry = builder_.GetInsertBlock();  // prologue may have added blocks
 
         emit_prerun_loads();
 
@@ -2175,7 +2667,9 @@ private:
         builder_.CreateBr(exitbb);
         builder_.SetInsertPoint(exitbb);
         builder_.CreateCall(close_all_);
-        builder_.CreateRet(emit_exit_value());
+        llvm::Value *ret = emit_entry_return_value();
+        emit_entry_plist_copyout();
+        builder_.CreateRet(ret);
         return true;
     }
 
@@ -3095,6 +3589,23 @@ private:
             case Op::MHLZO: emit_movezone(c, true,  false, "MHLZO"); return false;
             case Op::MLHZO: emit_movezone(c, false, true,  "MLHZO"); return false;
             case Op::MLLZO: emit_movezone(c, false, false, "MLLZO"); return false;
+            // Program linkage. PLIST/PARM/RLABL carry
+            // no codegen of their own -- they're consumed by the PLIST/EXIT
+            // grouping passes (cspec.cpp) and read back by emit_call/
+            // emit_exit/emit_entry_plist_*; they fall through to `default`.
+            case Op::CALL:  emit_call(c);   return false;
+            case Op::EXIT:  emit_exit_op(c); return false;
+            case Op::FREE:  emit_free(c);   return false;
+            case Op::RETRN: {
+                if (in_subroutine_) {
+                    report("input", c.lineno, 28, DiagKind::Error,
+                           "RETRN is not allowed inside a subroutine");
+                    return false;
+                }
+                emit_entry_plist_copyout();
+                builder_.CreateRet(emit_entry_return_value());
+                return true;  // branched away, like GOTO
+            }
             default:
                 // Structured ops (IF/DOU/DOW/ELSE/END/CAS) are handled at the
                 // chain level, not as individual op bodies. Unknown ops were
@@ -3441,7 +3952,10 @@ private:
 
         std::vector<CSpec> body;
         for (auto it = begin; it != end; ++it) body.push_back(**it);
+        bool saved_in_sub = in_subroutine_;
+        in_subroutine_ = true;
         BasicBlock *after = emit_spec_chain(fn, entry, body, "");
+        in_subroutine_ = saved_in_sub;
         builder_.SetInsertPoint(after);
         builder_.CreateRetVoid();
     }
@@ -4663,6 +5177,31 @@ private:
     llvm::Function *lokup_fn_ = nullptr;
     // rpg_rt_sorta (Group C, C4 array sort).
     llvm::Function *sorta_fn_ = nullptr;
+    // Program linkage.
+    llvm::Function *register_program_fn_ = nullptr;
+    llvm::Function *call_fn_             = nullptr;
+    llvm::Function *free_fn_             = nullptr;
+    const std::vector<ParamList> *param_lists_ = nullptr;
+    const std::vector<ExitDecl>  *exit_decls_  = nullptr;
+    // False for a "library" program compiled alongside others and only
+    // reachable via CALL (see main.cpp's multi-file build): its entry
+    // function is rpg_prog_<NAME>(void **parm_ptrs, i32 parm_count,
+    // i32 first_call) -> i32 status instead of the process's own `main`.
+    bool is_top_level_ = true;
+    // Upper-cased H-spec program-id (or a sanitized fallback derived from the
+    // module name), used as both the registry key and the entry symbol name.
+    std::string program_name_;
+    // Shared out-param slots for rpg_rt_call's error/LR results (reused
+    // across every CALL site; RPG II has no concurrency to race on them).
+    llvm::GlobalVariable *call_err_slot_ = nullptr;
+    llvm::GlobalVariable *call_lr_slot_  = nullptr;
+    // One shared void*[] buffer per named PLIST, reused across repeated
+    // CALLs through the same PLIST.
+    std::unordered_map<std::string, llvm::GlobalVariable *> parm_bufs_;
+    // True while emitting a subroutine body (BEGSR..ENDSR): RETRN's early
+    // `ret i32` would be ill-typed there (the subroutine function returns
+    // void) -- the manual only allows RETRN in the main calculation body.
+    bool in_subroutine_ = false;
     // True if the most recent op was a DIV whose remainder is available for a
     // following MVR. Cleared by any intervening op or by MVR itself.
     bool last_remainder_ = false;
@@ -4683,9 +5222,10 @@ private:
 std::unique_ptr<llvm::Module> generate_module(
     const Program &prog,
     const std::string &module_name,
-    llvm::LLVMContext &ctx) {
+    llvm::LLVMContext &ctx,
+    bool is_top_level) {
 
-    CodeGen cg(ctx, module_name);
+    CodeGen cg(ctx, module_name, is_top_level);
     cg.generate(prog);
     auto mod = cg.take_module();
 

@@ -260,6 +260,54 @@ int rpg_rt_load_char_arrays(const char *path, int len_a, int len_b,
 /* Close every opened file. Called on LR (last record). */
 void rpg_rt_close_all(void);
 
+/* ----- Program linkage (CALL/PARM/PLIST/RETRN/EXIT/RLABL/FREE) ------------- */
+/*
+ * Registry-dispatch model: every compiled program that could be a CALL
+ * target is linked into the same executable and self-registers here via a
+ * constructor emitted by the compiler (see codegen.cpp's create_entry_
+ * function). CALL becomes a name lookup + indirect call instead of a direct
+ * LLVM call, matching the manual's own two-tier lookup and its lazy
+ * ("first CALL initializes; skip init on repeat CALLs unless FREE'd")
+ * semantics.
+ */
+
+/* A registered program's entry point. `parm_ptrs` is an array of `parm_count`
+ * raw field addresses (the caller's PLIST, in order; NULL/0 for a
+ * parameterless CALL). `first_call` is 1 on the first invocation since
+ * program start or the most recent rpg_rt_free(), else 0 -- the callee's
+ * own generated prologue uses this to gate one-time initialization (heading
+ * pass, prerun-time array loads). Returns a status: 0 = normal return
+ * (RETRN without LR), 1 = normal return with LR on, 2 = abnormal end (a
+ * halt indicator was on at RETRN/end of program). */
+typedef int (*rpg_entry_fn)(void **parm_ptrs, int parm_count, int first_call);
+
+/* Register a compiled program under `name` (its H-spec program-id,
+ * upper-cased). Called from a constructor emitted by every compiled program
+ * at process startup. A second registration under the same name replaces
+ * the first (last one wins; this only happens if a name collides). */
+void rpg_rt_register_program(const char *name, rpg_entry_fn fn);
+
+/* Look up `name` and invoke it with `parm_ptrs`/`parm_count`. On return,
+ * *out_error_ind is 1 if the call could not be made (no such program, or a
+ * program tried to call itself or a program higher in the program stack --
+ * both documented restrictions in the manual) or if the callee ended
+ * abnormally; *out_lr_ind is 1 if the callee's LR indicator was on when it
+ * returned. Neither out pointer may be NULL. Returns 0 on a completed call,
+ * nonzero if the call could not be made at all (matches this project's
+ * loud-error-over-silent-corruption precedent: the failure is reported to
+ * stderr, but -- like every other runtime failure in this file -- does not
+ * abort the process; it is up to the generated code's resulting indicators
+ * to react). */
+int rpg_rt_call(const char *name, void **parm_ptrs, int parm_count,
+                int *out_error_ind, int *out_lr_ind);
+
+/* Clear `name`'s "initialized" flag so its next CALL runs one-time init
+ * again. Per the manual, this does NOT close any of that program's files.
+ * Returns 0 if `name` was a registered, previously-initialized program
+ * (cleared), 1 otherwise ("not successful", for the optional 56-57
+ * resulting indicator on the FREE op). */
+int rpg_rt_free(const char *name);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
