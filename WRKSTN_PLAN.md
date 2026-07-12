@@ -12,7 +12,7 @@ for the closed groups): most other work was "the manual defines X, the
 compiler either mishandles or omits it, fix the existing code path." WORKSTN
 has **no existing code path to extend** — it needs a new display-format definition
 mechanism (the manual's SDA/S-D-spec equivalent, which today is produced by a
-tool entirely outside this project), a new terminal I/O runtime backend (this
+tool entirely outside the project), a new terminal I/O runtime backend (the
 compiler currently only knows how to read/write flat files), and five new
 operation codes with a device model (multiple attached terminals, device IDs,
 function keys) that doesn't resemble anything the codegen currently does.
@@ -91,7 +91,7 @@ chapters:
 
 On a real System/36, a WORKSTN file's formats are compiled *outside* RPG II,
 by SDA or hand-written S-spec/D-spec, into a "display file" the F-spec's
-`FMTS` continuation option names (default: program-name + `FM`). This project
+`FMTS` continuation option names (default: program-name + `FM`). The project
 has no such compiler and no DDS equivalent — it must be built.
 
 **Decision needed before implementation (see §8, open question 1):** what to
@@ -169,7 +169,7 @@ makes the feature testable at all:**
 2. **Scripted/headless backend** for the test suite and non-interactive runs:
    reads a plain-text script of "screen filled, here's the next input record
    and which key was pressed" from a file (format TBD, but should look like
-   the rest of this project's test fixtures — compare `tests/run_tests.sh`'s
+   the rest of the project's test fixtures — compare `tests/run_tests.sh`'s
    existing input/output-file comparison model), and *dumps* each rendered
    screen to an output file instead of a real terminal. Without this,
    "WORKSTN support" would be entirely unverifiable by the existing
@@ -395,6 +395,6 @@ mentioned so it doesn't get silently forgotten when C9 is split per §0.
 
 This plan should not move to implementation until at least questions 1-3 are
 settled, since they affect file-naming and API shape decisions that are
-expensive to change retroactively (same lesson as this project's `/COPY`
+expensive to change retroactively (same lesson as the project's `/COPY`
 member-lookup convention, which question 1 explicitly wants to reuse rather
 than duplicate).

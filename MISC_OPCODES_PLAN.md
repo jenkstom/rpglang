@@ -17,7 +17,7 @@ Codes"): `DEBUG` 106221-106340, `FORCE` 111276-111414.
 
 ## 1. `DEBUG` — correction to `docs/TODO.md`'s C7 note, then a real plan
 
-`docs/TODO.md`'s C7 entry said DEBUG was blocked because "this compiler has
+`docs/TODO.md`'s C7 entry said DEBUG was blocked because "the compiler has
 no debug/symbol-table generation for a parsed DEBUG entry to plug into
 either way." Re-reading the manual's H-spec column-15 description in full
 (69625-69634, "Column 15 (Debug)") shows that claim conflates two separate
@@ -29,7 +29,7 @@ things the manual keeps distinct:
 2. **Whether compiler-generated symbols (names starting with `.`) are
    added to a symbol table "printed with the program dump"** — this is a
    genuinely separate AS/400 feature (a debugger-facing symbol table tied
-   to a program-dump facility) that this compiler indeed has no equivalent
+   to a program-dump facility) that the compiler indeed has no equivalent
    of, and legitimately stays out of scope.
 
 The `DEBUG` *operation code itself* (106221-106340) only needs (1), not
@@ -39,7 +39,7 @@ currently-on indicator names (first record), and optionally the result
 field's contents (second record, only "when an entry is made in the result
 field"). Both record layouts are given in full in the manual (see §1.2
 below) and need no symbol-table infrastructure to produce — they're built
-from data this compiler already tracks (indicator state, field values).
+from data the compiler already tracks (indicator state, field values).
 
 **Revised finding: `DEBUG` is implementable now.** It was miscategorized as
 blocked; treat it as a contained, Group-C-style opcode addition.
@@ -66,7 +66,7 @@ blocked; treat it as a contained, Group-C-style opcode addition.
   appear in factor 2 for all DEBUG statements in a program" as a
   parse-time consistency check across every `DEBUG` line. Enforce
   "externally described files are not allowed with the DEBUG operation" —
-  this compiler has no externally-described-file concept at all
+  the compiler has no externally-described-file concept at all
   (`docs/ARCHITECTURE.md`), so this constraint is vacuously satisfied,
   worth a one-line note rather than code.
 - `emit_debug` (`codegen.cpp`): builds and writes the two fixed-format
@@ -114,7 +114,7 @@ project's `KEYBORD_PLAN.md` K1 adds). "If more than one FORCE operation is
 processed during the same program cycle, all but the last are ignored" —
 last-write-wins within a cycle. "FORCE should not be specified at total
 time" is phrased as a recommendation, not a hard rule, in the manual text
-itself — parse-time warning, not an error, matching this project's
+itself — parse-time warning, not an error, matching the project's
 `DiagKind` severity distinctions elsewhere. "The first record processed is
 always selected by the normal method" — `FORCE` never affects the *current*
 cycle's already-in-flight record, only the next one.
@@ -144,7 +144,7 @@ cycle's already-in-flight record, only the next one.
   two input files `INPUT1`/`INPUT2`, a `NBR` counter field controlling how
   many secondary records follow each primary record via alternating
   `FORCE` calls) — the manual provides a complete, ready-to-port fixture
-  here, unusually convenient among this project's opcode additions.
+  here, unusually convenient among the project's opcode additions.
   `tests/neg_force_workstn.rpg` for the device restriction.
 
 ### 2.2 Dependency note

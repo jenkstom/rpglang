@@ -1,7 +1,7 @@
 # RPG Analyze — Specification
 
 A single command-line tool, **`rpg-analyze`**, that analyzes RPG II source files.
-It unifies every analysis idea in this project into one binary. Each analysis
+It unifies every analysis idea in the project into one binary. Each analysis
 function is a **module** that can run on its own, or be combined with others to
 produce a comprehensive synthesized report.
 

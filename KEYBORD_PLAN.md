@@ -22,7 +22,7 @@ lines 42586-47204+; Chapter 27 ("Operation Codes") has the `KEY`
 `PRINTER`, `WORKSTN`, `SPECIAL`, `CONSOLE`. `CONSOLE` gets a hard error
 (`fspec.cpp:119-125`). **`KEYBORD` and `CRT` do not appear
 in the token list at all** — they fall through to `Device::Other` with no
-diagnostic, and this compiler then treats the F-spec filename as an
+diagnostic, and the compiler then treats the F-spec filename as an
 ordinary flat file on Linux, exactly the silent-miscompile failure mode E8
 was written to close for the other three devices. This is strictly worse
 than the WORKSTN case: WORKSTN at least errors loudly today.
@@ -133,7 +133,7 @@ int  rpg_rt_set(const char *display_text, int display_len,
 alphameric left-justify-blank-pad rule (113063-113066) and the Dup-key
 "leave result field unchanged" case; `rpg_rt_set`'s message-number path
 needs the `USER1` message member format nailed down first (§5 open
-question 2) since nothing in this project currently has a "message member"
+question 2) since nothing in the project currently has a "message member"
 concept to draw on.
 
 Backend selection follows `WRKSTN_PLAN.md` §3's precedent: an environment
@@ -208,9 +208,9 @@ vs. a headless scripted backend for the regression suite.
 
 - `CONSOLE` used as a record-address file (supplying key values for
   keyed processing, distinct from its plain-input-file use) needs the same
-  kind of care this compiler already gives record-address `DESIGNATION R`
+  kind of care the compiler already gives record-address `DESIGNATION R`
   files (`fspec.cpp`'s hard-error precedent for that designation) —
-  confirm whether this compiler's existing keyed-access codegen
+  confirm whether the compiler's existing keyed-access codegen
   (SETLL/CHAIN/READE) can be adapted, or whether this sub-case should stay
   a documented hard error separate from K1's general CONSOLE-as-input-file
   support.
@@ -225,7 +225,7 @@ vs. a headless scripted backend for the regression suite.
 ## 5. Open questions to resolve before starting implementation
 
 1. **Message member format** (`USER1`, referenced by `SET`'s message-number
-   path, 124278-124281) — this project has no existing "message file"
+   path, 124278-124281) — the project has no existing "message file"
    concept anywhere. Needs its own small design: a lookup file format
    (message number → text) and where it's expected relative to the source
    file, following the same "sibling file, looked up by convention" shape

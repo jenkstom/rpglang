@@ -43,6 +43,9 @@
 #include <sstream>
 #include <string>
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 // Defaults injected by CMake (see compiler/CMakeLists.txt).
 #ifndef RPGC_DEFAULT_LLC
 #define RPGC_DEFAULT_LLC "llc"
@@ -56,13 +59,49 @@
 
 namespace {
 
+bool file_exists(const std::string &path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+}
+
+// Where rpgc looks for librpgruntime.a when `--runtime` isn't given.
+//
+// RPGC_RUNTIME_LIB (baked in at configure time) is an absolute path into the
+// *build tree*, which only exists on the machine that built rpgc. Once rpgc
+// is installed elsewhere (e.g. from a .deb, at /usr/bin/rpgc) that path is
+// gone. So first look for the lib relative to the running executable itself
+// -- <prefix>/lib/rpgc/librpgruntime.a next to a <prefix>/bin/rpgc -- which is
+// exactly the layout `make install` / the Debian package produce. Only fall
+// back to the compiled-in build-tree path for uninstalled dev builds.
+std::string default_runtime_lib() {
+    char buf[4096];
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n > 0) {
+        buf[n] = '\0';
+        std::string exe(buf);
+        auto slash = exe.find_last_of('/');
+        if (slash != std::string::npos) {
+            std::string bindir = exe.substr(0, slash);
+            std::string prefix = bindir;
+            const std::string suffix = "/bin";
+            if (prefix.size() >= suffix.size() &&
+                prefix.compare(prefix.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                prefix = prefix.substr(0, prefix.size() - suffix.size());
+            }
+            std::string candidate = prefix + "/lib/rpgc/librpgruntime.a";
+            if (file_exists(candidate)) return candidate;
+        }
+    }
+    return RPGC_RUNTIME_LIB;
+}
+
 struct Options {
     std::string input_file;          // the .rpg source
     std::string output_file;         // -o ; default derived from input
     std::string emit;                // --emit-ir (LLVM IR) | --emit-asm | --emit-obj | --emit-exe (default)
     std::string llc_path   = RPGC_DEFAULT_LLC;
     std::string clang_path = RPGC_DEFAULT_CLANG;
-    std::string runtime_lib = RPGC_RUNTIME_LIB;
+    std::string runtime_lib;         // resolved lazily: see default_runtime_lib()
     bool print_version = false;
     bool print_help    = false;
     bool verbose       = false;
@@ -212,6 +251,9 @@ int main(int argc, char **argv) {
 
     if (opts.output_file.empty()) {
         opts.output_file = default_output(opts.input_file, opts.emit);
+    }
+    if (opts.runtime_lib.empty()) {
+        opts.runtime_lib = default_runtime_lib();
     }
 
     // ---- Phase 3: parse F/I/C -> codegen -> drive ---------------------------

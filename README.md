@@ -20,11 +20,15 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-Requirements (already installed for this project):
+Requirements:
 - `llvm-19-dev`, `clang-19`, `lld-19` (LLVM 19.1.7)
 - `cmake ≥ 3.16`, `gcc/g++ ≥ 13`, `make`
 
 Artifacts land in `build/bin/rpgc` and `build/lib/librpgruntime.a`.
+
+See `docs/BUILDING.md` for full build instructions, `cmake --install`, and
+building `.deb` packages for Debian/Ubuntu (`tools/build-cpack-deb.sh` /
+`tools/build-deb.sh`).
 
 ## Use
 
@@ -53,6 +57,10 @@ intermediates, `-v` for verbose tool output.
 ```
 compiler/   C++ sources + CMakeLists for rpgc
 runtime/    C sources for librpgruntime.a
+analyze/    C++ sources for rpg-analyze (static analysis CLI)
 tests/      RPG II sample programs + run_tests.sh
-docs/       ARCHITECTURE.md (indicator mapping, RPG cycle, IR design)
+docs/       ARCHITECTURE.md (indicator mapping, RPG cycle, IR design),
+            BUILDING.md (build + Debian/Ubuntu packaging)
+debian/     dpkg-buildpackage packaging metadata
+tools/      dev tooling, incl. build-deb.sh / build-cpack-deb.sh
 ```

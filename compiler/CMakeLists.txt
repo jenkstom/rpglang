@@ -72,3 +72,15 @@ target_compile_definitions(rpgc PRIVATE
     RPGC_RUNTIME_LIB="$<TARGET_FILE:rpgruntime>"
     RPGC_RUNTIME_INC="${CMAKE_SOURCE_DIR}/runtime"
 )
+
+# -----------------------------------------------------------------------------
+# Install
+#
+# RPGC_RUNTIME_LIB above is a build-tree path; it's only a fallback default.
+# At runtime, rpgc first looks for librpgruntime.a next to its own installed
+# location (see default_runtime_lib() in src/main.cpp), which is where the
+# runtime/ install() rule puts it.
+# -----------------------------------------------------------------------------
+install(TARGETS rpgc
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)

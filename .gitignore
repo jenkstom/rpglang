@@ -69,6 +69,29 @@ core.*
 compile_commands.json
 
 # -----------------------------------------------------------------------------
+# Debian/Ubuntu packaging byproducts
+# -----------------------------------------------------------------------------
+# dpkg-buildpackage / debhelper working state (debian/ *metadata* -- control,
+# changelog, rules, copyright, source/format -- stays tracked).
+debian/.debhelper/
+debian/rpg2-compiler/
+debian/tmp/
+debian/*.debhelper
+debian/*.debhelper.log
+debian/*.substvars
+debian/files
+debian/debhelper-build-stamp
+obj-*-linux-gnu*/
+# dpkg-buildpackage drops these one directory above the source tree; ignore
+# them wherever they land (e.g. if built from a sibling checkout layout).
+*.deb
+*.buildinfo
+*.changes
+*.dsc
+*.tar.xz
+build/pkg-deb/
+
+# -----------------------------------------------------------------------------
 # Editor / IDE
 # -----------------------------------------------------------------------------
 .vscode/

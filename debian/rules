@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+# Verbose CMake/make output helps debug packaging failures in CI logs.
+export DH_VERBOSE = 1
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release

@@ -1,0 +1,29 @@
+Source: rpg2-compiler
+Section: devel
+Priority: optional
+Maintainer: Tom White <tom.white@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.16),
+               llvm-19-dev,
+               clang-19,
+               lld-19
+Standards-Version: 4.6.2
+Homepage: https://gitlab.nyn.one/portfolio/rpg-compiler
+Rules-Requires-Root: no
+
+Package: rpg2-compiler
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         llvm-19,
+         clang-19
+Description: RPG II to LLVM compiler and static analyzer
+ rpgc compiles DOS/VS RPG II source into native Linux executables using
+ LLVM 19 as its backend. It covers the RPG II program cycle (file I/O,
+ control levels, subroutines), O-spec output with edit codes, the full
+ arithmetic set, arrays, indicators, and -O0..-O3 optimization. Generated
+ programs link against a small C runtime, librpgruntime.a, installed
+ alongside rpgc.
+ .
+ This package also installs rpg-analyze, a static-analysis CLI for RPG II
+ source that reuses the compiler's frontend but does not link LLVM.

@@ -1,8 +1,8 @@
 # RPG II Spec Column Map
 
 Authoritative column positions, extracted from the IBM *System/36-Compatible
-RPG II User's Guide and Reference* (SC09-1818-00), the `c0918180.pdf` shipped
-with this project. See `docs/ref/manual_layout.txt` for the raw extraction.
+RPG II User's Guide and Reference* (SC09-1818-00). See
+`docs/ref/manual_layout.txt` for the raw extraction.
 
 All positions are **1-based, inclusive**. Column 6 always holds the form type
 (`F`, `I`, `C`, `O`). Columns 1–5 are optional sequence; 60–74 comments; 75–80

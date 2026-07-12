@@ -5,8 +5,8 @@ is the canonical reference for how source constructs map to LLVM IR, with
 particular attention to **indicators** (the most unusual part of RPG semantics)
 and the **implicit RPG program cycle**.
 
-The design is staged across the five phases in `prompt.txt`; sections are
-marked **[Phase N]** to indicate when each mechanism comes online.
+The design is staged across ten phases; sections are marked **[Phase N]**
+to indicate when each mechanism comes online.
 
 ---
 
@@ -397,7 +397,7 @@ out of scope — without this, the manager destructors hit a use-after-free.
 
 ---
 
-## 8. Phase roadmap (mirrors prompt.txt)
+## 8. Phase roadmap
 
 * **Phase 1 — Environment & boilerplate** *(done)*: project skeleton, CMake +
   LLVM linkage, CLI that accepts a file, runtime stub, smoke test.

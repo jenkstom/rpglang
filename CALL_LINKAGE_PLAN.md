@@ -50,14 +50,14 @@ tracked separately in `MISC_OPCODES_PLAN.md` and `KEYBORD_PLAN.md`.
 
 ---
 
-## 1. What "call" means in this compiler's execution model
+## 1. What "call" means in the compiler's execution model
 
 This is open question 1 (§6) and the one decision everything else depends
 on. `compiler/src` compiles one RPG II source file to one LLVM module,
 linked against `runtime/rpg_runtime.c` into a single native executable
 (`docs/ARCHITECTURE.md`). There is no existing notion of "another compiled
-RPG program" as an object this compiler can reference — every prior feature
-in this project has stayed inside a single translation unit.
+RPG program" as an object the compiler can reference — every prior feature
+in the project has stayed inside a single translation unit.
 
 Two shapes are available, evaluated against the manual's actual
 requirements (multiple CALLs to the same program skip re-initialization
@@ -98,8 +98,8 @@ built later. This recommendation is not yet a decision — flag to the user
 before starting §3's implementation.
 
 **Non-RPG callees (System/36/38/AS/400 environment programs) are out of
-scope.** This compiler has no notion of "environment programs" and no
-non-RPG language front end; a `CALL` naming a program this compiler didn't
+scope.** The compiler has no notion of "environment programs" and no
+non-RPG language front end; a `CALL` naming a program the compiler didn't
 itself compile into the executable is a hard compile-time or link-time
 error, not a silent no-op.
 
@@ -131,7 +131,7 @@ exactly, since they define observable calling-convention behavior:
   independently-compiled translation units — matches real behavior, which
   is also a runtime failure).
 
-**Design implication:** every RPG value in this compiler (scalar numeric
+**Design implication:** every RPG value in the compiler (scalar numeric
 field, character field, array, DS) already has a stable global storage
 location (`SymbolTable`, `docs/ARCHITECTURE.md`) — good, "pass by address"
 is just "pass the existing global's pointer," no new storage model needed.
@@ -143,12 +143,12 @@ sites instead of one straight-line spot in the C-spec stream.
 `PLIST`/`PARM`'s attribute-checking rule ("the attributes of the
 corresponding parameter fields in the calling and called programs must be
 the same... If they are not, undesirable results may occur") is explicitly
-the manual's own words for "undefined behavior on mismatch" — this compiler
+the manual's own words for "undefined behavior on mismatch" — the compiler
 should do better where cheap: since registry dispatch (§1 option (b)) links
 all called programs into the same executable, a compile-time attribute
 check across the caller's PARM types and the callee's `*ENTRY PLIST` types
 is possible and should be a hard error rather than silent corruption,
-matching this project's consistent precedent of converting silent-wrong-
+matching the project's consistent precedent of converting silent-wrong-
 output gaps into hard errors on first implementation pass (e.g. `fspec.cpp`'s
 device and record-address-designation checks).
 
@@ -220,11 +220,11 @@ device and record-address-designation checks).
   preceding `EXIT`, same grouping-pass shape as L1's `PLIST`/`PARM`.
 - This is conceptually `CALL`+`PARM` with two differences the manual
   spells out precisely, both of which are new codegen, not reuse:
-  1. The callee is **not** RPG — this compiler has no way to *generate* an
+  1. The callee is **not** RPG — the compiler has no way to *generate* an
      "external subroutine," only to *call* one. In practice this means
      `EXIT`'s target must be an externally-linked C-ABI-compatible symbol
      (same idea as `runtime/rpg_runtime.c`'s existing extern "C" functions)
-     that the build links in separately; this compiler cannot exercise
+     that the build links in separately; the compiler cannot exercise
      `EXIT` end-to-end against a hand-written stub without a documented C
      ABI for the parameter block described next.
   2. `RLABL` passes an **extra trailing parameter**: an array (one element
@@ -232,7 +232,7 @@ device and record-address-designation checks).
      (123972-124056) — 1-byte type char (`'C'`/`'Z'`), 4-byte zoned length,
      2-byte zoned decimal count, 4-byte zoned array-element-count. `emit_exit`
      must synthesize this attribute array from the `RLABL` list's resolved
-     `FieldInfo`s (this compiler already carries length/decimals per field;
+     `FieldInfo`s (the compiler already carries length/decimals per field;
      only the zoned-encoding of these four sub-values into the array
      buffer is new).
 - Regression test: `tests/exit_rlabl.rpg` against a small hand-written C
@@ -257,7 +257,7 @@ device and record-address-designation checks).
   `*ENTRY` `PARM`'s factor-1 receiver per the manual's step 2
   (123591-123594), symmetric with L2's caller-side step-1 copy.
   "Fields specified as parameters in an *ENTRY PLIST can be used at
-  first-page (1P) time" — verify this compiler's existing 1P/first-cycle
+  first-page (1P) time" — verify the compiler's existing 1P/first-cycle
   codegen path can see `*ENTRY` parameters that early; if 1P codegen runs
   before the parameter-copy prologue currently would, the prologue needs to
   move earlier, not the rule ignored.
@@ -308,14 +308,14 @@ to exist at all.
   RPG programs without recompiling them together), (a) would need
   revisiting from scratch; that risk is accepted deliberately here to keep
   the first slice small, per the recommendation in §1.
-- **L3 (EXIT/RLABL) is the one phase this project cannot fully verify
-  end-to-end without a hand-written non-RPG stub**, since this compiler has
+- **L3 (EXIT/RLABL) is the one phase the project cannot fully verify
+  end-to-end without a hand-written non-RPG stub**, since the compiler has
   no second language front end to generate the "external subroutine" side
   itself. Budget for writing that C stub as test fixture work, not just RPG
   fixtures.
 - **Compile-time attribute checking (§2's closing paragraph) is a
   deliberate deviation from "undesirable results" (i.e. undefined
-  behavior) toward this project's established pattern of loud errors over
+  behavior) toward the project's established pattern of loud errors over
   silent corruption** — consistent with `docs/TODO.md`'s A-group fixes, but
   worth flagging since it's stricter than the real System/36 ever was.
 

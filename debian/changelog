@@ -1,0 +1,5 @@
+rpg2-compiler (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian/Ubuntu packaging: rpgc, rpg-analyze, librpgruntime.a.
+
+ -- Tom White <tom.white@gmail.com>  Sun, 12 Jul 2026 11:42:07 -0500

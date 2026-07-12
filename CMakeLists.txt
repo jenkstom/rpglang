@@ -44,6 +44,10 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Standard install layout (bin/, lib/, include/, share/doc/...); used by both
+# `cmake --install` and the Debian/CPack packaging below.
+include(GNUInstallDirs)
+
 # -----------------------------------------------------------------------------
 # Locate LLVM via llvm-config-19 (preferred), then plain llvm-config.
 # -----------------------------------------------------------------------------
@@ -111,3 +115,40 @@ set(RPGC_CLANG "${LLVM_CLANG}" CACHE STRING "Path to clang used by rpgc")
 add_subdirectory(runtime)
 add_subdirectory(compiler)
 add_subdirectory(analyze)
+
+install(FILES README.md LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/rpg2-compiler
+)
+
+# -----------------------------------------------------------------------------
+# CPack: quick `.deb` (and .tar.gz) generation straight from the build tree.
+#
+#   cmake --build build -j
+#   cd build && cpack -G DEB
+#
+# This is the fast path for a locally-built package. For a package built the
+# "Debian way" (source package, debhelper, lintian-clean), use debian/ at the
+# repo root with dpkg-buildpackage instead -- see docs/BUILDING.md.
+# -----------------------------------------------------------------------------
+set(CPACK_PACKAGE_NAME "rpg2-compiler")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_VENDOR "Tom White")
+set(CPACK_PACKAGE_CONTACT "Tom White <tom.white@gmail.com>")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "RPG II to LLVM compiler (rpgc) and static analyzer (rpg-analyze)")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README  "${CMAKE_SOURCE_DIR}/README.md")
+
+set(CPACK_GENERATOR "DEB;TGZ")
+
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Tom White <tom.white@gmail.com>")
+set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://gitlab.nyn.one/portfolio/rpg-compiler")
+# rpgc shells out to llc-19/clang-19 at runtime (paths baked in at configure
+# time from whichever llvm-config found them), so the package must depend on
+# the same LLVM 19 toolchain it was built against.
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, llvm-19 (>= ${LLVM_VERSION}), clang-19 (>= ${LLVM_VERSION})")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+
+include(CPack)

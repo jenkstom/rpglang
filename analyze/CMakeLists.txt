@@ -27,3 +27,7 @@ target_include_directories(rpg-analyze PRIVATE
 )
 
 target_link_libraries(rpg-analyze PRIVATE rpgc_parse)
+
+install(TARGETS rpg-analyze
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
