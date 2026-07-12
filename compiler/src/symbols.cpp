@@ -335,6 +335,33 @@ llvm::Value *SymbolTable::resolve_operand(const std::string &token) {
     return nullptr;   // character field used as numeric: caller's problem
 }
 
+bool SymbolTable::resolve_char_array_element(const std::string &token,
+                                             llvm::Value *&ptr, int &length) {
+    std::string an, it_tok;
+    if (!parse_array_ref(token, an, it_tok)) return false;
+    const FieldInfo *fi = info(an);
+    if (!fi || !fi->is_char_array) return false;
+
+    auto &ctx = mod_.getContext();
+    auto *i32 = llvm::Type::getInt32Ty(ctx);
+    auto *elemTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx),
+                                        (unsigned)fi->length);
+    auto *arrTy = llvm::ArrayType::get(elemTy, (unsigned)fi->array_count);
+    // Index is 1-based in RPG, same rule as resolve_operand's numeric form.
+    llvm::Value *idx;
+    if (is_integer_literal(it_tok)) {
+        idx = llvm::ConstantInt::get(i32, (uint32_t)(std::stoi(it_tok) - 1), true);
+    } else {
+        llvm::Value *fv = resolve_operand(it_tok);
+        idx = fv ? builder_.CreateSub(fv, llvm::ConstantInt::get(i32, 1, true), "idx0")
+                 : llvm::ConstantInt::get(i32, 0);
+    }
+    llvm::Value *idx0[] = {llvm::ConstantInt::get(i32, 0), idx};
+    ptr = builder_.CreateInBoundsGEP(arrTy, fi->gv, idx0, an + "_cel");
+    length = fi->length;
+    return true;
+}
+
 bool SymbolTable::resolve_char_operand(const std::string &token,
                                        llvm::Value *&ptr, int &length) {
     if (token.empty()) return false;

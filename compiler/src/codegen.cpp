@@ -679,40 +679,55 @@ public:
         return gv;
     }
 
-    /* CALL/FREE's target-name token (factor 2) is either a literal program
-     * name -- optionally `LIB/PGM` form, library segment ignored, same
-     * precedent as WRKSTN_PLAN.md §2's LIBRARY,MEMBER handling -- resolved
-     * entirely at compile time into a constant string; or a declared
-     * character field holding the name, resolved at runtime: its current
-     * bytes are blank-trimmed, upper-cased, and NUL-terminated into a
-     * shared scratch buffer via rpg_rt_field_to_cstr. (An array-element-
-     * valued name, e.g. "ARR,3", is not yet supported.) Both forms are
-     * matched case-insensitively against the registry, since
-     * create_entry_function() registers every program under its
-     * upper-cased H-spec program-id. */
-    llvm::Value *resolve_program_name_arg(const std::string &token) {
+    /* Blank-trim/upper-case/NUL-terminate `fp` (`flen` raw bytes) at runtime
+     * via rpg_rt_field_to_cstr into the shared name-scratch buffer, and
+     * return that buffer's pointer. Shared by resolve_program_name_arg's
+     * two dynamic forms (a plain character field, or a character array/
+     * table element). */
+    llvm::Value *emit_field_to_name_cstr(llvm::Value *fp, int flen) {
         using namespace llvm;
         auto &cctx = mod_->getContext();
         auto *i32 = Type::getInt32Ty(cctx);
+        auto *arrTy = ArrayType::get(Type::getInt8Ty(cctx), kNameScratchLen);
+        if (!name_scratch_) {
+            name_scratch_ = new GlobalVariable(*mod_, arrTy, /*isConstant=*/false,
+                GlobalValue::InternalLinkage, ConstantAggregateZero::get(arrTy),
+                "call_name_scratch");
+        }
+        Value *bufPtr = builder_.CreateConstInBoundsGEP2_32(
+            arrTy, name_scratch_, 0, 0, "name_buf");
+        builder_.CreateCall(field_to_cstr_fn_,
+            {fp, ConstantInt::get(i32, flen), bufPtr,
+             ConstantInt::get(i32, (int)kNameScratchLen)});
+        return bufPtr;
+    }
+
+    /* CALL/FREE's target-name token (factor 2) is one of three forms,
+     * resolved in this order:
+     *   1. a declared character field holding the name (e.g. `CALL PGMNM`)
+     *   2. a character array/table element holding the name (e.g.
+     *      `CALL PGMARR,2`)
+     *   3. a literal program name -- optionally `LIB/PGM` form, library
+     *      segment ignored, same precedent as WRKSTN_PLAN.md §2's
+     *      LIBRARY,MEMBER handling
+     * The two dynamic forms are resolved at runtime: their current bytes
+     * are blank-trimmed, upper-cased, and NUL-terminated into a shared
+     * scratch buffer via rpg_rt_field_to_cstr. All three are matched
+     * case-insensitively against the registry, since create_entry_
+     * function() registers every program under its upper-cased H-spec
+     * program-id. */
+    llvm::Value *resolve_program_name_arg(const std::string &token) {
+        using namespace llvm;
 
         if (syms_.has_field(token) && syms_.is_char_field(token)) {
             Value *fp; int flen;
-            if (syms_.resolve_char_operand(token, fp, flen)) {
-                if (!name_scratch_) {
-                    auto *arrTy = ArrayType::get(Type::getInt8Ty(cctx), kNameScratchLen);
-                    name_scratch_ = new GlobalVariable(*mod_, arrTy, /*isConstant=*/false,
-                        GlobalValue::InternalLinkage, ConstantAggregateZero::get(arrTy),
-                        "call_name_scratch");
-                }
-                auto *arrTy = ArrayType::get(Type::getInt8Ty(cctx), kNameScratchLen);
-                Value *bufPtr = builder_.CreateConstInBoundsGEP2_32(
-                    arrTy, name_scratch_, 0, 0, "name_buf");
-                builder_.CreateCall(field_to_cstr_fn_,
-                    {fp, ConstantInt::get(i32, flen), bufPtr,
-                     ConstantInt::get(i32, (int)kNameScratchLen)});
-                return bufPtr;
-            }
+            if (syms_.resolve_char_operand(token, fp, flen))
+                return emit_field_to_name_cstr(fp, flen);
         }
+        Value *fp; int flen;
+        if (syms_.resolve_char_array_element(token, fp, flen))
+            return emit_field_to_name_cstr(fp, flen);
+
         std::string raw = token;
         auto slash = raw.find_last_of('/');
         std::string pname = upper_trim(slash == std::string::npos

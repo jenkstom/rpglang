@@ -549,6 +549,23 @@ else
     bad "link_dyn: did not compile"
 fi
 
+# Array-element-valued CALL target: link_arr_caller.rpg (ACALLR) declares a
+# compile-time character array PGMARR (3 elements of 6 bytes: "XXXXXX",
+# "CALEE ", "YYYYYY") and CALLs *PGMARR,2* -- the middle element, not a
+# literal or a plain field. Exercises SymbolTable::resolve_char_array_
+# element's GEP-to-element-address path feeding the same rpg_rt_field_to_
+# cstr runtime resolution as the plain-field dynamic form above. Same
+# CALEE callee, same CA=6/CB=7 -> CR=42 expectation.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_link_arr "$ROOT/tests/link_arr_caller.rpg" "$ROOT/tests/link_callee.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_link_arr ]]; then
+    /tmp/rpgc_link_arr; got=$?
+    if [[ "$got" -eq 42 ]]; then ok "link_arr: array-element-valued CALL target, exit $got (expected 42)"
+    else bad "link_arr: exit $got (expected 42)"; fi
+    rm -f /tmp/rpgc_link_arr
+else
+    bad "link_arr: did not compile"
+fi
+
 # EXIT/RLABL calling a hand-written, non-RPG external subroutine (SUBRA in
 # exit_rlabl_stub.c): the one program-linkage op that needs a real C stub to
 # verify end-to-end, since the compiler has no second

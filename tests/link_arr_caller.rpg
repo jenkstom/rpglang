@@ -1,0 +1,15 @@
+     H                                                                    ACALLR
+     E                    PGMARR  3   3  6
+     C           PLIST1    PLIST
+     C                     PARM           CA
+     C                     PARM           CB
+     C                     PARM           CR
+     C                     Z-ADD6         CA
+     C                     Z-ADD7         CB
+     C                     Z-ADD0         CR
+     C                     CALL PGMARR,2  PLIST1       5051
+     C                     Z-ADDCR        RPGRET
+     C  50                 ADD  100       RPGRET
+     C  N51                ADD  200       RPGRET
+** 
+XXXXXXCALEE YYYYYY

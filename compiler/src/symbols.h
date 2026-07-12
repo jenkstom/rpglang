@@ -138,6 +138,16 @@ public:
     bool parse_array_ref(const std::string &token, std::string &arr_name,
                          std::string &idx_token) const;
 
+    /* Resolve an "ARRAY,INDEX" token (see parse_array_ref) to (ptr, length):
+     * the address and per-element byte width of that one element of an
+     * alphameric array/table (1-based index, literal or field-valued, same
+     * indexing rule as resolve_operand's numeric-array form). Returns false
+     * if `token` isn't an "ARR,INDEX" reference to a declared alphameric
+     * array/table. Used by CALL/FREE's array-element-valued dynamic
+     * target-name form. */
+    bool resolve_char_array_element(const std::string &token,
+                                    llvm::Value *&ptr, int &length);
+
     llvm::Value *load_field(const std::string &name);
 
     /* For a table name, return a pointer to the element selected by the
