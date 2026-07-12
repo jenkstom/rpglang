@@ -29,36 +29,38 @@
 <body>
 
   <h1>Chapter 19 — Multifile Processing</h1>
-  <p><a href="index.html">↑ Table of contents</a></p>
+  <p><a href="index.html">&uarr; Table of contents</a></p>
 
   <div class="summary-box">
-    <h2>Summary</h2>
+    <h2>In this chapter</h2>
     <p>When a program declares a primary file plus one or more secondary files,
-    RPG II runs a <strong>multifile cycle</strong> instead of the single-file
-    cycle. Each file's records are read into their own buffer, and each cycle
-    iteration selects one record to process. Files tagged with a
+    RPG&nbsp;II runs a <strong>multifile cycle</strong> instead of the
+    single-file cycle. Each file's records are read into their own buffer, and
+    each cycle iteration selects one record to process. Files tagged with a
     <strong>match field</strong> (M1 on the I-spec) are merged in ascending key
     order; the <strong>MR</strong> (matching record) indicator turns on when
-    records from different files share the same key. Files without a match
-    field are processed by priority (primary first). This chapter covers the
-    multifile cycle, match-field declaration, the MR indicator, and the
-    practical pattern of merging a primary transaction file with a secondary
-    master file.</p>
+    records from different files share the same key. Files without a match field
+    are processed by priority (primary first). This chapter covers the multifile
+    cycle, match-field declaration, the MR indicator, and the practical pattern
+    of merging a primary transaction file with a secondary master file.</p>
   </div>
 
-  <h2>Outline</h2>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.1 The "you already know" analogy</h2>
 
-  <h3>19.1 The "you already know" analogy</h3>
-  <ul class="outline">
-    <li>Multifile processing is RPG II's built-in <strong>merge join</strong>.
-      You declare two or more files, tag a shared key field with M1 in each,
-      and the cycle merges them by key — like SQL's
-      <code>SELECT ... FROM primary JOIN secondary ON primary.key =
-      secondary.key</code>, or like a merge-join algorithm.</li>
-    <li>The MR indicator tells you "this record from file A has a matching
-      record currently held from file B" — like detecting that a join
-      condition is satisfied for the current row.</li>
-  </ul>
+  <p>The single-file cycle (see <a href="03-program-cycle.html">Chapter&nbsp;3</a>)
+  reads one file for you. Multifile processing extends that to several files at
+  once, merging them by a shared key under the cycle's control.</p>
+
+  <div class="callout">
+    <p><strong>This is familiar ground.</strong> Multifile processing is RPG&nbsp;II's
+    built-in <strong>merge join</strong>. You declare two or more files, tag a
+    shared key field with M1 in each, and the cycle merges them by key &mdash;
+    like SQL's <code>SELECT &hellip; FROM primary JOIN secondary ON
+    primary.key = secondary.key</code>, or a merge-join algorithm. The MR
+    indicator tells you "this record's key matches a record currently held from
+    another file" &mdash; the join condition's boolean result.</p>
+  </div>
 
   <!-- SVG: Multifile merge -->
   <div class="svg-container">
@@ -87,7 +89,7 @@
       <text x="330" y="155" text-anchor="middle" font-size="9" fill="#565f89">Two records,</text>
       <text x="330" y="170" text-anchor="middle" font-size="9" fill="#565f89">keys 2, 4</text>
       <text x="330" y="195" text-anchor="middle" font-size="9" fill="#565f89">priority: lower</text>
-      <text x="330" y="210" text-anchor="middle" font-size="9" fill="#565f89">(tied keys → primary</text>
+      <text x="330" y="210" text-anchor="middle" font-size="9" fill="#565f89">(tied keys &rarr; primary</text>
       <text x="330" y="222" text-anchor="middle" font-size="9" fill="#565f89">processed first)</text>
 
       <!-- Merged output -->
@@ -116,10 +118,10 @@
 
       <!-- Summary -->
       <text x="630" y="220" text-anchor="middle" font-size="10" font-weight="bold" fill="#9ece6a">Result:</text>
-      <text x="630" y="238" text-anchor="middle" font-size="10" fill="#c0caf5">MR on for records 2 &amp; 3 (both key=2)</text>
-      <text x="630" y="255" text-anchor="middle" font-size="10" fill="#c0caf5">Record 1 (P only): ADD VAL = 10</text>
-      <text x="630" y="272" text-anchor="middle" font-size="10" fill="#c0caf5">Record 3 (S, MR): ADD 1 for match</text>
-      <text x="630" y="289" text-anchor="middle" font-size="10" fill="#c0caf5">Total = 10 + 20 + 1 + 30 + 5 = 66</text>
+      <text x="630" y="238" text-anchor="middle" font-size="10" fill="#c0caf5">MR on for the matched key=2 pair</text>
+      <text x="630" y="255" text-anchor="middle" font-size="10" fill="#c0caf5">ind01: primary VALs 10+20+30 = 60</text>
+      <text x="630" y="272" text-anchor="middle" font-size="10" fill="#c0caf5">ind02: secondary SVALs 5+5 = 10</text>
+      <text x="630" y="289" text-anchor="middle" font-size="10" fill="#c0caf5">MR match: +1 &rArr; total 71</text>
 
       <!-- Arrows -->
       <line x1="210" y1="120" x2="480" y2="100" stroke="#7dcfff" stroke-width="1.5" stroke-dasharray="3 2"/>
@@ -127,94 +129,256 @@
     </svg>
   </div>
 
-  <h3>19.2 Declaring primary and secondary files</h3>
-  <ul class="outline">
-    <li>One file is declared <strong>primary</strong> (designation
-      <code>P</code> in F-spec col 16); additional input files are declared
-      <strong>secondary</strong> (designation <code>S</code>).</li>
-    <li>When the cycle detects multiple input files, it switches from the
-      single-file cycle to the multifile cycle.</li>
-    <li>Each file gets its own record buffer. Only the selected record's fields
-      are extracted per iteration.</li>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.2 Primary and secondary files</h2>
+
+  <p>The single-file cycle has one input file that the cycle reads automatically.
+  As soon as you add a second input file, the cycle switches to multifile mode.
+  You mark one file <strong>primary</strong> (designation <code>P</code> at
+  F-spec col&nbsp;16) and the rest <strong>secondary</strong> (designation
+  <code>S</code>). The F-specs are otherwise ordinary &mdash; input, fixed
+  format, on DISK:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FMRPRIM  IP  F    80              DISK
+     FMRSEC   IS  F    80              DISK
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FMRPRIM  IP  F    80              DISK                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FMRSEC   IS  F    80              DISK                                     </text>
+  </svg>
+  </div>
+
+  <p>The only difference between these two lines is col&nbsp;16:
+  <code>P</code> for <code>MRPRIM</code>, <code>S</code> for
+  <code>MRSEC</code>. Each file gets its own record buffer; on each cycle
+  iteration only the selected record's fields are extracted.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.3 Match fields (M1)</h2>
+
+  <p>To merge files by key, tag the key field in <em>each</em> file with
+  <strong>M1</strong> on its I-spec line (cols&nbsp;61&ndash;62). This marks it
+  as a match field. The cycle then compares M1 values across files and processes
+  records in ascending key order; ties (the same key in several files) are
+  resolved by priority &mdash; primary first, then secondaries in F-spec order.
+  For both files here the key occupies positions&nbsp;1&ndash;2:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     IMRPRIM      01
+     I                                        1   20KEY     M1
+     I                                        3   40VAL
+     IMRSEC       02
+     I                                        1   20SKEY    M1
+     I                                        3   40SVAL
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 148" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="148" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     IMRPRIM      01                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   20KEY     M1                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        3   40VAL                         </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     IMRSEC       02                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   20SKEY    M1                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        3   40SVAL                        </text>
+  </svg>
+  </div>
+
+  <p>The match-field code <code>M1</code> sits at cols&nbsp;61&ndash;62, just to
+  the right of the field name (cols&nbsp;53&ndash;58). <code>KEY</code> in the
+  primary and <code>SKEY</code> in the secondary are both M1, so the cycle
+  compares them to decide merge order and matching. The value fields
+  (<code>VAL</code>, <code>SVAL</code>) at positions&nbsp;3&ndash;4 carry no
+  match code &mdash; only the join key does.</p>
+
+  <blockquote>
+    <p><strong>Match field vs control level.</strong> Both M1 (cols&nbsp;61&ndash;62)
+    and L1&ndash;L9 (cols&nbsp;59&ndash;60) are markings on an I-spec field line,
+    and they sit right next to each other. They are unrelated: an
+    <strong>L</strong>-level detects a change <em>within one file</em> for
+    subtotal breaks (see <a href="14-control-levels.html">Chapter&nbsp;15</a>);
+    an <strong>M</strong>-field declares the join key <em>across files</em> for
+    merging. A field can carry either or both.</p>
+  </blockquote>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.4 The MR indicator</h2>
+
+  <p>When the selected record's M1 key equals a record currently held from
+  another file, the <strong>MR</strong> indicator turns ON for that iteration.
+  This lets you write calcs that fire only when a match exists between files
+  &mdash; "if this primary transaction has a matching secondary master record,
+  enrich it." MR is the join condition's boolean result:
+  <code>if (join_matched) { &hellip; }</code>.</p>
+
+  <p>MR is written as a conditioning indicator exactly like a numbered one, but
+  with the letters <code>MR</code> in cols&nbsp;9&ndash;10:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  MR                 ADD  1         RPGRET
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 58" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="58" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  MR                 ADD  1         RPGRET                                </text>
+  </svg>
+  </div>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.5 Record-identifying indicators — routing by source</h2>
+
+  <p>Each file has a record-identifying indicator, declared in cols&nbsp;19&ndash;20
+  of its I-spec record-identification line (see
+  <a href="08-input-specs.html">Chapter&nbsp;8</a>). When a record from a
+  particular file is selected, that file's indicator turns ON for the iteration.
+  This lets you condition a calc on <em>which file</em> the current record came
+  from:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C  01                 ADD  VAL       RPGRET
+     C  02                 ADD  SVAL      RPGRET
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  01                 ADD  VAL       RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  02                 ADD  SVAL      RPGRET                                </text>
+  </svg>
+  </div>
+
+  <p>The first line is conditioned on indicator&nbsp;01 (cols&nbsp;9&ndash;10)
+  &mdash; it runs only when a primary record is selected, adding its
+  <code>VAL</code>. The second, conditioned on indicator&nbsp;02, runs only for
+  a secondary record, adding its <code>SVAL</code>. Same result field,
+  different source, gated entirely by the record-identifying indicator.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.6 How the multifile cycle selects records</h2>
+
+  <p>Each file holds its "current" record in its own buffer. Each iteration the
+  cycle selects one record to process:</p>
+
+  <ul>
+    <li><strong>Among M1 files:</strong> the record with the lowest key wins;
+      ties go to the primary first, then secondaries in F-spec order.</li>
+    <li><strong>Among non-M1 files:</strong> the primary is exhausted fully
+      first, then secondaries in order &mdash; no key-based merging.</li>
   </ul>
 
-  <h3>19.3 Match fields (M1)</h3>
-  <ul class="outline">
-    <li>To merge files by key, tag the key field in each file with
-      <strong>M1</strong> on the I-spec (cols 61–62). This marks it as a match
-      field.</li>
-    <li>The cycle compares M1 values across files. Files with M1 are processed
-      in ascending key order; ties (same key in multiple files) are resolved by
-      priority — primary first, then secondaries in F-spec order.</li>
-    <li>Files <em>without</em> an M1 field are processed by priority alone
-      (primary fully, then secondaries in order) — no key-based merging.</li>
-  </ul>
+  <p>The selected record is copied into the shared input buffer and only that
+  file's fields are decoded. The rest of the cycle (total/detail calc and
+  output) is identical to the single-file path.</p>
 
-  <h3>19.4 The MR indicator</h3>
-  <ul class="outline">
-    <li>When the selected record's M1 key equals another held record's M1 key,
-      the <strong>MR</strong> indicator turns ON for that iteration.</li>
-    <li>This lets you write calcs that fire only when a match exists between
-      files — e.g. "if MR is on, look up the secondary record's value and
-      combine it with the primary's."</li>
-    <li>The analogy: MR is the join condition's boolean result —
-      <code>if (join_matched) { ... }</code>.</li>
-  </ul>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.7 A complete multifile merge</h2>
 
-  <h3>19.5 Record-identifying indicators</h3>
-  <ul class="outline">
-    <li>Each file has a record-identifying indicator (I-spec cols 19–20).
-      When a record from a particular file is selected, that file's indicator
-      turns ON for the iteration. This lets you condition calcs on "which file
-      this record came from."</li>
-    <li>Example: indicator 01 for primary, 02 for secondary.
-      <code>01 ADD VAL RPGRET</code> adds only when the primary record is
-      selected; <code>02 ADD SVAL RPGRET</code> adds only for secondary.</li>
-  </ul>
+  <p>Here is the whole program. A primary transaction file
+  <code>MRPRIM</code> (keys 1, 2, 3; values 10, 20, 30) is merged with a
+  secondary master file <code>MRSEC</code> (keys 2, 4; values 5, 5). Record
+  indicators 01 and 02 route each record's value into the running total, and MR
+  adds 1 whenever a match occurs:</p>
 
-  <h3>19.6 How the multifile cycle selects records</h3>
-  <ul class="outline">
-    <li>Each file holds its "current" record in its own buffer (with a
-      got/valid flag).</li>
-    <li>Each iteration, the cycle selects one record to process:
-      <ul>
-        <li>Among M1 files: the record with the lowest key (ties → primary
-          first).</li>
-        <li>Among non-M1 files: the primary is fully exhausted first, then
-          secondaries in order.</li>
-      </ul>
-    </li>
-    <li>The selected record is copied into the shared input buffer, and only
-      that file's fields are decoded. The rest of the cycle (total/detail calc
-      and output) is identical to the single-file path.</li>
-  </ul>
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FMRPRIM  IP  F    80              DISK
+     FMRSEC   IS  F    80              DISK
+     IMRPRIM      01
+     I                                        1   20KEY     M1
+     I                                        3   40VAL
+     IMRSEC       02
+     I                                        1   20SKEY    M1
+     I                                        3   40SVAL
+     C  01                 ADD  VAL       RPGRET
+     C  02                 ADD  SVAL      RPGRET
+     C  MR                 ADD  1         RPGRET
+     CLR                   SETOF
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 256" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="256" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FMRPRIM  IP  F    80              DISK                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FMRSEC   IS  F    80              DISK                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     IMRPRIM      01                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   20KEY     M1                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        3   40VAL                         </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     IMRSEC       02                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="142" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   20SKEY    M1                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="160" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        3   40SVAL                        </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="178" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  01                 ADD  VAL       RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="196" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  02                 ADD  SVAL      RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="214" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  MR                 ADD  1         RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="232" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     CLR                   SETOF                                                </text>
+  </svg>
+  </div>
 
-  <h3>19.7 Look-ahead fields</h3>
-  <ul class="outline">
-    <li>In the multifile cycle, look-ahead fields (I-spec <code>**</code>
-      lines) peek at the <em>next</em> uncommitted record from a file. This is
-      how the cycle knows whether a match will occur on the next iteration.
-      At EOF, look-ahead fields fill with 9s.</li>
-  </ul>
+  <p>The cycle merges the two files by M1 key in this order:</p>
 
-  <h2>What to write into this chapter</h2>
-  <ul class="outline">
-    <li>Include the multifile merge SVG as the central diagram.</li>
-    <li>Show a complete example: primary transaction file merged with a
-      secondary master file by customer-ID key, using MR to enrich
-      transactions with master data.</li>
-    <li>Explain the selection algorithm with a step-by-step trace.</li>
-    <li>Show how record-identifying indicators (01, 02) route processing by
-      source file.</li>
-    <li>Cross-reference <a href="03-program-cycle.html">Chapter 3</a> (the
-      single-file cycle as the baseline) and
-      <a href="08-input-specs.html">Chapter 8</a> (I-spec match-field
-      assignment).</li>
-  </ul>
+  <ol>
+    <li><strong>key=1 (P, VAL=10)</strong>: indicator&nbsp;01 fires, RPGRET
+      += 10 = 10. No secondary record has key 1, so MR is off.</li>
+    <li><strong>key=2 (P, VAL=20)</strong>: indicator&nbsp;01 fires, RPGRET
+      += 20 = 30. The secondary holds key&nbsp;2 &mdash; a match &mdash; so MR
+      fires, RPGRET += 1 = 31.</li>
+    <li><strong>key=2 (S, SVAL=5)</strong>: indicator&nbsp;02 fires, RPGRET
+      += 5 = 36.</li>
+    <li><strong>key=3 (P, VAL=30)</strong>: indicator&nbsp;01 fires, RPGRET
+      += 30 = 66. MR off (no secondary key 3).</li>
+    <li><strong>key=4 (S, SVAL=5)</strong>: indicator&nbsp;02 fires, RPGRET
+      += 5 = 71. MR off.</li>
+  </ol>
+
+  <p>Tally: the primary VALs (10+20+30 = 60) plus the secondary SVALs (5+5 = 10)
+  plus one MR match (+1) gives <code>RPGRET</code> = 71. One program, two files,
+  one merge &mdash; with no explicit loop, no key comparison, and no
+  <code>JOIN</code> keyword in your code. The cycle and the M1 markings did all
+  of it.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>19.8 Look-ahead fields</h2>
+
+  <p>To merge correctly, the cycle must sometimes peek at the <em>next</em>
+  uncommitted record from a file before deciding which record to select this
+  iteration. That peek uses <strong>look-ahead fields</strong>, declared under
+  an I-spec line whose record-identification columns (19&ndash;20) hold
+  <code>**</code>. Look-ahead fields read the next record's bytes without
+  advancing the main cursor; at end-of-file they fill with 9s. You rarely write
+  look-ahead fields yourself &mdash; the cycle uses them internally to drive the
+  match &mdash; but they are how it knows whether a match will occur on the
+  coming iteration.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>What's next</h2>
+
+  <p>Multifile processing completes the tour of RPG&nbsp;II's advanced features.
+  Across Part&nbsp;V you have seen control-level report breaks, arrays and
+  tables, output formatting, explicit file access, and multifile merging. Taken
+  together with the foundations of Parts&nbsp;I&ndash;IV, this is the full
+  vocabulary of the language. The rest is practice &mdash; combining these
+  mechanisms to read files, group data, look up values, and produce the reports
+  that RPG&nbsp;II was designed to make easy.</p>
+
+  <p>Return to the <a href="index.html">table of contents</a> to revisit any
+  chapter.</p>
 
   <div class="nav">
-    <a href="18-file-access.html">← Chapter 18: File Access</a>
-    <a href="index.html">↑ Table of contents</a>
+    <a href="18-file-access.html">&larr; Chapter 18: File Access</a>
+    <a href="index.html">&uarr; Table of contents</a>
   </div>
 
 </body>

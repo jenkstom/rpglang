@@ -29,39 +29,46 @@
 <body>
 
   <h1>Chapter 16 — Arrays and Tables</h1>
-  <p><a href="index.html">↑ Table of contents</a></p>
+  <p><a href="index.html">&uarr; Table of contents</a></p>
 
   <div class="summary-box">
-    <h2>Summary</h2>
-    <p>RPG II supports fixed-size arrays and a special "table" abstraction via
-    the E-spec (Extension specification). Arrays are declared with a name,
-    element count, element length, and decimal positions; they can be loaded
-    with <strong>compile-time data</strong> (appended after the source) or
-    <strong>prerun-time data</strong> (loaded from a file at startup). Element
-    access uses <code>ARRAY,INDEX</code> syntax (1-based). Tables are arrays
-    with a hidden "current element" pointer — <code>LOKUP</code> advances the
-    pointer to the matched element, and a related table advances in lockstep.
-    Operations include <code>XFOOT</code> (sum all elements) and
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II supports fixed-size arrays and a special "table" abstraction,
+    both declared with the E-spec (Extension specification). Arrays are declared
+    with a name, element count, element length, and decimal positions; they can
+    be loaded with <strong>compile-time data</strong> (appended after the source)
+    or <strong>prerun-time data</strong> (loaded from a file at startup).
+    Element access uses <code>ARRAY,INDEX</code> syntax (1-based). Tables are
+    arrays with a hidden "current element" pointer &mdash; <code>LOKUP</code>
+    advances the pointer to the matched element, and a related table advances
+    in lockstep. Operations include <code>XFOOT</code> (sum all elements) and
     <code>LOKUP</code> (search for a value). This chapter covers the E-spec,
-    data loading, element access, tables vs arrays, and search/sum
-    operations.</p>
+    data loading, element access, tables vs arrays, and search/sum operations.</p>
   </div>
 
-  <h2>Outline</h2>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.1 The "you already know" analogy</h2>
 
-  <h3>16.1 The "you already know" analogy</h3>
-  <ul class="outline">
-    <li>An RPG II array is a fixed-size array of numeric values — like
-      <code>int[] values = new int[5];</code>. You can't resize it or append
-      to it.</li>
-    <li>An RPG II <em>table</em> is like an array with an implicit iterator —
-      <code>LOKUP</code> is like <code>find()</code> that not only returns
-      whether a match exists but also positions the "current element" pointer
-      at the match, similar to a database cursor.</li>
-    <li>Related tables that advance in lockstep are like a pair of parallel
-      arrays or a dictionary/map: look up a key in one, get the corresponding
-      value from the other.</li>
-  </ul>
+  <p>An RPG&nbsp;II array is a fixed-size array of numeric values &mdash; like
+  <code>int[] values = new int[5];</code>. You cannot resize it or append to
+  it; its size is fixed at compile time. An RPG&nbsp;II <em>table</em> is an
+  array with an implicit iterator: <code>LOKUP</code> is like
+  <code>find()</code> that not only tells you whether a match exists but also
+  positions the "current element" pointer at it, like a database cursor.</p>
+
+  <div class="callout">
+    <p><strong>This is familiar ground.</strong> An array is the ordinary indexed
+    collection you know. A table is that same collection plus a hidden
+    <em>current-element</em> cursor that <code>LOKUP</code> moves. And a pair of
+    related tables that advance in lockstep is just a dictionary / map: look up
+    a key in one, read the matching value from the other.</p>
+  </div>
+
+  <p>One detail surprises modern programmers: there is no separate "declare"
+  syntax and "populate" syntax in the C-specs. The E-spec line declares the
+  array, and its initial values come from <em>data lines</em> at the bottom of
+  the source (compile-time) or from a file (prerun-time) &mdash; the same
+  record-oriented thinking as the rest of RPG&nbsp;II.</p>
 
   <!-- SVG: Array vs Table -->
   <div class="svg-container">
@@ -84,17 +91,17 @@
       <rect x="240" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="265" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">50</text>
       <text x="242" y="88" font-size="8" fill="#565f89">5</text>
 
-      <text x="40" y="150" font-size="10" fill="#7dcfff">Access: NUMS,3 → 30</text>
+      <text x="40" y="150" font-size="10" fill="#7dcfff">Access: NUMS,3 &rarr; 30</text>
       <rect x="140" y="138" width="50" height="30" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
       <text x="165" y="158" text-anchor="middle" font-size="12" fill="#ff9e64">30</text>
 
-      <text x="40" y="190" font-size="10" fill="#7dcfff">XFOOT NUMS → 150</text>
+      <text x="40" y="190" font-size="10" fill="#7dcfff">XFOOT NUMS &rarr; 150</text>
       <rect x="40" y="200" width="250" height="20" fill="#24283b" stroke="#7dcfff"/>
       <text x="165" y="215" text-anchor="middle" font-size="10" fill="#7dcfff">sum of all elements = 150</text>
 
       <text x="40" y="250" font-size="10" fill="#565f89">Index always specified explicitly:</text>
       <text x="40" y="265" font-family="monospace" font-size="11" fill="#9ece6a">     C    NUMS,3   ADD 5   RESULT</text>
-      <text x="40" y="290" font-size="9" fill="#565f89">NUMS[3] + 5 = 35 → RESULT</text>
+      <text x="40" y="290" font-size="9" fill="#565f89">NUMS[3] + 5 = 35 &rarr; RESULT</text>
       <text x="40" y="310" font-size="9" fill="#565f89">(1-based index, not 0-based)</text>
 
       <!-- Table -->
@@ -105,127 +112,348 @@
       <rect x="440" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="465" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">10</text>
       <rect x="490" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="515" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">20</text>
       <rect x="540" y="95" width="50" height="30" fill="#2a1f2e" stroke="#ff9e64" stroke-width="3"/><text x="565" y="115" text-anchor="middle" font-size="12" fill="#ff9e64">30</text>
-      <text x="555" y="88" font-size="9" fill="#ff9e64">← current</text>
+      <text x="555" y="88" font-size="9" fill="#ff9e64">&larr; current</text>
       <rect x="590" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="615" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">40</text>
       <rect x="640" y="95" width="50" height="30" fill="#24283b" stroke="#9ece6a"/><text x="665" y="115" text-anchor="middle" font-size="12" fill="#9ece6a">50</text>
 
-      <text x="440" y="150" font-size="10" fill="#ff9e64">LOKUP 30 → finds elem 3, sets pointer</text>
-      <text x="440" y="165" font-size="10" fill="#7dcfff">Bare name → current element = 30</text>
+      <text x="440" y="150" font-size="10" fill="#ff9e64">LOKUP 30 &rarr; finds elem 3, sets pointer</text>
+      <text x="440" y="165" font-size="10" fill="#7dcfff">Bare name &rarr; current element = 30</text>
 
       <text x="440" y="195" font-size="10" fill="#565f89">Related table advances in lockstep:</text>
-      <text x="440" y="212" font-size="10" fill="#565f89">TABVAL = [Jan, Feb, Mar, Apr, May]</text>
-      <rect x="440" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="465" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">Jan</text>
-      <rect x="490" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="515" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">Feb</text>
-      <rect x="540" y="220" width="50" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="3"/><text x="565" y="237" text-anchor="middle" font-size="10" fill="#ff9e64">Mar</text>
-      <rect x="590" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="615" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">Apr</text>
-      <rect x="640" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="665" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">May</text>
+      <text x="440" y="212" font-size="10" fill="#565f89">TABVAL = [100, 200, 300]</text>
+      <rect x="440" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="465" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">100</text>
+      <rect x="490" y="220" width="50" height="24" fill="#2a1f2e" stroke="#ff9e64" stroke-width="3"/><text x="515" y="237" text-anchor="middle" font-size="10" fill="#ff9e64">200</text>
+      <rect x="540" y="220" width="50" height="24" fill="#24283b" stroke="#565f89"/><text x="565" y="237" text-anchor="middle" font-size="10" fill="#9ece6a">300</text>
 
-      <text x="440" y="270" font-size="9" fill="#565f89">After LOKUP 30 in TABKEY →</text>
-      <text x="440" y="285" font-size="9" fill="#565f89">TABVAL also points to "Mar"</text>
-      <text x="440" y="305" font-size="9" fill="#ff9e64">Like a dictionary lookup: key→value</text>
+      <text x="440" y="270" font-size="9" fill="#565f89">After LOKUP 30 in TABKEY &rarr;</text>
+      <text x="440" y="285" font-size="9" fill="#565f89">TABVAL also points to 200</text>
+      <text x="440" y="305" font-size="9" fill="#ff9e64">Like a dictionary lookup: key&rarr;value</text>
     </svg>
   </div>
 
-  <h3>16.2 The E-spec (Extension specification)</h3>
-  <ul class="outline">
-    <li>The E-spec declares arrays and tables. Key columns:
-      <ul>
-        <li><strong>Name</strong> (cols 27–32) — the array/table name. Names
-          starting with <code>TAB</code> are treated as tables; others are
-          arrays.</li>
-        <li><strong>Number of entries</strong> (cols 36–39) — element count.</li>
-        <li><strong>Entry length</strong> (cols 40–42) — digits per element.</li>
-        <li><strong>Decimals</strong> (col 44) — decimal positions per
-          element.</li>
-        <li><strong>Prerun-time filename</strong> (cols 11–18) — if present,
-          load from this file at startup instead of compile-time data.</li>
-        <li><strong>Alternating/related table</strong> (cols 46–57) — partner
-          table name and its length/decimals.</li>
-      </ul>
-    </li>
-  </ul>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.2 The E-spec (Extension specification)</h2>
 
-  <h3>16.3 Compile-time data</h3>
-  <ul class="outline">
-    <li>Compile-time array data appears after the source code, introduced by a
-      <code>**</code> record:</li>
-  </ul>
-  <pre><code>** 
-1020304050</code></pre>
-  <ul class="outline">
-    <li>The data is packed — elements are concatenated without delimiters.
-      For 5 elements of length 5, the data line <code>1020304050</code> holds
-      all five values.</li>
-    <li>This data is baked into the compiled program at build time.</li>
-  </ul>
+  <p>Arrays and tables are both declared on E-spec lines (column&nbsp;6 =
+  <code>E</code>). The only thing that distinguishes a <em>table</em> from an
+  <em>array</em> is the name: a name beginning with <code>TAB</code> denotes a
+  table (and so gets the hidden current-element pointer); anything else is an
+  ordinary array. The E-spec columns are:</p>
 
-  <h3>16.4 Prerun-time data</h3>
-  <ul class="outline">
-    <li>If the E-spec specifies a filename in cols 11–18, the array is loaded
-      from that file at program startup — before the cycle runs.</li>
-    <li>Useful when the data changes between runs but shouldn't require
-      recompilation.</li>
-  </ul>
+  <table>
+    <tr><th>Field</th><th>Cols</th><th>Description</th></tr>
+    <tr><td>Prerun-time filename</td><td>11&ndash;18</td><td>If present, load the array from this file at startup instead of compile-time data</td></tr>
+    <tr><td>Array/table name</td><td>27&ndash;32</td><td>The name. <code>TAB</code>-prefixed &rArr; table (has a current-element pointer)</td></tr>
+    <tr><td>Entries per record</td><td>33&ndash;35</td><td>How many elements appear on one compile-time/prerun-time data record</td></tr>
+    <tr><td>Number of entries</td><td>36&ndash;39</td><td>Total element count</td></tr>
+    <tr><td>Entry length</td><td>40&ndash;42</td><td>Digits (or characters) per element</td></tr>
+    <tr><td>Decimal positions</td><td>44</td><td>0&ndash;9 for numeric; blank for alphanumeric</td></tr>
+    <tr><td>Sequence</td><td>45</td><td><code>A</code> = ascending, <code>D</code> = descending, blank = unsorted</td></tr>
+    <tr><td>Alternating partner name</td><td>46&ndash;51</td><td>A second array/table whose elements interleave with this one</td></tr>
+    <tr><td>Partner entry length</td><td>52&ndash;54</td><td>Element length of the partner</td></tr>
+    <tr><td>Partner decimals</td><td>56</td><td>Decimal positions of the partner</td></tr>
+    <tr><td>Partner sequence</td><td>57</td><td><code>A</code>/<code>D</code> for the partner</td></tr>
+  </table>
 
-  <h3>16.5 Element access: ARRAY,INDEX</h3>
-  <ul class="outline">
-    <li>In any factor or result field, write <code>ARRAY,INDEX</code> to access
-      a specific element. The index is <strong>1-based</strong>.</li>
-    <li>Example: <code>NUMS,3</code> = the third element of NUMS. The index
-      can be a field name or a literal.</li>
-    <li>For tables, a <em>bare</em> name (no <code>,INDEX</code>) resolves to
-      the current (shadow-selected) element. <code>TABNUM,3</code> still works
-      as an explicit array-style reference.</li>
-  </ul>
+  <p>A five-element numeric array <code>NUMS</code>, two digits per element,
+  zero decimals, illustrates the layout:</p>
 
-  <h3>16.6 XFOOT — sum an array</h3>
-  <ul class="outline">
-    <li><code>XFOOT NUMS RESULT</code> sums all elements of the array into the
-      result field. The analogy: <code>result = sum(nums)</code> or
-      <code>nums.Sum()</code>.</li>
-    <li>Sets resulting indicators (HI/LO/EQ) based on the sign of the sum.</li>
-  </ul>
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     E                    NUMS    5   5  2 0
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 58" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="58" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     E                    NUMS    5   5  2 0                                    </text>
+  </svg>
+  </div>
 
-  <h3>16.7 LOKUP — search an array or table</h3>
-  <ul class="outline">
-    <li><code>LOKUP KEY ARRAY INDEX</code> searches the array for a value
-      matching factor 1. Sets resulting indicators:
-      <ul>
-        <li>EQ — exact match found.</li>
-        <li>HI — a higher element found.</li>
-        <li>LO — a lower element found.</li>
-      </ul>
-    </li>
-    <li>On a match, the index variable is updated to the matched position.</li>
-    <li>For tables, <code>LOKUP</code> on a bare table name advances the
-      hidden current-element pointer to the match. A related table named in
-      the result field advances in lockstep.</li>
-    <li>The analogy: <code>indexOf()</code> / <code>find()</code> / binary
-      search, depending on the table's sequence flag.</li>
-  </ul>
+  <p>Read the columns: <code>NUMS</code> at cols&nbsp;27&ndash;30 (the name);
+  <code>5</code> at col&nbsp;35 (5 entries per data record);
+  <code>5</code> at col&nbsp;39 (5 entries total);
+  <code>2</code> at col&nbsp;42 (2 digits per element);
+  <code>0</code> at col&nbsp;44 (0 decimal places).</p>
 
-  <h3>16.8 MOVEA — bulk transfer</h3>
-  <ul class="outline">
-    <li><code>MOVEA</code> copies bytes between an array and a field (or two
-      fields) as a flat byte sequence. See
-      <a href="13-field-operations.html">Chapter 14</a>.</li>
-  </ul>
+  <div class="callout">
+    <p><strong>Watch the columns.</strong> Cols&nbsp;33&ndash;35 (entries per
+    record), 36&ndash;39 (total entries), 40&ndash;42 (entry length) and 44
+    (decimals) are narrow and adjacent. The fragment
+    <code>&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;2&nbsp;0</code> is
+    <em>five distinct numbers</em> &mdash; 5&nbsp;per&nbsp;record, 5&nbsp;total,
+    length&nbsp;2, decimals&nbsp;0 &mdash; not one big number. Anchor every value
+    to the ruler.</p>
+  </div>
 
-  <h2>What to write into this chapter</h2>
-  <ul class="outline">
-    <li>Include the array-vs-table SVG as the central diagram.</li>
-    <li>Show a compile-time array with XFOOT.</li>
-    <li>Show a prerun-time array loaded from a file.</li>
-    <li>Show a table LOKUP with a related table advancing in lockstep (e.g.
-      month-number → month-name lookup).</li>
-    <li>Include an E-spec column reference table.</li>
-    <li>Cross-reference <a href="13-field-operations.html">Chapter 14</a> for
-      MOVEA.</li>
-  </ul>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.3 Compile-time data</h2>
+
+  <p>Compile-time array data appears <em>after</em> the source code, introduced
+  by a <code>**</code> record (an asterisk-asterisk in cols&nbsp;1&ndash;2,
+  followed by a space). The data is <strong>packed</strong>: elements are
+  concatenated without delimiters, each exactly <em>entry-length</em> digits
+  wide:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     E                    NUMS    5   5  2 0
+     C                     XFOOTNUMS      RPGRET
+**
+1020304050
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 112" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="112" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     E                    NUMS    5   5  2 0                                    </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     XFOOTNUMS      RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">**                                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">1020304050                                                                      </text>
+  </svg>
+  </div>
+
+  <p>Here <code>NUMS</code> has 5 entries of 2 digits, so the data line
+  <code>1020304050</code> (10 digits) holds all five values: 10, 20, 30, 40, 50.
+  This data is baked into the compiled program at build time. The
+  <code>**</code> line introduces the first compile-time array; if you had a
+  second one, another <code>**</code> line would introduce it, and so on.</p>
+
+  <p>The complete program sums the array with <code>XFOOT</code> and leaves the
+  result in <code>RPGRET</code> (which the runtime returns as the program's exit
+  code):</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     E                    NUMS    5   5  2 0
+     C                     XFOOTNUMS      RPGRET
+**
+1020304050
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 112" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="112" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     E                    NUMS    5   5  2 0                                    </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     XFOOTNUMS      RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">**                                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">1020304050                                                                      </text>
+  </svg>
+  </div>
+
+  <p><code>XFOOT</code> (cols&nbsp;28&ndash;32) sums every element of the array
+  named in factor&nbsp;2 (<code>NUMS</code>, cols&nbsp;33&ndash;36) into the
+  result field (<code>RPGRET</code>, cols&nbsp;43&ndash;48). 10+20+30+40+50 =
+  150.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.4 Prerun-time data</h2>
+
+  <p>If the E-spec names a file in cols&nbsp;11&ndash;18, the array is loaded
+  from that file at program startup &mdash; before the cycle runs. Use this when
+  the data changes between runs but should not require recompilation. A
+  three-element array <code>PARR</code> loaded from the file
+  <code>PDATA</code>:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     E    PDATA           PARR        3  2 0
+     C                     XFOOTPARR      RPGRET
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     E    PDATA           PARR        3  2 0                                    </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     XFOOTPARR      RPGRET                                </text>
+  </svg>
+  </div>
+
+  <p><code>PDATA</code> sits at cols&nbsp;11&ndash;15 (the prerun-time filename).
+  <code>PARR</code> is the array name at cols&nbsp;27&ndash;30. There is no
+  "entries per record" value (col&nbsp;35 blank) and no <code>**</code> data in
+  the source &mdash; the values come from the file. The data file
+  <code>PDATA</code> contains the packed elements exactly as compile-time data
+  would:</p>
+
+  <pre><code>102030</code></pre>
+
+  <p>Three 2-digit elements: 10, 20, 30. <code>XFOOT</code> sums them to 60.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.5 Element access: ARRAY,INDEX</h2>
+
+  <p>In any factor or result field, write <code>ARRAY,INDEX</code> to access a
+  specific element. The index is <strong>1-based</strong> (the first element is
+  index&nbsp;1, not&nbsp;0). The index may be a field name or a literal:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C           KEY       LOKUPTABS,ID                  10
+     C  10                 Z-ADD1         RPGRET
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C           KEY       LOKUPTABS,ID                  10                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  10                 Z-ADD1         RPGRET                                </text>
+  </svg>
+  </div>
+
+  <p>The first line searches array <code>TABS</code> (written
+  <code>TABS,ID</code> at cols&nbsp;33&ndash;39) for the value in
+  <code>KEY</code> (factor&nbsp;1, cols&nbsp;18&ndash;20), using the field
+  <code>ID</code> as the index, and sets indicator&nbsp;10 (cols&nbsp;58&ndash;59)
+  on an equal match. On a match, <code>ID</code> is updated to the matched
+  position. The second line runs only when indicator&nbsp;10 is ON
+  (conditioning at cols&nbsp;9&ndash;10).</p>
+
+  <p>For <em>tables</em>, a bare name (no <code>,INDEX</code>) resolves to the
+  <em>current</em> element &mdash; the one <code>LOKUP</code> last positioned.
+  <code>TABNUM,3</code> still works as an explicit array-style reference; the
+  bare <code>TABNUM</code> reads whatever element the cursor currently points
+  at.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.6 XFOOT — sum an array</h2>
+
+  <p><code>XFOOT&nbsp;ARRAY&nbsp;RESULT</code> sums all elements of the array into
+  the result field. The analogy: <code>result = sum(array)</code> or
+  <code>array.Sum()</code>. We have already used it twice above. It also sets
+  resulting indicators (HI/LO/EQ) based on the sign of the sum, so you can test
+  whether the total is positive, negative, or zero in the same operation.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.7 LOKUP — search an array or table</h2>
+
+  <p><code>LOKUP</code> searches the array/table named in factor&nbsp;2 for a
+  value matching factor&nbsp;1, and reports the outcome through three resulting
+  indicators (cols&nbsp;54&ndash;59):</p>
+
+  <table>
+    <tr><th>Indicator slot</th><th>Cols</th><th>Turned ON when&hellip;</th></tr>
+    <tr><td>HI</td><td>54&ndash;55</td><td>An element greater than the key exists</td></tr>
+    <tr><td>LO</td><td>56&ndash;57</td><td>An element less than the key exists</td></tr>
+    <tr><td>EQ</td><td>58&ndash;59</td><td>An exact match is found</td></tr>
+  </table>
+
+  <p>The simplest case is an exact-match search on a table. Here
+  <code>TABNUM</code> holds [10, 20, 30, 40, 50]; we look up 30 and, on a match,
+  read the current element:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     E                    TABNUM  5   5  2 0A
+     C                     Z-ADD30        KEY
+     C           KEY       LOKUPTABNUM                   10
+     C  10                 Z-ADDTABNUM    RPGRET
+**
+1020304050
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 148" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="148" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     E                    TABNUM  5   5  2 0A                                   </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     Z-ADD30        KEY                                   </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C           KEY       LOKUPTABNUM                   10                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  10                 Z-ADDTABNUM    RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">**                                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">1020304050                                                                      </text>
+  </svg>
+  </div>
+
+  <p>Walk through it: <code>Z-ADD&nbsp;30</code> puts 30 into <code>KEY</code>.
+  <code>LOKUP</code> searches <code>TABNUM</code> for 30, finds it at element&nbsp;3,
+  sets indicator&nbsp;10 (the EQ slot, cols&nbsp;58&ndash;59), and &mdash;
+  because <code>TABNUM</code> is a table &mdash; advances its current-element
+  pointer to element&nbsp;3. The next line, conditioned on indicator&nbsp;10,
+  does <code>Z-ADD&nbsp;TABNUM</code>: the bare table name reads its
+  <em>current</em> element (30) into <code>RPGRET</code>.</p>
+
+  <p>The <code>A</code> at col&nbsp;45 of the E-spec marks <code>TABNUM</code> as
+  ascending, which lets a HI/LO search find the <em>nearest</em> qualifying
+  element rather than merely "any" one. For an unindexed array, write
+  <code>ARRAY,IDX</code> in factor&nbsp;2; on a match the index field is updated
+  to the position found.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.8 Related tables — a built-in dictionary</h2>
+
+  <p>Two tables declared as <em>alternating partners</em> advance in lockstep:
+  a <code>LOKUP</code> that positions one also positions the other. This is a
+  dictionary lookup &mdash; find a key in the first table, read the
+  corresponding value from the second. Declare the partner in cols&nbsp;46&ndash;57
+  of the E-spec, and name it in the <em>result field</em> of the
+  <code>LOKUP</code>:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     E                    TABKEY  3   3  2 0ATABVAL3   0
+     C                     Z-ADD20        KEY
+     C           KEY       LOKUPTABKEY    TABVAL         10
+     C  10                 Z-ADDTABVAL    RPGRET
+**
+101002020030300
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 148" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="148" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     E                    TABKEY  3   3  2 0ATABVAL3   0                        </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     Z-ADD20        KEY                                   </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C           KEY       LOKUPTABKEY    TABVAL         10                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C  10                 Z-ADDTABVAL    RPGRET                                </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">**                                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">101002020030300                                                                 </text>
+  </svg>
+  </div>
+
+  <p>The E-spec declares <code>TABKEY</code> (3 entries, 2 digits) with
+  alternating partner <code>TABVAL</code> at cols&nbsp;46&ndash;51 (3 entries
+  implied, 3 digits, 0 decimals). The compile-time data
+  <em>interleaves</em> the two tables element by element:
+  <code>TABKEY</code>=10, <code>TABVAL</code>=100, <code>TABKEY</code>=20,
+  <code>TABVAL</code>=200, <code>TABKEY</code>=30, <code>TABVAL</code>=300 &mdash;
+  packed as <code>10&nbsp;100&nbsp;20&nbsp;200&nbsp;30&nbsp;300</code>.</p>
+
+  <p>The <code>LOKUP</code> searches <code>TABKEY</code> for 20, finds it at
+  element&nbsp;2, and &mdash; because the result field names the related table
+  <code>TABVAL</code> &mdash; advances <em>both</em> current-element pointers to
+  element&nbsp;2. The bare name <code>TABVAL</code> then reads its current
+  element, 200, into <code>RPGRET</code>. One search, two coordinated
+  cursors &mdash; exactly <code>dict[key] &rarr; value</code>.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>16.9 MOVEA — bulk byte transfer</h2>
+
+  <p><code>MOVEA</code> copies bytes between an array and a field (or two
+  fields) as a flat byte sequence, left-justified. It treats its operands as raw
+  bytes rather than as typed values &mdash; useful for shuttling an array's
+    contents into a single field or vice versa. See
+  <a href="13-field-operations.html">Chapter&nbsp;14</a> for details.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>What's next</h2>
+
+  <p>Arrays and tables give you in-memory collections loaded from compile-time
+  or prerun-time data. The next chapter returns to output: how numeric fields
+  are formatted on the printed line through edit codes and edit words.</p>
+
+  <p>That is <a href="17-output-formatting.html">Chapter&nbsp;17 &mdash; Output
+  Formatting</a>.</p>
 
   <div class="nav">
-    <a href="14-control-levels.html">← Chapter 15: Control Levels</a>
-    <a href="16-output-specs.html">Chapter 10: Output Specs →</a>
+    <a href="14-control-levels.html">&larr; Chapter 15: Control Levels</a>
+    <a href="17-output-formatting.html">Chapter 17: Output Formatting &rarr;</a>
   </div>
 
 </body>

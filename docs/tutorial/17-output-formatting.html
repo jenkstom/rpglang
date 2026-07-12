@@ -29,34 +29,39 @@
 <body>
 
   <h1>Chapter 17 — Output Formatting</h1>
-  <p><a href="index.html">↑ Table of contents</a></p>
+  <p><a href="index.html">&uarr; Table of contents</a></p>
 
   <div class="summary-box">
-    <h2>Summary</h2>
-    <p>RPG II formats numeric output through two mechanisms on the O-spec:
-    <strong>edit codes</strong> (a single-letter code in column 38 that selects
-    a predefined format for commas, decimal points, signs, and
+    <h2>In this chapter</h2>
+    <p>RPG&nbsp;II formats numeric output through two mechanisms on the O-spec:
+    <strong>edit codes</strong> (a single-letter code in column&nbsp;38 that
+    selects a predefined format for commas, decimal points, signs, and
     zero-suppression) and <strong>edit words</strong> (a quoted template string
-    in columns 45–70 that gives you full control over the output picture). Edit
-    codes are quick — like choosing a format specifier. Edit words are
-    expressive — like writing a custom format template. This chapter covers all
-    edit codes (1–4, A–D, J–Q), edit word syntax (replaceable characters,
-    zero-suppression stop, check protection, sign suffixes), and the
-    zero-balance blank behavior that distinguishes adjacent code pairs.</p>
+    in columns&nbsp;45&ndash;70 that gives you full control over the output
+    picture). Edit codes are quick &mdash; like choosing a format specifier.
+    Edit words are expressive &mdash; like writing a custom format template.
+    This chapter covers all edit codes (1&ndash;4, A&ndash;D, J&ndash;Q), edit
+    word syntax, and the zero-balance blank behavior that distinguishes adjacent
+    code pairs.</p>
   </div>
 
-  <h2>Outline</h2>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>17.1 The "you already know" analogy</h2>
 
-  <h3>17.1 The "you already know" analogy</h3>
-  <ul class="outline">
-    <li><strong>Edit codes</strong> are like format specifiers —
-      <code>String.Format("{0:N2}", value)</code> or Python's
-      <code>f"{value:,.2f}"</code>. One code selects a whole formatting
-      pattern.</li>
-    <li><strong>Edit words</strong> are like custom format templates —
-      <code>"$#,###.00"</code> or <code>"__.__"</code>. You draw the picture;
-      the runtime fills in the digits.</li>
-  </ul>
+  <p><strong>Edit codes</strong> are like format specifiers &mdash;
+  <code>String.Format("{0:N2}", value)</code> or Python's
+  <code>f"{value:,.2f}"</code>. One code selects a whole formatting pattern.
+  <strong>Edit words</strong> are like custom format templates &mdash;
+  <code>"#,###.00"</code>. You draw the picture; the runtime fills in the
+  digits.</p>
+
+  <div class="callout">
+    <p><strong>This is familiar ground.</strong> An edit code is a named number
+    format (with/without commas, with/without a sign). An edit word is a picture
+    string where some characters are "fill in the digit here" and the rest are
+    literals that print verbatim. Both live on the O-spec field line; the runtime
+    applies them at print time.</p>
+  </div>
 
   <!-- SVG: Edit codes reference -->
   <div class="svg-container">
@@ -92,14 +97,14 @@
         <rect x="40" y="115" width="40" height="20" fill="#1f2335" stroke="#333653"/><text x="60" y="129" text-anchor="middle" fill="#9ece6a">J</text>
         <rect x="80" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="130" y="129" text-anchor="middle" fill="#c0caf5">yes</text>
         <rect x="180" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="230" y="129" text-anchor="middle" fill="#c0caf5">yes (.xx)</text>
-        <rect x="280" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="129" text-anchor="middle" fill="#c0caf5">trailing −</text>
+        <rect x="280" y="115" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="129" text-anchor="middle" fill="#c0caf5">trailing &minus;</text>
         <rect x="380" y="115" width="200" height="20" fill="#24283b" stroke="#333653"/><text x="480" y="129" text-anchor="middle" fill="#e0af68">12,345.67</text>
 
         <!-- N -->
         <rect x="40" y="135" width="40" height="20" fill="#1f2335" stroke="#333653"/><text x="60" y="149" text-anchor="middle" fill="#9ece6a">N</text>
         <rect x="80" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="130" y="149" text-anchor="middle" fill="#c0caf5">yes</text>
         <rect x="180" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="230" y="149" text-anchor="middle" fill="#c0caf5">yes (.xx)</text>
-        <rect x="280" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="149" text-anchor="middle" fill="#c0caf5">leading +/−</text>
+        <rect x="280" y="135" width="100" height="20" fill="#24283b" stroke="#333653"/><text x="330" y="149" text-anchor="middle" fill="#c0caf5">leading +/&minus;</text>
         <rect x="380" y="135" width="200" height="20" fill="#24283b" stroke="#333653"/><text x="480" y="149" text-anchor="middle" fill="#e0af68"> 12,345.67</text>
       </g>
 
@@ -111,15 +116,42 @@
       <!-- Edit word section -->
       <rect x="40" y="235" width="740" height="130" rx="8" fill="#1f2335" stroke="#9ece6a" stroke-width="2"/>
       <text x="55" y="255" font-size="12" font-weight="bold" fill="#9ece6a">Edit Word: Custom Template</text>
-      <text x="55" y="275" font-size="10" fill="#565f89">Template: '   ,   .'  (blank = replaceable, comma and period = literals)</text>
-      <text x="55" y="293" font-family="monospace" font-size="11" fill="#9ece6a">     O            VAL      20   '   ,   .'</text>
-      <text x="55" y="310" font-size="10" fill="#7dcfff">Value 1234 → fills right-aligned into blanks: "  1,234"</text>
-      <text x="55" y="330" font-size="10" fill="#565f89">Blanks = replaceable (filled by source digits) · first 0 = stop zero-suppression · * = check protect</text>
-      <text x="55" y="348" font-size="10" fill="#565f89">Trailing − or CR = sign (shown only if negative) · &amp; = literal blank</text>
+      <text x="55" y="275" font-size="10" fill="#565f89">Template: '   ,   '  (blank = replaceable, comma = literal)</text>
+      <text x="55" y="293" font-family="monospace" font-size="11" fill="#9ece6a">     O                         VAL       20 '   ,   '</text>
+      <text x="55" y="310" font-size="10" fill="#7dcfff">Value 1234 &rarr; fills right-aligned into blanks: "1,234"</text>
+      <text x="55" y="330" font-size="10" fill="#565f89">Blanks = replaceable (filled by source digits) &middot; first 0 = stop zero-suppression &middot; * = check protect</text>
+      <text x="55" y="348" font-size="10" fill="#565f89">Trailing &minus; or CR = sign (shown only if negative) &middot; &amp; = literal blank</text>
     </svg>
   </div>
 
-  <h3>17.2 Edit codes (col 38)</h3>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>17.2 Where formatting lives on the O-spec</h2>
+
+  <p>Both mechanisms attach to a single O-spec field line (see
+  <a href="16-output-specs.html">Chapter&nbsp;10</a> for the O-spec anatomy). The
+  choice between them is positional: a non-blank single character in
+  column&nbsp;38 is an <strong>edit code</strong>; a quoted string beginning at
+  column&nbsp;45 is an <strong>edit word</strong>. You use one or the other on a
+  given field line, not both:</p>
+
+  <table>
+    <tr><th>Mechanism</th><th>Column</th><th>Form</th></tr>
+    <tr><td>Edit code</td><td>38</td><td>A single letter or digit (1&ndash;4, A&ndash;D, J&ndash;Q)</td></tr>
+    <tr><td>Edit word</td><td>45&ndash;70</td><td>A quoted template, e.g. <code>' , . '</code></td></tr>
+  </table>
+
+  <p>In both cases the field name sits at cols&nbsp;32&ndash;37 and the end
+  position at cols&nbsp;40&ndash;43, exactly as for an unformatted field. The
+  formatting just changes <em>how</em> the value's digits are laid out within
+  that end position.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>17.3 Edit codes (col 38) — the quick formats</h2>
+
+  <p>One character picks a complete formatting pattern. Here is the full
+  reference. The example value is 12345.67 (a 7-digit field with 2 decimal
+  places); negative examples assume the same magnitude with a minus sign:</p>
+
   <table>
     <tr><th>Code</th><th>Commas</th><th>Decimal pt</th><th>Sign</th><th>Zero prints as</th></tr>
     <tr><td>1</td><td>yes</td><td>yes</td><td>none</td><td><code>0.00</code></td></tr>
@@ -130,73 +162,185 @@
     <tr><td>B</td><td>yes</td><td>no</td><td>none</td><td><em>blanks</em></td></tr>
     <tr><td>C</td><td>no</td><td>no</td><td>none</td><td><code>0</code></td></tr>
     <tr><td>D</td><td>no</td><td>no</td><td>none</td><td><em>blanks</em></td></tr>
-    <tr><td>J</td><td>yes</td><td>yes</td><td>trailing −</td><td><code>0.00</code></td></tr>
-    <tr><td>K</td><td>yes</td><td>yes</td><td>trailing −</td><td><em>blanks</em></td></tr>
-    <tr><td>L</td><td>no</td><td>yes</td><td>trailing −</td><td><code>0.00</code></td></tr>
-    <tr><td>M</td><td>no</td><td>yes</td><td>trailing −</td><td><em>blanks</em></td></tr>
-    <tr><td>N</td><td>yes</td><td>yes</td><td>leading +/−</td><td><code>0.00</code></td></tr>
-    <tr><td>O</td><td>yes</td><td>yes</td><td>leading +/−</td><td><em>blanks</em></td></tr>
-    <tr><td>P</td><td>no</td><td>yes</td><td>leading +/−</td><td><code>0.00</code></td></tr>
-    <tr><td>Q</td><td>no</td><td>yes</td><td>leading +/−</td><td><em>blanks</em></td></tr>
+    <tr><td>J</td><td>yes</td><td>yes</td><td>trailing &minus;</td><td><code>0.00</code></td></tr>
+    <tr><td>K</td><td>yes</td><td>yes</td><td>trailing &minus;</td><td><em>blanks</em></td></tr>
+    <tr><td>L</td><td>no</td><td>yes</td><td>trailing &minus;</td><td><code>0.00</code></td></tr>
+    <tr><td>M</td><td>no</td><td>yes</td><td>trailing &minus;</td><td><em>blanks</em></td></tr>
+    <tr><td>N</td><td>yes</td><td>yes</td><td>leading +/&minus;</td><td><code>0.00</code></td></tr>
+    <tr><td>O</td><td>yes</td><td>yes</td><td>leading +/&minus;</td><td><em>blanks</em></td></tr>
+    <tr><td>P</td><td>no</td><td>yes</td><td>leading +/&minus;</td><td><code>0.00</code></td></tr>
+    <tr><td>Q</td><td>no</td><td>yes</td><td>leading +/&minus;</td><td><em>blanks</em></td></tr>
   </table>
 
-  <div class="callout">
-    <p><strong>The pairing rule:</strong> adjacent codes differ only in
-    zero-balance behavior. Code 1 and 2 are identical except that 2 blanks out
-    a zero value. Same for 3/4, A/B, C/D, J/K, L/M, N/O, P/Q.</p>
+  <p>Read the table as four independent switches. Codes 1&ndash;4 give you a
+  decimal point and choose commas (1/2) or not (3/4). Codes A&ndash;D are the
+  same but with <em>no</em> decimal point &mdash; handy for whole-number
+  quantities. Codes J&ndash;Q add a sign: J&ndash;M print a trailing minus (or
+  <code>CR</code>) on negatives, N&ndash;Q print a leading
+  <code>+</code>/<code>&minus;</code>.</p>
+
+  <p>Here is a complete program that reads <code>AMT</code> (positions&nbsp;1&ndash;7,
+  2 decimal places) and prints it with edit code&nbsp;<code>1</code>:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FIN      IP  F    80              DISK
+     FPR      O   F    132             PRINTER
+     IIN      AA  01
+     I                                        1   72AMT
+     OPR      D  1
+     O                         AMT   1   20
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 148" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="148" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FIN      IP  F    80              DISK                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FPR      O   F    132             PRINTER                                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     IIN      AA  01                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   72AMT                         </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OPR      D  1                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         AMT   1   20                                     </text>
+  </svg>
   </div>
 
-  <h3>17.3 Edit words (cols 45–70)</h3>
-  <ul class="outline">
-    <li>When column 38 is blank and columns 45–70 contain a quoted string, the
-      string is an <strong>edit word</strong> — a template the runtime fills
-      with the field's digits.</li>
-    <li>Edit word syntax:
-      <ul>
-        <li><strong>Blank</strong> = replaceable position (filled by source
-          digits, right-aligned, zero-suppressed).</li>
-        <li><strong>Comma, period, slash, etc.</strong> = literal characters
-          printed as-is.</li>
-        <li><strong>First <code>0</code></strong> = stops zero-suppression
-          (digits before it always print, even zeros).</li>
-        <li><strong>Asterisk <code>*</code></strong> = check protection
-          (replaces leading zeros with asterisks instead of blanks).</li>
-        <li><strong>Trailing <code>-</code> or <code>CR</code></strong> = sign
-          indicator (printed only if the value is negative; blank
-          otherwise).</li>
-        <li><strong><code>&amp;</code></strong> = forces a literal blank in the
-          output.</li>
-      </ul>
-    </li>
-    <li>Example: edit word <code>'   ,   .'</code> with value 1234 →
-      <code>"  1,234"</code> (digits filled right, comma inserted, leading
-      blanks suppressed).</li>
-  </ul>
+  <p>The I-spec makes <code>AMT</code> a 7-digit field with 2 decimals:
+  <code>1</code> at col&nbsp;47 (from), <code>7</code> at col&nbsp;51 (to),
+  <code>2</code> at col&nbsp;52 (decimals). The O-spec field line puts the edit
+  code <code>1</code> at col&nbsp;38 and the end position <code>20</code> at
+  cols&nbsp;42&ndash;43. Feeding <code>1234567</code> (which is 12345.67) prints:</p>
 
-  <h3>17.4 When to use edit codes vs edit words</h3>
-  <ul class="outline">
-    <li><strong>Edit codes</strong> for standard formatting (commas, decimals,
-      optional sign). Quick — one letter does the job.</li>
-    <li><strong>Edit words</strong> when you need custom literal text
-      interspersed with digits — phone numbers, dates, currency symbols, or
-      non-standard separators.</li>
-  </ul>
+  <pre><code>           12,345.67</code></pre>
 
-  <h2>What to write into this chapter</h2>
-  <ul class="outline">
-    <li>Include the edit code reference SVG showing the same value formatted
-      with different codes.</li>
-    <li>Show edit word examples: currency, check protection, date
-      formatting.</li>
-    <li>Include a "choosing the right edit code" decision guide.</li>
-    <li>Show zero-balance behavior with before/after examples.</li>
-    <li>Cross-reference <a href="16-output-specs.html">Chapter 10</a> for
-      where edit codes/words go on the O-spec.</li>
-  </ul>
+  <p>Change only the edit code in col&nbsp;38, and the same input formats
+  differently. Edit code <code>3</code> (no commas) gives
+  <code>12345.67</code>; edit code <code>J</code> (commas, trailing sign) also
+  gives <code>12,345.67</code> for a positive value, but would print
+  <code>12,345.67-</code> for a negative one:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     O                         AMT   3   20      &larr; code 3: 12345.67
+     O                         AMT   J   20      &larr; code J: 12,345.67 (12,345.67- if negative)
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 878 76" width="100%" style="max-width:878px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="878" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         AMT   3   20                                     </text><text x="525" y="34" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← code 3: 12345.67</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         AMT   J   20                                     </text><text x="525" y="52" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← code J: 12,345.67 (12,345.67- if negative)</text>
+  </svg>
+  </div>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>17.4 The pairing rule — zero-balance blanking</h2>
+
+  <div class="callout">
+    <p><strong>The pairing rule.</strong> Adjacent codes differ only in
+    zero-balance behavior. Code 1 and 2 are identical except that 2 blanks out a
+    zero value entirely. The same relationship holds for 3/4, A/B, C/D, J/K,
+    L/M, N/O, and P/Q. The odd code of each pair prints a zero as
+    <code>0.00</code> (or <code>0</code>); the even code prints nothing but
+    blanks.</p>
+  </div>
+
+  <p>This matters for reports. A detail line where a quantity is genuinely zero
+  looks cleaner with the zero suppressed (use the even code); a total line where
+  you always want to show a figure, even zero, uses the odd code. Pick the pair
+  for the formatting you want (commas? sign?), then pick odd-or-even for whether
+  zero should be visible.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>17.5 Edit words (cols 45–70) — custom templates</h2>
+
+  <p>When col&nbsp;38 is blank and cols&nbsp;45&ndash;70 hold a quoted string, the
+  string is an <strong>edit word</strong> &mdash; a template the runtime fills
+  with the field's digits. The template's characters have special meanings:</p>
+
+  <table>
+    <tr><th>Character</th><th>Meaning</th></tr>
+    <tr><td>blank</td><td>Replaceable position &mdash; filled by a source digit, right-aligned, zero-suppressed</td></tr>
+    <tr><td><code>,</code> <code>.</code> <code>/</code> <code>-</code></td><td>Literal &mdash; printed verbatim (comma, period, slash, dash)</td></tr>
+    <tr><td>first <code>0</code></td><td>Stops zero-suppression &mdash; digits from here on always print, even leading zeros</td></tr>
+    <tr><td><code>*</code></td><td>Check protection &mdash; replaces leading zeros with asterisks instead of blanks</td></tr>
+    <tr><td>trailing <code>-</code> or <code>CR</code></td><td>Sign indicator &mdash; printed only if the value is negative; blank otherwise</td></tr>
+    <tr><td><code>&amp;</code></td><td>Forces a literal blank in the output</td></tr>
+  </table>
+
+  <p>Here is a complete program. <code>VAL</code> is set to 1234 and printed
+  with the edit word <code>'   ,   '</code> &mdash; three blanks, a comma, three
+  blanks (six replaceable positions with a comma literal in the middle):</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FEOUT    O   F    132             PRINTER
+     IEDATA       AA
+     I                                        1   1  0DUMMY
+     C                     Z-ADD1234      VAL      0
+     OEOUT    D  1
+     O                         VAL       20 '   ,   '
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 148" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="148" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FEOUT    O   F    132             PRINTER                                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     IEDATA       AA                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   1  0DUMMY                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     Z-ADD1234      VAL      0                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OEOUT    D  1                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         VAL       20 '   ,   '                           </text>
+  </svg>
+  </div>
+
+  <p>Walk the template against the value 1234. The six blanks are the
+  replaceable positions; the value's four digits fill them right-aligned,
+  leaving two leading positions blank. The comma is a literal that lands after
+  the third replaceable position &mdash; exactly the thousands separator. After
+  zero-suppression of the leading blanks, the result is:</p>
+
+  <pre><code>               1,234</code></pre>
+
+  <p>The same mechanism drives dates (<code>'&nbsp;&nbsp;/&nbsp;&nbsp;/&nbsp;&nbsp;'</code>),
+  phone numbers, or any fixed layout where literal punctuation must sit between
+  groups of digits. Because you draw the picture character by character, an edit
+  word can express patterns no single edit code can.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>17.6 Choosing edit codes vs edit words</h2>
+
+  <p>Reach for an <strong>edit code</strong> whenever you want one of the
+  standard number layouts &mdash; commas, a decimal point, an optional sign, and
+  optional zero-suppression. It is one character and covers the overwhelming
+  majority of report formatting. Reach for an <strong>edit word</strong> only
+  when you need custom literal text interspersed with digits (dates, phone
+  numbers, currency symbols in unusual positions, or check-protection
+  asterisks). If an edit code can express the format, use it; it is shorter and
+  less error-prone.</p>
+
+  <p>Both attach to the same O-spec field line; see
+  <a href="16-output-specs.html">Chapter&nbsp;10</a> for where the field name,
+  end position, and edit code/word columns sit.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>What's next</h2>
+
+  <p>Output formatting closes the loop on report generation: you can now declare
+  files, read records, accumulate, group with control levels, and format the
+  printed result. The final two chapters cover features that go beyond the
+  automatic cycle. First up: explicit, programmer-controlled file access with
+  <code>CHAIN</code>, <code>SETLL</code>, <code>READ</code>, and
+  <code>READE</code>.</p>
+
+  <p>That is <a href="18-file-access.html">Chapter&nbsp;18 &mdash; File
+  Access</a>.</p>
 
   <div class="nav">
-    <a href="16-output-specs.html">← Chapter 10: Output Specs</a>
-    <a href="18-file-access.html">Chapter 18: File Access →</a>
+    <a href="16-output-specs.html">&larr; Chapter 10: Output Specs</a>
+    <a href="18-file-access.html">Chapter 18: File Access &rarr;</a>
   </div>
 
 </body>

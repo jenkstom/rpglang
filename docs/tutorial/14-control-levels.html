@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chapter 15 — Control Levels and Report Breaks</title>
   <style>
-    body { font-family: "Segoe UI", system-serif, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #c0caf5; background: #1a1b26; }
     h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; padding-bottom: .3rem; color: #7aa2f7; }
     h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; padding-bottom: .2rem; color: #7dcfff; }
     h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #7dcfff; }
@@ -29,40 +29,59 @@
 <body>
 
   <h1>Chapter 15 — Control Levels and Report Breaks</h1>
-  <p><a href="index.html">↑ Table of contents</a></p>
+  <p><a href="index.html">&uarr; Table of contents</a></p>
 
   <div class="summary-box">
-    <h2>Summary</h2>
-    <p>Control levels (L1–L9) are RPG II's mechanism for <strong>automatic
-    grouping and subtotalling</strong>. You tag a field on the I-spec as a
-    control field (e.g. L1 for department code), and whenever that field's
-    value changes between records, the cycle fires a <em>control break</em>:
-    the corresponding level indicator turns ON, total-time calculations run
-    (subtotals, accumulator resets), and total-time output prints. At LR (end-
-    of-file), all levels turn ON so the final group's subtotals and the grand
-    total both print. This chapter covers assigning control levels, the
-    cascade rule (a break at L3 also fires L1 and L2), total-time execution
-    order, and the practical pattern of accumulating in detail calcs and
-    printing/resetting at total time.</p>
+    <h2>In this chapter</h2>
+    <p>Control levels (L1&ndash;L9) are RPG&nbsp;II's mechanism for
+    <strong>automatic grouping and subtotalling</strong>. You tag a field on the
+    I-spec as a control field (e.g.&nbsp;L1 for a department code), and whenever
+    that field's value changes between records, the cycle fires a
+    <em>control break</em>: the corresponding level indicator turns ON,
+    total-time calculations run (subtotals, accumulator resets), and total-time
+    output prints. At LR (end-of-file), all levels turn ON so the final group's
+    subtotals and the grand total both print. This chapter covers assigning
+    control levels, the cascade rule, total-time execution order, and the
+    practical pattern of accumulating in detail calcs and printing/resetting at
+    total time.</p>
   </div>
 
-  <h2>Outline</h2>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.1 The "you already know" analogy</h2>
 
-  <h3>15.1 The "you already know" analogy</h3>
-  <ul class="outline">
-    <li>In a modern language, producing a subtotal report means:
-      <pre><code>records = sorted(records, key=lambda r: r.dept)
+  <p>In a modern language, producing a subtotal report means sorting, grouping,
+  accumulating, and printing yourself:</p>
+
+  <pre><code>records = sorted(records, key=lambda r: r.dept)
+grand = 0
 for group, items in groupby(records, key=lambda r: r.dept):
-    subtotal = sum(i.amount for i in items)
-    print(f"{group}: {subtotal}")
+    subtotal = 0
+    for i in items:
+        subtotal += i.amount
+        grand    += i.amount
+        print(f"{group}  {i.amount}")
+    print(f"Subtotal: {subtotal}")
 print(f"Grand total: {grand}")</code></pre>
-      You manually sort, group, accumulate, and print subtotals.</li>
-    <li>In RPG II, if the input file is already sorted by department, you tag
-      the department field as L1 on the I-spec, accumulate in detail calcs,
-      and write total-time calcs/output conditioned on L1 and LR. The cycle
-      handles break detection, cascading, and timing automatically. It's
-      built-in <code>GROUP BY</code> with automatic subtotal output.</li>
-  </ul>
+
+  <p>You write the sort, the grouping detection, the running sums, and the
+  print calls. In RPG&nbsp;II, if the input file is already sorted by
+  department, you tag the department field as <code>L1</code> on the I-spec,
+  accumulate in detail calcs, and write total-time calcs/output conditioned on
+  <code>L1</code> and <code>LR</code>. The cycle handles break detection,
+  cascading, and timing automatically. It is built-in <code>GROUP&nbsp;BY</code>
+  with automatic subtotal output.</p>
+
+  <div class="callout">
+    <p><strong>This is familiar ground.</strong> A control break is a
+    <code>GROUP&nbsp;BY</code> whose key-change detection and timing the language
+    owns, not you. You only write three things: <em>accumulate</em> (per record),
+    <em>print and reset</em> (per group), and <em>print the grand total</em>
+    (at the end). The cycle decides <em>when</em> each of those runs.</p>
+  </div>
+
+  <p>The chapter on the program cycle (<a href="03-program-cycle.html">Chapter&nbsp;3</a>)
+  introduced the total-time phase. Control levels are what make total time do
+  useful work, so this chapter assumes you have read it.</p>
 
   <!-- SVG: Control break timeline -->
   <div class="svg-container">
@@ -77,14 +96,14 @@ print(f"Grand total: {grand}")</code></pre>
       <rect x="195" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="222" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">A/20</text>
       <!-- break -->
       <line x1="255" y1="30" x2="255" y2="400" stroke="#ff9e64" stroke-width="2" stroke-dasharray="4 3"/>
-      <text x="258" y="28" font-size="9" fill="#ff9e64">L1 break (A→B)</text>
+      <text x="258" y="28" font-size="9" fill="#ff9e64">L1 break (A&rarr;B)</text>
 
       <!-- Group B -->
       <rect x="260" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="287" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">B/15</text>
       <rect x="315" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="342" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">B/25</text>
       <!-- break -->
       <line x1="375" y1="30" x2="375" y2="400" stroke="#ff9e64" stroke-width="2" stroke-dasharray="4 3"/>
-      <text x="378" y="28" font-size="9" fill="#ff9e64">L1 break (B→C)</text>
+      <text x="378" y="28" font-size="9" fill="#ff9e64">L1 break (B&rarr;C)</text>
 
       <!-- Group C -->
       <rect x="380" y="38" width="55" height="22" fill="#1f2335" stroke="#7aa2f7"/><text x="407" y="53" text-anchor="middle" font-family="monospace" font-size="10" fill="#9ece6a">C/05</text>
@@ -104,14 +123,14 @@ print(f"Grand total: {grand}")</code></pre>
       <text x="20" y="140" font-size="11" font-weight="bold" fill="#ff9e64">Total calcs (L1):</text>
       <!-- A subtotal -->
       <rect x="220" y="128" width="60" height="40" rx="4" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
-      <text x="250" y="145" text-anchor="middle" font-size="9" fill="#ff9e64">MOVE SUB→PSUB</text>
-      <text x="250" y="160" text-anchor="middle" font-size="9" fill="#ff9e64">Z-ADD 0→SUB</text>
+      <text x="250" y="145" text-anchor="middle" font-size="9" fill="#ff9e64">MOVE SUB&rarr;PSUB</text>
+      <text x="250" y="160" text-anchor="middle" font-size="9" fill="#ff9e64">Z-ADD 0&rarr;SUB</text>
       <text x="330" y="140" font-size="9" fill="#565f89">prints "A: 30"</text>
       <text x="330" y="153" font-size="9" fill="#565f89">resets SUB=0</text>
 
       <rect x="340" y="128" width="60" height="40" rx="4" fill="#2a1f2e" stroke="#ff9e64" stroke-width="2"/>
-      <text x="370" y="145" text-anchor="middle" font-size="9" fill="#ff9e64">MOVE SUB→PSUB</text>
-      <text x="370" y="160" text-anchor="middle" font-size="9" fill="#ff9e64">Z-ADD 0→SUB</text>
+      <text x="370" y="145" text-anchor="middle" font-size="9" fill="#ff9e64">MOVE SUB&rarr;PSUB</text>
+      <text x="370" y="160" text-anchor="middle" font-size="9" fill="#ff9e64">Z-ADD 0&rarr;SUB</text>
       <text x="450" y="140" font-size="9" fill="#565f89">prints "B: 40"</text>
       <text x="450" y="153" font-size="9" fill="#565f89">resets SUB=0</text>
 
@@ -134,102 +153,409 @@ print(f"Grand total: {grand}")</code></pre>
       <text x="20" y="295" font-size="11" font-weight="bold" fill="#f7768e">LR total:</text>
       <rect x="420" y="283" width="80" height="18" fill="#f8d7da" stroke="#f7768e"/><text x="460" y="296" text-anchor="middle" font-size="9" font-family="monospace" fill="#f7768e">Sub: 05</text>
       <rect x="420" y="303" width="80" height="18" fill="#f8d7da" stroke="#f7768e"/><text x="460" y="316" text-anchor="middle" font-size="9" font-family="monospace" fill="#f7768e">Grand: 75</text>
-      <text x="510" y="296" font-size="9" fill="#f7768e">← final L1 subtotal (C: 5)</text>
-      <text x="510" y="316" font-size="9" fill="#f7768e">← grand total (10+20+15+25+5)</text>
+      <text x="510" y="296" font-size="9" fill="#f7768e">&larr; final L1 subtotal (C: 5)</text>
+      <text x="510" y="316" font-size="9" fill="#f7768e">&larr; grand total (10+20+15+25+5)</text>
 
       <!-- Summary box -->
       <rect x="20" y="350" width="800" height="50" rx="8" fill="#24283b" stroke="#7aa2f7"/>
       <text x="35" y="370" font-size="10" font-weight="bold" fill="#7aa2f7">Key insight:</text>
-      <text x="35" y="388" font-size="10" fill="#c0caf5">Detail calcs accumulate every record (SUB += AMT). Total calcs at L1 copy SUB to print, then zero it. At LR, all levels fire → final subtotal + grand total.</text>
+      <text x="35" y="388" font-size="10" fill="#c0caf5">Detail calcs accumulate every record (SUB += AMT). Total calcs at L1 copy SUB to print, then zero it. At LR, all levels fire &rarr; final subtotal + grand total.</text>
     </svg>
   </div>
 
-  <h3>15.2 Assigning control levels on I-specs</h3>
-  <ul class="outline">
-    <li>I-spec columns 59–60 assign a control level (L1–L9) to a field. When
-      that field's value changes between records, the level turns ON.</li>
-    <li>Example: <code>KEY L1</code> in cols 53–60 means "this field is a
-      level-1 control field."</li>
-    <li>The input file must be sorted by the control field — RPG II detects
-      changes, it doesn't sort.</li>
-  </ul>
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.2 Assigning a control level on an I-spec</h2>
 
-  <h3>15.3 The cascade rule</h3>
-  <ul class="outline">
-    <li>When a break occurs at level Ln, <strong>all lower levels also turn
-      ON</strong>. A break at L3 fires L1, L2, and L3.</li>
-    <li>This means C-specs conditioned on L1 run for <em>any</em> break (L1
-      through L9), L2 runs for breaks at L2 or higher, etc.</li>
-    <li>Total-time calcs and output run in <strong>ascending level order</strong>:
-      L0 (always), then L1, L2, …, L9, then LR. This ensures subtotals
-      accumulate correctly within nested groups.</li>
-    <li>L0 is a special level that is always ON at total time — use it for
-      calcs that should run at every total-time pass.</li>
-  </ul>
+  <p>A control field is just an ordinary input field with one extra marking:
+  its <strong>control level</strong>, written in cols&nbsp;59&ndash;60 of the
+  field's I-spec line. When that field's value changes from one record to the
+  next, the named level indicator turns ON. Recall the I-spec field columns
+  (see <a href="08-input-specs.html">Chapter&nbsp;8</a>):</p>
 
-  <h3>15.4 The accumulator-and-reset pattern</h3>
-  <ul class="outline">
-    <li>The standard subtotal pattern uses two fields:
-      <ul>
-        <li><strong>SUB</strong> — the running subtotal, accumulated in detail
-          calcs (<code>ADD AMT SUB</code> every record).</li>
-        <li><strong>PSUB</strong> — a "print subtotal" that SUB is moved into
-          at total time, so the printed value isn't affected by the reset.</li>
-      </ul>
-    </li>
-    <li>Total-time calcs (conditioned on L1): <code>MOVE SUB PSUB</code>
-      (save for printing), <code>Z-ADD 0 SUB</code> (reset for next group).</li>
-    <li>Total-time output (type T, conditioned on L1): prints PSUB.</li>
-    <li>GRAND total accumulates across all records (never reset until LR):
-      <code>ADD AMT GRAND</code> in detail calcs, printed at LR total
-      time.</li>
-  </ul>
+  <table>
+    <tr><th>Field</th><th>Cols</th></tr>
+    <tr><td>From position</td><td>44&ndash;47</td></tr>
+    <tr><td>To position</td><td>48&ndash;51</td></tr>
+    <tr><td>Decimal positions</td><td>52</td></tr>
+    <tr><td>Field name</td><td>53&ndash;58</td></tr>
+    <tr><td><strong>Control level</strong></td><td><strong>59&ndash;60</strong></td></tr>
+    <tr><td>Match field (M1&ndash;M9)</td><td>61&ndash;62</td></tr>
+  </table>
 
-  <h3>15.5 LR and final subtotals</h3>
-  <ul class="outline">
-    <li>At EOF, LR turns ON and all L1–L9 also turn ON. This ensures the
-      <em>last group's</em> subtotal prints (the last break never happens
-      naturally because there's no "next" record with a different key).</li>
-    <li>Execution order at LR: total calcs/output run L0→L1→…→L9 (printing
-      the last group's subtotals), then LR-specific calcs/output (grand
-      totals).</li>
-  </ul>
+  <p>Here is the input for our example. Each 3-byte record holds a 1-digit
+  department code (<code>KEY</code>) in position&nbsp;1 and a 2-digit amount
+  (<code>AMT</code>) in positions&nbsp;2&ndash;3, sorted by <code>KEY</code>:</p>
 
-  <h3>15.6 First-record bypass</h3>
-  <ul class="outline">
-    <li>On the very first record, total time is skipped — the control-field
-      baseline is being established, and there's no "previous value" to
-      compare against. No spurious break fires on record 1.</li>
-  </ul>
+  <pre><code>110
+120
+105
+207
+208
+303</code></pre>
 
-  <h3>15.7 Nested control levels</h3>
-  <ul class="outline">
-    <li>Multiple control fields create nested groups. Example: region = L1,
-      department = L2. A change in region fires both L1 and L2; a change in
-      department (within the same region) fires only L2.</li>
-    <li>The cascade rule and ascending execution order handle this correctly
-      — inner-group (higher-level) subtotals print before outer-group
-      subtotals.</li>
-  </ul>
+  <p>The I-spec declares <code>KEY</code> and marks it <code>L1</code>:</p>
 
-  <h2>What to write into this chapter</h2>
-  <ul class="outline">
-    <li>Include the control-break timeline SVG as the central diagram.</li>
-    <li>Show a complete control-break report: input sorted by key, detail calcs
-      accumulating, L1 total calcs printing/resetting subtotals, LR printing
-      grand total.</li>
-    <li>Show a nested-level example (L1 = region, L2 = department).</li>
-    <li>Explain the cascade rule with a diagram showing which levels fire for
-      a given break.</li>
-    <li>Include the "accumulator-and-reset" pattern as a reusable idiom.</li>
-    <li>Cross-reference <a href="03-program-cycle.html">Chapter 3</a> for
-      cycle timing and <a href="16-output-specs.html">Chapter 10</a> for
-      total-time O-specs.</li>
-  </ul>
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     ICDATA   AA  01
+     I                                        1   10KEY   L1
+     I                                        2   30AMT
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 94" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="94" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     ICDATA   AA  01                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   10KEY   L1                    </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        2   30AMT                         </text>
+  </svg>
+  </div>
+
+  <p>Read the first field line column by column. The <code>1</code> at
+  col&nbsp;47 is the <em>from</em> position (1). The <code>1</code> at
+  col&nbsp;51 is the <em>to</em> position (also 1 &mdash; <code>KEY</code> is a
+  single byte). The <code>0</code> at col&nbsp;52 is the decimal-position count
+  (0). The name <code>KEY</code> sits at cols&nbsp;53&ndash;55. The
+  <code>L1</code> at cols&nbsp;59&ndash;60 is the control level.</p>
+
+  <div class="callout">
+    <p><strong>Watch the columns.</strong> The to-position (col&nbsp;51) and the
+    decimal-position count (col&nbsp;52) sit right next to each other, so the
+    fragment <code>&nbsp;&nbsp;1&nbsp;&nbsp;10KEY</code> reads visually like
+    "from&nbsp;1, to&nbsp;10" &mdash; but it is <em>from&nbsp;1, to&nbsp;1,
+    decimals&nbsp;0</em>. The "10" is the to-digit and the decimals-digit run
+    together. Always anchor yourself to the ruler; meaning is positional, not
+    token-shaped.</p>
+  </div>
+
+  <p>For the <code>AMT</code> field, <code>2</code> at col&nbsp;47 is the from
+  position and <code>3</code> at col&nbsp;51 is the to position, so
+  <code>AMT</code> occupies positions&nbsp;2&ndash;3. It has no control level
+  (cols&nbsp;59&ndash;60 blank) &mdash; only the group-key field gets one.</p>
+
+  <p>The input file <strong>must already be sorted</strong> by the control
+  field. RPG&nbsp;II detects changes between consecutive records; it does not
+  sort for you. A file that is not sorted by <code>KEY</code> will produce a
+  break on every record where <code>KEY</code> differs from the previous one,
+  giving nonsense subtotals.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.3 Detail-time: accumulate every record</h2>
+
+  <p>Accumulation happens at detail time &mdash; once per record, in C-specs
+  whose control-level columns (7&ndash;8) are blank. Two running sums are kept:
+  <code>SUB</code>, the current group's subtotal, and <code>GRAND</code>, the
+  grand total across all groups:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     C                     ADD  AMT       SUB       &larr; SUB = SUB + AMT  (group subtotal)
+     C                     ADD  AMT       GRAND     &larr; GRAND = GRAND + AMT
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     ADD  AMT       SUB                                   </text><text x="555" y="34" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← SUB = SUB + AMT  (group subtotal)</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     ADD  AMT       GRAND                                 </text><text x="555" y="52" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← GRAND = GRAND + AMT</text>
+  </svg>
+  </div>
+
+  <p>Both lines have blank control-level columns (7&ndash;8), so they run at
+  detail time for every record. The operation <code>ADD</code> sits at
+  cols&nbsp;28&ndash;30; factor&nbsp;2 <code>AMT</code> at cols&nbsp;33&ndash;35;
+  the result fields <code>SUB</code> / <code>GRAND</code> start at
+  col&nbsp;43. (See <a href="09-calc-specs.html">Chapter&nbsp;9</a> for the full
+  C-spec anatomy, and <a href="06-arithmetic.html">Chapter&nbsp;6</a> for
+  <code>ADD</code>.)</p>
+
+  <p>Because detail calcs run <em>before</em> total time, every record's
+  <code>AMT</code> has already been added into <code>SUB</code> by the time a
+  break fires. That is the whole trick: accumulate first, report later.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.4 The cascade rule</h2>
+
+  <p>When a break occurs at level&nbsp;Ln, <strong>all lower-numbered levels
+  also turn ON</strong>. A break at L3 fires L1, L2, <em>and</em> L3. This
+  cascade is what makes nested grouping work: a C-spec or O-spec conditioned on
+  <code>L1</code> runs for <em>any</em> break (L1 through L9); one conditioned
+  on <code>L2</code> runs only for breaks at L2 or higher; and so on.</p>
+
+  <table>
+    <tr><th>If the break is at&hellip;</th><th>Levels turned ON</th><th>So an <code>L1</code> line&hellip;</th><th>An <code>L2</code> line&hellip;</th></tr>
+    <tr><td>L1</td><td>L1</td><td>runs</td><td>does not run</td></tr>
+    <tr><td>L2</td><td>L1, L2</td><td>runs</td><td>runs</td></tr>
+    <tr><td>L3</td><td>L1, L2, L3</td><td>runs</td><td>runs</td></tr>
+    <tr><td>LR (EOF)</td><td>L1&ndash;L9, LR</td><td>runs</td><td>runs</td></tr>
+  </table>
+
+  <p>Total-time calcs and output run in <strong>ascending level order</strong>:
+  first any <code>L0</code> lines (a special always-on-at-total-time level),
+  then L1, L2, &hellip;, L9, then LR. This ordering ensures inner-group
+  (higher-level) subtotals accumulate correctly within their outer group before
+  the outer group itself reports.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.5 Total-time: save, print, reset</h2>
+
+  <p>When an L1 break fires, the total-time C-specs run. They do three things:
+  copy the accumulated subtotal into a "print" field, then zero the accumulator
+  so the next group starts fresh. The two-step save-and-reset is the standard
+  idiom:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     CL1                   MOVE SUB       PSUB      &larr; save SUB for printing
+     CL1                   Z-ADD0         SUB       &larr; reset SUB to 0
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     CL1                   MOVE SUB       PSUB                                  </text><text x="555" y="34" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← save SUB for printing</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     CL1                   Z-ADD0         SUB                                   </text><text x="555" y="52" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← reset SUB to 0</text>
+  </svg>
+  </div>
+
+  <p>The <code>L1</code> at cols&nbsp;7&ndash;8 is what makes these total-time
+  lines: they run only when an L1 break (or a higher break, or LR) fires. Why a
+  separate <code>PSUB</code>? Because we print <code>SUB</code> in the O-spec
+  <em>after</em> these calcs run &mdash; if we printed <code>SUB</code> directly,
+  the reset to zero would have already clobbered it. <code>MOVE</code> copies
+  <code>SUB</code> into <code>PSUB</code>; then <code>Z-ADD&nbsp;0</code> zeros
+  <code>SUB</code>. The O-spec prints <code>PSUB</code>, which still holds the
+  group total.</p>
+
+  <blockquote>
+    <p><strong>The accumulator-and-reset pattern.</strong> Use two fields:
+    <code>SUB</code> (accumulate in detail calcs, never printed directly) and
+    <code>PSUB</code> (the saved copy, printed at total time). At the break:
+    <code>MOVE&nbsp;SUB&nbsp;PSUB</code> then <code>Z-ADD&nbsp;0&nbsp;SUB</code>.
+    <code>GRAND</code> follows the same accumulate rule but is never reset until
+    LR.</p>
+  </blockquote>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.6 Total-time output (O-spec type T)</h2>
+
+  <p>Printing the subtotal is an O-spec total line. Type&nbsp;<code>T</code> at
+  col&nbsp;15 makes it a total line; the conditioning indicator
+  <code>L1</code> at cols&nbsp;23&ndash;24 restricts it to L1 breaks
+  (see <a href="16-output-specs.html">Chapter&nbsp;10</a> for O-specs):</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OCREPORT T  1    L1                       &larr; total line, fires on L1
+     O                                   15 'Subtotal:'    &larr; constant, ends at col 15
+     O                         PSUB      25                 &larr; PSUB, ends at col 25
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 94" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="94" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OCREPORT T  1    L1                                                        </text><text x="505" y="34" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← total line, fires on L1</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                                   15 'Subtotal:'                         </text><text x="625" y="52" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← constant, ends at col 15</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         PSUB      25                                     </text><text x="635" y="70" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← PSUB, ends at col 25</text>
+  </svg>
+  </div>
+
+  <p>The record line carries <code>T</code> at col&nbsp;15, space-after
+  <code>1</code> at col&nbsp;18, and the conditioning <code>L1</code> at
+  cols&nbsp;23&ndash;24. The two field lines place the constant
+  <code>'Subtotal:'</code> ending at column&nbsp;15 and the saved subtotal
+  <code>PSUB</code> ending at column&nbsp;25. At LR, the grand-total line uses
+  conditioning <code>LR</code> instead:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     OCREPORT T  2    LR                       &larr; total line, fires once at EOF
+     O                                   15 'Grand total:'
+     O                         GRAND     25
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 94" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="94" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OCREPORT T  2    LR                                                        </text><text x="505" y="34" font-family="monospace" font-size="12" text-anchor="start" fill="#565f89" font-style="italic" xml:space="preserve">← total line, fires once at EOF</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                                   15 'Grand total:'                      </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         GRAND     25                                     </text>
+  </svg>
+  </div>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.7 A complete control-break program</h2>
+
+  <p>Here is the whole program. The F-specs declare a sequential input file
+  (<code>CDATA</code>) and a printer report (<code>CREPORT</code>); the I-specs
+  map <code>KEY</code> (control field, L1) and <code>AMT</code>; the C-specs
+  accumulate at detail time and save/reset at L1; the O-specs print a detail
+  line per record, an L1 subtotal, and an LR grand total:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     FCDATA   IP  F    80              DISK
+     FCREPORT O   F    132             PRINTER
+     ICDATA   AA  01
+     I                                        1   10KEY   L1
+     I                                        2   30AMT
+     C                     ADD  AMT       SUB
+     C                     ADD  AMT       GRAND
+     OCREPORT D  1
+     O                         KEY       10
+     O                         AMT       20
+     CL1                   MOVE SUB       PSUB
+     CL1                   Z-ADD0         SUB
+     OCREPORT T  1    L1
+     O                                   15 'Subtotal:'
+     O                         PSUB      25
+     OCREPORT T  2    LR
+     O                                   15 'Grand total:'
+     O                         GRAND     25
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 364" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="364" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FCDATA   IP  F    80              DISK                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     FCREPORT O   F    132             PRINTER                                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="70" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     ICDATA   AA  01                                                            </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="88" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   10KEY   L1                    </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="106" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        2   30AMT                         </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="124" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     ADD  AMT       SUB                                   </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="142" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     C                     ADD  AMT       GRAND                                 </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="160" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OCREPORT D  1                                                              </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="178" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         KEY       10                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="196" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         AMT       20                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="214" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     CL1                   MOVE SUB       PSUB                                  </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="232" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     CL1                   Z-ADD0         SUB                                   </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="250" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OCREPORT T  1    L1                                                        </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="268" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                                   15 'Subtotal:'                         </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="286" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         PSUB      25                                     </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="304" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     OCREPORT T  2    LR                                                        </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="322" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                                   15 'Grand total:'                      </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="340" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     O                         GRAND     25                                     </text>
+  </svg>
+  </div>
+
+  <p>Walking through the input <code>110, 120, 105, 207, 208, 303</code>:</p>
+
+  <ol>
+    <li><strong>Record <code>110</code></strong> (KEY=1, AMT=10): detail calcs
+      add 10 to SUB and GRAND. No break (first record). Detail line prints
+      <code>1&nbsp;&nbsp;10</code>.</li>
+    <li><strong>Record <code>120</code></strong> (KEY=1, AMT=20): SUB=30,
+      GRAND=30. KEY unchanged, no break. Detail line prints
+      <code>1&nbsp;&nbsp;20</code>.</li>
+    <li><strong>Record <code>105</code></strong> (KEY=1, AMT=5): detail calcs
+      run first &mdash; SUB=35, GRAND=35. <em>Then</em> the cycle compares the
+      new KEY (2) against the previous (1): they differ, so L1 turns ON. Total
+      calcs run: <code>MOVE&nbsp;SUB&nbsp;PSUB</code> (PSUB=35),
+      <code>Z-ADD&nbsp;0&nbsp;SUB</code> (SUB=0). Total output prints
+      <code>Subtotal:&nbsp;&nbsp;&nbsp;&nbsp;35</code>. Detail line then prints
+      <code>2&nbsp;&nbsp;5</code> for the new record.</li>
+    <li><strong>Records <code>207</code>, <code>208</code></strong> (KEY=2):
+      SUB climbs to 7, then 15; GRAND to 42, then 50.</li>
+    <li><strong>Record <code>303</code></strong> (KEY=3): detail calcs run
+      (SUB=3, GRAND=53). KEY changed 2&rarr;3, so L1 fires: PSUB=15, SUB=0;
+      subtotal <code>15</code> prints. Detail line prints
+      <code>3&nbsp;&nbsp;3</code>.</li>
+    <li><strong>End of file.</strong> LR turns ON, and because of the cascade
+      rule all of L1&ndash;L9 turn ON too. The L1 total calcs run once more
+      (PSUB=3, SUB=0), printing the final group's subtotal
+      <code>3</code>. Then the LR total output prints the grand total
+      <code>53</code>.</li>
+  </ol>
+
+  <p>The report (each value lands at its O-spec end position &mdash;
+  <code>KEY</code> at col&nbsp;10, <code>AMT</code> at col&nbsp;20, the label
+  at col&nbsp;15, the totals at col&nbsp;25):</p>
+
+  <pre><code>         1        10
+         1        20
+         1         5
+      Subtotal:        35
+         2         7
+         2         8
+      Subtotal:        15
+         3         3
+      Subtotal:         3
+   Grand total:        53</code></pre>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.8 LR fires every level</h2>
+
+  <p>At end-of-file, LR turns ON and all of L1&ndash;L9 also turn ON. This is
+  not arbitrary politeness &mdash; it is essential. The <em>last group</em>'s
+  subtotal can never print any other way: there is no "next" record with a
+  different key to trigger a natural break. By forcing every level ON at LR, the
+  cycle guarantees the final group's subtotals and the grand total both print.
+  Execution order at LR is total calcs/output L0&rarr;L1&rarr;&hellip;&rarr;L9
+  (printing the last group's subtotals), then LR-specific calcs/output (grand
+  totals).</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.9 First-record bypass</h2>
+
+  <p>On the very first record, total time is skipped. The control-field
+  baseline is being established &mdash; there is no "previous value" to compare
+  against &mdash; so no spurious break fires on record&nbsp;1. Total-time calcs
+  and output first become eligible from the second record onward.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>15.10 Nested control levels</h2>
+
+  <p>Multiple control fields create nested groups. For example, tag region as
+  <code>L1</code> and department as <code>L2</code> on their respective I-spec
+  field lines. A change in region fires both L1 and L2 (cascade); a change in
+  department <em>within the same region</em> fires only L2. The cascade rule and
+  ascending execution order handle the bookkeeping &mdash; inner-group
+  (higher-level) subtotals print before outer-group subtotals. You simply add a
+  second accumulator pair and an <code>L2</code> total line alongside the
+  <code>L1</code> one:</p>
+
+  <!-- codeblock-source:
+....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     I                                        1   20AREA  L1
+     I                                        3   40DEPT  L2
+  -->
+  <div class="svg-container" style="overflow-x:auto">
+  <svg viewBox="0 0 840 76" width="100%" style="max-width:840px" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="76" fill="#13131f"/>
+  <g><line x1="35" y1="2" x2="35" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="45" y1="2" x2="45" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="55" y1="2" x2="55" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="65" y1="2" x2="65" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="75" y1="2" x2="75" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="85" y1="2" x2="85" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="95" y1="2" x2="95" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="105" y1="2" x2="105" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="115" y1="2" x2="115" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="125" y1="2" x2="125" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="135" y1="2" x2="135" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="145" y1="2" x2="145" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="155" y1="2" x2="155" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="165" y1="2" x2="165" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="175" y1="2" x2="175" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="185" y1="2" x2="185" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="195" y1="2" x2="195" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="205" y1="2" x2="205" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="215" y1="2" x2="215" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="225" y1="2" x2="225" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="235" y1="2" x2="235" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="245" y1="2" x2="245" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="255" y1="2" x2="255" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="265" y1="2" x2="265" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="275" y1="2" x2="275" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="285" y1="2" x2="285" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="295" y1="2" x2="295" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="305" y1="2" x2="305" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="315" y1="2" x2="315" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="325" y1="2" x2="325" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="335" y1="2" x2="335" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="345" y1="2" x2="345" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="355" y1="2" x2="355" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="365" y1="2" x2="365" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="375" y1="2" x2="375" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="385" y1="2" x2="385" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="395" y1="2" x2="395" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="405" y1="2" x2="405" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="415" y1="2" x2="415" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="425" y1="2" x2="425" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="435" y1="2" x2="435" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="445" y1="2" x2="445" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="455" y1="2" x2="455" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="465" y1="2" x2="465" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="475" y1="2" x2="475" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="485" y1="2" x2="485" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="495" y1="2" x2="495" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="505" y1="2" x2="505" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="515" y1="2" x2="515" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="525" y1="2" x2="525" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="535" y1="2" x2="535" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="545" y1="2" x2="545" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="555" y1="2" x2="555" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="565" y1="2" x2="565" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="575" y1="2" x2="575" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="585" y1="2" x2="585" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="595" y1="2" x2="595" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="605" y1="2" x2="605" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="615" y1="2" x2="615" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="625" y1="2" x2="625" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="635" y1="2" x2="635" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="645" y1="2" x2="645" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="655" y1="2" x2="655" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="665" y1="2" x2="665" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="675" y1="2" x2="675" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="685" y1="2" x2="685" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="695" y1="2" x2="695" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="705" y1="2" x2="705" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="715" y1="2" x2="715" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="725" y1="2" x2="725" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="735" y1="2" x2="735" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="745" y1="2" x2="745" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="755" y1="2" x2="755" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="765" y1="2" x2="765" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="775" y1="2" x2="775" y2="7" stroke="#565f89" stroke-width="0.5"/><line x1="785" y1="2" x2="785" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="795" y1="2" x2="795" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="805" y1="2" x2="805" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="815" y1="2" x2="815" y2="4" stroke="#333653" stroke-width="0.5"/><line x1="825" y1="2" x2="825" y2="7" stroke="#565f89" stroke-width="0.5"/></g>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="16" font-family="monospace" font-size="12" text-anchor="middle" fill="#565f89" xml:space="preserve">....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8</text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="34" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        1   20AREA  L1                    </text>
+  <text x="35 45 55 65 75 85 95 105 115 125 135 145 155 165 175 185 195 205 215 225 235 245 255 265 275 285 295 305 315 325 335 345 355 365 375 385 395 405 415 425 435 445 455 465 475 485 495 505 515 525 535 545 555 565 575 585 595 605 615 625 635 645 655 665 675 685 695 705 715 725 735 745 755 765 775 785 795 805 815 825" y="52" font-family="monospace" font-size="12" text-anchor="middle" fill="#c0caf5" xml:space="preserve">     I                                        3   40DEPT  L2                    </text>
+  </svg>
+  </div>
+
+  <p>Here <code>AREA</code> (positions&nbsp;1&ndash;2) is L1 and
+  <code>DEPT</code> (positions&nbsp;3&ndash;4) is L2. When department changes but
+  region does not, only L2 fires &mdash; the department subtotal prints but the
+  region subtotal keeps accumulating. When region changes, both fire, and L2's
+  total runs before L1's (ascending order), so the last department's subtotal is
+  reported before the region subtotal that contains it.</p>
+
+  <!-- &#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632; -->
+  <h2>What's next</h2>
+
+  <p>Control levels turn the cycle's total-time phase into an automatic grouping
+  engine. The next chapter moves from grouping records to grouping data
+  <em>within</em> a program: fixed-size arrays and the table abstraction,
+  declared with E-specs and searched with <code>LOKUP</code>.</p>
+
+  <p>That is <a href="15-arrays-tables.html">Chapter&nbsp;16 &mdash; Arrays and
+  Tables</a>.</p>
 
   <div class="nav">
-    <a href="13-field-operations.html">← Chapter 14: Field Operations</a>
-    <a href="15-arrays-tables.html">Chapter 16: Arrays and Tables →</a>
+    <a href="13-field-operations.html">&larr; Chapter 14: Field Operations</a>
+    <a href="15-arrays-tables.html">Chapter 16: Arrays and Tables &rarr;</a>
   </div>
 
 </body>
