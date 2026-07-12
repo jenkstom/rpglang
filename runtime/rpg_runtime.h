@@ -308,6 +308,14 @@ int rpg_rt_call(const char *name, void **parm_ptrs, int parm_count,
  * resulting indicator on the FREE op). */
 int rpg_rt_free(const char *name);
 
+/* CALL/FREE's dynamic (field-valued) target-name form: `field` is a fixed-
+ * width character field's raw bytes (`len` of them, blank-padded, not NUL-
+ * terminated); this right-trims trailing blanks, upper-cases (name lookups
+ * are case-insensitive, matching the literal form), and NUL-terminates the
+ * result into `out` (capacity `out_cap`, truncated if the trimmed name
+ * would not fit). Returns the trimmed length actually copied. */
+int rpg_rt_field_to_cstr(const char *field, int len, char *out, int out_cap);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

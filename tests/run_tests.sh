@@ -532,6 +532,23 @@ else
     bad "link: did not compile"
 fi
 
+# Dynamic (field-valued) CALL target: link_dyn_caller.rpg (DCALLR) MOVELs the
+# literal 'CALEE' into a character field PGMNM, then CALLs *PGMNM* (not a
+# literal program name) -- exercises rpg_rt_field_to_cstr blank-trimming and
+# upper-casing the field's current bytes at runtime before the registry
+# lookup, as opposed to link_caller.rpg's compile-time-constant CALL target
+# above. Same CALEE callee, same CA=6/CB=7 -> CR=42 expectation, with error/
+# LR indicator bumps (50/51) added in as a second wrong-behavior signal.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_link_dyn "$ROOT/tests/link_dyn_caller.rpg" "$ROOT/tests/link_callee.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_link_dyn ]]; then
+    /tmp/rpgc_link_dyn; got=$?
+    if [[ "$got" -eq 42 ]]; then ok "link_dyn: dynamic (field-valued) CALL target, exit $got (expected 42)"
+    else bad "link_dyn: exit $got (expected 42)"; fi
+    rm -f /tmp/rpgc_link_dyn
+else
+    bad "link_dyn: did not compile"
+fi
+
 # EXIT/RLABL calling a hand-written, non-RPG external subroutine (SUBRA in
 # exit_rlabl_stub.c): the one program-linkage op that needs a real C stub to
 # verify end-to-end, since the compiler has no second

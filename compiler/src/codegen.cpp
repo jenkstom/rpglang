@@ -679,14 +679,50 @@ public:
         return gv;
     }
 
-    /* CALL (L2): resolve the target program name (factor 2 -- a literal
-     * only; a field/array-element-valued dynamic name is not yet supported,
-     * deferred for now). An optional
-     * `LIB/PGM` form has its library segment ignored, same precedent as
-     * WRKSTN_PLAN.md §2's LIBRARY,MEMBER handling. The result field, if
-     * present, names a declared (non-*ENTRY) PLIST supplying the
-     * parameters. Resulting indicators: 56-57 (c.lo) = error, 58-59 (c.eq)
-     * = the callee's LR indicator. */
+    /* CALL/FREE's target-name token (factor 2) is either a literal program
+     * name -- optionally `LIB/PGM` form, library segment ignored, same
+     * precedent as WRKSTN_PLAN.md §2's LIBRARY,MEMBER handling -- resolved
+     * entirely at compile time into a constant string; or a declared
+     * character field holding the name, resolved at runtime: its current
+     * bytes are blank-trimmed, upper-cased, and NUL-terminated into a
+     * shared scratch buffer via rpg_rt_field_to_cstr. (An array-element-
+     * valued name, e.g. "ARR,3", is not yet supported.) Both forms are
+     * matched case-insensitively against the registry, since
+     * create_entry_function() registers every program under its
+     * upper-cased H-spec program-id. */
+    llvm::Value *resolve_program_name_arg(const std::string &token) {
+        using namespace llvm;
+        auto &cctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(cctx);
+
+        if (syms_.has_field(token) && syms_.is_char_field(token)) {
+            Value *fp; int flen;
+            if (syms_.resolve_char_operand(token, fp, flen)) {
+                if (!name_scratch_) {
+                    auto *arrTy = ArrayType::get(Type::getInt8Ty(cctx), kNameScratchLen);
+                    name_scratch_ = new GlobalVariable(*mod_, arrTy, /*isConstant=*/false,
+                        GlobalValue::InternalLinkage, ConstantAggregateZero::get(arrTy),
+                        "call_name_scratch");
+                }
+                auto *arrTy = ArrayType::get(Type::getInt8Ty(cctx), kNameScratchLen);
+                Value *bufPtr = builder_.CreateConstInBoundsGEP2_32(
+                    arrTy, name_scratch_, 0, 0, "name_buf");
+                builder_.CreateCall(field_to_cstr_fn_,
+                    {fp, ConstantInt::get(i32, flen), bufPtr,
+                     ConstantInt::get(i32, (int)kNameScratchLen)});
+                return bufPtr;
+            }
+        }
+        std::string raw = token;
+        auto slash = raw.find_last_of('/');
+        std::string pname = upper_trim(slash == std::string::npos
+                                           ? raw : raw.substr(slash + 1));
+        return builder_.CreateGlobalStringPtr(pname, "callee_name");
+    }
+
+    /* CALL (L2): the result field, if present, names a declared
+     * (non-*ENTRY) PLIST supplying the parameters. Resulting indicators:
+     * 56-57 (c.lo) = error, 58-59 (c.eq) = the callee's LR indicator. */
     void emit_call(const CSpec &c) {
         using namespace llvm;
         auto &cctx = mod_->getContext();
@@ -694,11 +730,7 @@ public:
         auto *ptrTy = PointerType::get(cctx, 0);
 
         if (c.factor2.empty()) return;  // reported in cspec.cpp
-        std::string raw = c.factor2;
-        auto slash = raw.find_last_of('/');
-        std::string pname = upper_trim(slash == std::string::npos
-                                           ? raw : raw.substr(slash + 1));
-        Value *nameStr = builder_.CreateGlobalStringPtr(pname, "callee_name");
+        Value *nameStr = resolve_program_name_arg(c.factor2);
 
         const ParamList *pl = nullptr;
         if (!c.result.empty()) {
@@ -766,13 +798,9 @@ public:
     void emit_free(const CSpec &c) {
         using namespace llvm;
         if (c.factor2.empty()) return;  // reported in cspec.cpp
-        std::string raw = c.factor2;
-        auto slash = raw.find_last_of('/');
-        std::string pname = upper_trim(slash == std::string::npos
-                                           ? raw : raw.substr(slash + 1));
+        Value *nameStr = resolve_program_name_arg(c.factor2);
         auto &cctx = mod_->getContext();
         auto *i32 = Type::getInt32Ty(cctx);
-        Value *nameStr = builder_.CreateGlobalStringPtr(pname, "free_name");
         Value *status = builder_.CreateCall(free_fn_, {nameStr}, "free_st");
         if (c.lo.indicator) {
             Value *notOk = builder_.CreateICmpNE(status, ConstantInt::get(i32, 0),
@@ -1152,6 +1180,9 @@ private:
         free_fn_ = Function::Create(
             FunctionType::get(i32, {ptr}, false),
             Function::ExternalLinkage, "rpg_rt_free", mod_.get());
+        field_to_cstr_fn_ = Function::Create(
+            FunctionType::get(i32, {ptr, i32, ptr, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_field_to_cstr", mod_.get());
     }
 
     /* D2: pre-declare every ordinary I-spec field's storage up front (see the
@@ -5181,6 +5212,12 @@ private:
     llvm::Function *register_program_fn_ = nullptr;
     llvm::Function *call_fn_             = nullptr;
     llvm::Function *free_fn_             = nullptr;
+    llvm::Function *field_to_cstr_fn_    = nullptr;
+    // Scratch buffer for CALL/FREE's dynamic (field-valued) target-name
+    // form -- rpg_rt_field_to_cstr's NUL-terminated output. One shared
+    // buffer is safe: CALL/FREE run synchronously, never overlapping.
+    llvm::GlobalVariable *name_scratch_ = nullptr;
+    static constexpr unsigned kNameScratchLen = 32;
     const std::vector<ParamList> *param_lists_ = nullptr;
     const std::vector<ExitDecl>  *exit_decls_  = nullptr;
     // False for a "library" program compiled alongside others and only

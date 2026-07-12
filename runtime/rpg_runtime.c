@@ -1451,3 +1451,17 @@ int rpg_rt_free(const char *name) {
     g_programs[idx].initialized = 0;
     return 0;
 }
+
+int rpg_rt_field_to_cstr(const char *field, int len, char *out, int out_cap) {
+    int n = len;
+    while (n > 0 && field[n - 1] == ' ') n--;
+    if (out_cap > 0 && n > out_cap - 1) n = out_cap - 1;
+    if (n < 0) n = 0;
+    for (int i = 0; i < n; ++i) {
+        char ch = field[i];
+        if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
+        out[i] = ch;
+    }
+    if (out_cap > 0) out[n] = '\0';
+    return n;
+}
