@@ -1,0 +1,209 @@
+.TH RPG-ANALYZE 1 "July 2026" "rpg-analyze 0.1.0" "RPG II Static Analyzer"
+.SH NAME
+rpg-analyze \- static analysis toolkit for RPG II source
+.SH SYNOPSIS
+.B rpg-analyze
+[\fIGLOBAL OPTIONS\fR] [\fICOMMAND\fR] [\fICOMMAND OPTIONS\fR] \fI<file...>\fR
+.SH DESCRIPTION
+.B rpg-analyze
+performs static analysis on RPG II source files. It provides a synthesized
+report mode that runs multiple analysis modules, plus utility commands for
+decoding, searching, diffing, formatting, and documenting RPG programs.
+.PP
+With no command given, the default \fBreport\fR command runs, which executes
+all enabled analysis modules and emits a synthesized report.
+.SH COMMANDS
+.TP
+.B report
+Run analysis modules and emit a synthesized report (default).
+.TP
+.B decode
+Decode raw spec lines into labeled columns.
+.TP
+.B search
+Structured column-aware query across files.
+.TP
+.B diff
+Semantic structural diff between two programs.
+.TP
+.B format
+Lint / canonicalize formatting (check-only).
+.TP
+.B docgen
+Generate a Markdown reference page for one program.
+.TP
+.B callgraph
+Inter-program CALL/shared-file dependency graph.
+.TP
+.B duplicate
+Clone / copy-paste detector across many files.
+.TP
+.B portfolio
+Codebase-wide metrics dashboard across many files.
+.TP
+.B migrate
+Migration-difficulty scoring across many files.
+.PP
+Any analysis module id (see MODULES below) is also a valid command, equivalent
+to \fBreport -m <module>\fR.
+.SH GLOBAL OPTIONS
+.TP
+.B \-\-json
+Emit machine-readable JSON instead of text.
+.TP
+.B \-\-no-color
+Disable ANSI color output.
+.TP
+.BR \-q ", " \-\-quiet
+Suppress section bodies; print only findings.
+.TP
+.BR \-\-severity " " \fILEVEL\fR
+Minimum severity to show: \fBerror\fR, \fBwarn\fR, \fBinfo\fR.
+.TP
+.BR \-\-compiler-feats " " \fIFILE\fR
+Features file for the \fBcompat\fR module.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-V ", " \-\-version
+Show version and exit.
+.SH REPORT OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fINAME\fR
+Enable one module (repeatable to select multiple).
+.TP
+.BR \-a ", " \-\-all
+Enable every analysis module (the default).
+.TP
+.BR \-\-no-module " " \fINAME\fR
+Disable one module (use with \-\-all to exclude).
+.TP
+.B \-\-no-findings
+Suppress the synthesized findings section.
+.TP
+.BR \-\-section-order " " \fIa,b,c\fR
+Custom ordering of report sections.
+.TP
+.BR \-o ", " \-\-output " " \fIFILE\fR
+Write report to a file instead of stdout.
+.SH UTILITY COMMAND OPTIONS
+.TP
+.BR \-\-line " " \fIN\fR
+(decode) Show only line N.
+.TP
+.BR \-\-range " " \fIA-B\fR
+(decode) Show only lines A-B.
+.TP
+.BR \-\-query " " \fIEXPR\fR
+(search) Query DSL, e.g.\ \fIop:COMP ind:20\fR.
+.TP
+.B \-\-dot
+(callgraph) Emit Graphviz dot instead of a text tree.
+.TP
+.BR \-\-threshold " " \fIF\fR
+(duplicate) Minimum similarity to report (default 0.9).
+.TP
+.B \-\-html
+(portfolio) Emit an HTML dashboard instead of text.
+.SH MODULES
+.TP
+.B summary
+Program overview and profile.
+.TP
+.B files
+File description map.
+.TP
+.B recordmap
+Record layout reconstruction.
+.TP
+.B fields
+Field definition catalog.
+.TP
+.B xref
+Field cross-reference (where each field is read/written).
+.TP
+.B indicators
+Indicator lifecycle trace (set, tested, turned off).
+.TP
+.B subroutines
+Intra-program subroutine map.
+.TP
+.B controlflow
+Control-flow graph and reachability analysis.
+.TP
+.B cycle
+Program-cycle and control-level decoder.
+.TP
+.B complexity
+Complexity metrics (cyclomatic, nesting depth).
+.TP
+.B deadcode
+Unused-definition and dead-path finder.
+.TP
+.B security
+Risky-pattern scanner.
+.TP
+.B compat
+Compiler-coverage checker (which constructs the compiler supports).
+.TP
+.B condlogic
+Conditioning-indicator reconstruction.
+.TP
+.B buffer
+Buffer integrity check (field overlaps, gaps).
+.TP
+.B termination
+LR / exit analysis (does the program terminate correctly).
+.TP
+.B dataflow
+Output-field data-flow traces.
+.TP
+.B deps
+External dependency inventory.
+.TP
+.B comments
+Comment and TODO mining.
+.TP
+.B smells
+Anomaly and code-smell detection.
+.SH EXAMPLES
+Run the full synthesized report on one file:
+.PP
+.RS
+.B rpg-analyze tests/report.rpg
+.RE
+.PP
+Run a single module:
+.PP
+.RS
+.B rpg-analyze indicators tests/report.rpg
+.RE
+.PP
+Decode spec lines into labeled columns:
+.PP
+.RS
+.B rpg-analyze decode tests/chain.rpg
+.RE
+.PP
+Search for all COMP operations using indicator 20:
+.PP
+.RS
+.B rpg-analyze search --query "op:COMP ind:20" *.rpg
+.RE
+.PP
+JSON output for CI integration:
+.PP
+.RS
+.B rpg-analyze --json --severity warn tests/*.rpg
+.RE
+.PP
+Generate a call graph in dot format:
+.PP
+.RS
+.B rpg-analyze callgraph --dot *.rpg | dot -Tsvg > callgraph.svg
+.RE
+.SH SEE ALSO
+.BR rpgc (1)
+.PP
+TOOLS_IDEAS.md \(em full design and rationale for every module

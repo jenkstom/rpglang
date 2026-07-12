@@ -1,5 +1,10 @@
 # Building & Packaging
 
+> **Who this is for:** anyone who needs to build, install, or package the
+> compiler from source. If you just want to try it out, the quick-start in the
+> README is enough; this document covers the full range of build, install, and
+> packaging options.
+
 This document covers building `rpgc`/`rpg-analyze` from source, installing
 them locally, and producing `.deb` packages for Debian/Ubuntu. It targets
 Ubuntu 24.04+/Debian 12+ with LLVM 19; adjust package names for other

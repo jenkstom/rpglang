@@ -8,7 +8,7 @@ Build-Depends: debhelper-compat (= 13),
                clang-19,
                lld-19
 Standards-Version: 4.6.2
-Homepage: https://gitlab.nyn.one/portfolio/rpg-compiler
+Homepage: https://github.com/jenkstom/rpglang
 Rules-Requires-Root: no
 
 Package: rpg2-compiler

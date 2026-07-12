@@ -120,6 +120,10 @@ install(FILES README.md LICENSE
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/rpg2-compiler
 )
 
+install(FILES docs/man/rpgc.1 docs/man/rpg-analyze.1
+    DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+)
+
 # -----------------------------------------------------------------------------
 # CPack: quick `.deb` (and .tar.gz) generation straight from the build tree.
 #
@@ -143,7 +147,7 @@ set(CPACK_GENERATOR "DEB;TGZ")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Tom White <tom.white@gmail.com>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://gitlab.nyn.one/portfolio/rpg-compiler")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/jenkstom/rpglang")
 # rpgc shells out to llc-19/clang-19 at runtime (paths baked in at configure
 # time from whichever llvm-config found them), so the package must depend on
 # the same LLVM 19 toolchain it was built against.

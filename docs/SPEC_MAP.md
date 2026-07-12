@@ -1,5 +1,10 @@
 # RPG II Spec Column Map
 
+> **Who this is for:** anyone writing or reading RPG II source — whether
+> hand-coding specs, debugging a column-alignment error, or building tooling
+> that parses the fixed-column format. This is the go-to reference for "which
+> columns mean what" across all four spec types.
+
 Authoritative column positions, extracted from the IBM *System/36-Compatible
 RPG II User's Guide and Reference* (SC09-1818-00). See
 `docs/ref/manual_layout.txt` for the raw extraction.

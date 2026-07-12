@@ -1,9 +1,16 @@
 # RPG II → LLVM Compiler — Architecture
 
+> **Who this is for:** developers who want to understand how `rpgc` works
+> internally — extending the compiler, debugging generated IR, or adding new
+> opcodes. No prior LLVM knowledge is required to follow the high-level flow;
+> the IR-level sections assume familiarity with LLVM's basic concepts (modules,
+> basic blocks, SSA values).
+
 This document describes the design of `rpgc`, the RPG II to LLVM compiler. It
 is the canonical reference for how source constructs map to LLVM IR, with
 particular attention to **indicators** (the most unusual part of RPG semantics)
-and the **implicit RPG program cycle**.
+and the **implicit RPG program cycle**. For the column-position reference, see
+`docs/SPEC_MAP.md`; for build instructions, see `docs/BUILDING.md`.
 
 The design is staged across ten phases; sections are marked **[Phase N]**
 to indicate when each mechanism comes online.

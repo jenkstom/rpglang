@@ -1,0 +1,126 @@
+.TH RPGC 1 "July 2026" "rpgc 0.1.0" "RPG II Compiler"
+.SH NAME
+rpgc \- RPG II to LLVM compiler
+.SH SYNOPSIS
+.B rpgc
+[\fIOPTIONS\fR] \fI<input.rpg\fR
+.SH DESCRIPTION
+.B rpgc
+compiles RPG II source files (the column-oriented fixed-format language used on
+IBM System/34, System/36, and AS/400 midrange systems) into native Linux ELF
+executables via LLVM 19.
+.PP
+The compiler parses the four core specification types (F-spec files, I-spec
+input, C-spec calculations, O-spec output), emits LLVM IR, and drives
+.BR llc (1)
+and
+.BR clang (1)
+to produce a final executable linked against a small C runtime library
+(\fIlibrpgruntime.a\fR).
+.PP
+Generated programs follow the implicit RPG program cycle: an outer loop that
+reads input records, extracts fields, runs total and detail calculations, and
+produces output. The cycle terminates when the last-record (LR) indicator turns
+on at end-of-file.
+.SH OPTIONS
+.TP
+.BR \-o " " \fIfile\fR
+Output file path. Defaults to the input name with the appropriate extension
+(\fB.x\fR for executables, \fB.o\fR for objects, \fB.s\fR for assembly,
+\fB.ll\fR for IR).
+.TP
+.BR \-\-emit-ir
+Emit textual LLVM IR (\fB.ll\fR) instead of an executable. Useful for
+inspecting the generated code.
+.TP
+.BR \-\-emit-asm
+Emit target assembly (\fB.s\fR) via
+.BR llc .
+.TP
+.BR \-\-emit-obj
+Emit a relocatable object file (\fB.o\fR) via
+.BR llc .
+.TP
+.BR \-\-emit-exe
+Emit a final linked executable (default).
+.TP
+.BR \-\-llc " " \fIpath\fR
+Path to the
+.BR llc (1)
+binary. Defaults to the path found at configure time (e.g.\ \fI/usr/bin/llc-19\fR).
+.TP
+.BR \-\-clang " " \fIpath\fR
+Path to the
+.BR clang (1)
+binary. Defaults to the path found at configure time (e.g.\ \fI/usr/bin/clang-19\fR).
+.TP
+.BR \-\-runtime " " \fIpath\fR
+Path to \fIlibrpgruntime.a\fR. Defaults to a search starting next to the
+.B rpgc
+executable (\fI<prefix>/lib/rpgc/librpgruntime.a\fR), falling back to the
+build-tree path baked in at compile time.
+.TP
+.BR \-O\fIlevel\fR
+LLVM optimization level (0\(en3). Default is 0 (no optimization). At \fB-O2\fR
+and above, the LLVM new-pass-manager pipeline runs before emission.
+.TP
+.B \-\-save-temps
+Keep intermediate \fB.ll\fR and \fB.o\fR files in a temporary directory.
+.TP
+.B \-v
+Verbose mode. Print each tool invocation (\fBllc\fR, \fBclang\fR) as it runs.
+.TP
+.B \-\-version
+Print the compiler version and linked LLVM version, then exit.
+.TP
+.BR \-h ", " \-\-help
+Print a usage summary and exit.
+.SH EXAMPLES
+Compile a program to a native executable:
+.PP
+.RS
+.B rpgc tests/math.rpg
+.br
+./math; echo $?
+.br
+# 42
+.RE
+.PP
+Emit LLVM IR for inspection:
+.PP
+.RS
+.B rpgc --emit-ir tests/goto.rpg
+.RE
+.PP
+Compile with optimization:
+.PP
+.RS
+.B rpgc -O2 tests/report.rpg -o report
+.RE
+.PP
+.SH TEST HOOK
+For testing without file I/O, if a program defines a field named
+\fBRPGRET\fR, the generated executable returns its low byte as the process exit
+code. Otherwise the exit code is the LR indicator (0 or 1). This is a test
+affordance only; real programs communicate via LR and O-spec output.
+.SH FILES
+.TP
+.I librpgruntime.a
+C runtime library linked into every compiled RPG program. Handles file I/O,
+numeric decoding, and output formatting.
+.TP
+.I <prefix>/lib/rpgc/librpgruntime.a
+Default install location for the runtime library.
+.TP
+.I <prefix>/include/rpgc/rpg_runtime.h
+Runtime header, useful for understanding the generated code's external calls.
+.SH SEE ALSO
+.BR rpg-analyze (1),
+.BR llc (1),
+.BR clang (1)
+.PP
+docs/ARCHITECTURE.md \(em internal design and IR mapping
+.br
+docs/SPEC_MAP.md \(em authoritative column-position reference
+.br
+docs/tutorial/ \(em interactive RPG II tutorial
