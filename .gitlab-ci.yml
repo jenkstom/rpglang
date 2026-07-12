@@ -1,9 +1,11 @@
 pages:
   stage: deploy
-  image: alpine:latest
+  image: python:3.12-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends groff
+    - pip install markdown
   script:
-    - mkdir -p public
-    - cp -r docs/tutorial/* public/
+    - python3 tools/build-docs.py public
   artifacts:
     paths:
       - public
