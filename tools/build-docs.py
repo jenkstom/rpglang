@@ -9,9 +9,10 @@ links together every piece of project documentation:
   * Markdown reference and design docs, converted to themed HTML
   * A landing index.html that is the single entry point to all of the above
 
-The generated pages share the same dark "Tokyo Night" theme as the tutorial so
-the whole site feels cohesive, and every page carries a top navigation bar back
-to the landing page and its sibling documents.
+The generated pages share a GitHub-dark theme (matching github.com's dark
+mode) with a sticky global header that links back to the repository, a repo
+tab bar, and a landing page laid out like a GitHub repo overview. Every
+page carries navigation back to the landing page and its sibling documents.
 
 Usage:
     python3 tools/build-docs.py [BUILD_DIR]
@@ -34,60 +35,264 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 OUT = Path(sys.argv[2] if len(sys.argv) > 2 else (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("BUILD_DIR", "public")))
 
+REPO_URL = "https://github.com/jenkstom/rpglang"
+REPO_OWNER = "jenkstom"
+REPO_NAME = "rpglang"
+
+
+def fetch_repo_meta() -> dict:
+    """Fetch public repo metadata (stars, forks, description) at build time.
+
+    Falls back gracefully to sensible defaults when the network or API is
+    unavailable so the build never fails for a missing star count.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+    defaults = {"stargazers_count": None, "forks_count": None,
+                "description": "RPG II compiler, runtime, and static-analysis toolkit",
+                "language": "C++", "topics": []}
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "rpglang-docs-build"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        defaults.update({k: data.get(k) for k in
+                         ("stargazers_count", "forks_count", "description", "language", "topics")})
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    return defaults
+
+
+REPO_META = fetch_repo_meta()
+
+# Official GitHub mark (octocat silhouette).
+GITHUB_MARK_SVG = (
+    '<svg height="20" viewBox="0 0 16 16" width="20" fill="currentColor" '
+    'aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 '
+    '0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 '
+    '0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 '
+    '1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 '
+    '1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>'
+)
+STAR_SVG = (
+    '<svg height="14" viewBox="0 0 16 16" width="14" fill="currentColor" aria-hidden="true">'
+    '<path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 '
+    '0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 '
+    '0 0 1 8 .25Z"></path></svg>'
+)
+FORK_SVG = (
+    '<svg height="14" viewBox="0 0 16 16" width="14" fill="currentColor" aria-hidden="true">'
+    '<path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 '
+    '1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 '
+    '3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z"></path></svg>'
+)
+BOOK_SVG = (
+    '<svg height="14" viewBox="0 0 16 16" width="14" fill="currentColor" aria-hidden="true">'
+    '<path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 '
+    '0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 '
+    '0 0 1-.75-.75Z"></path></svg>'
+)
+TAG_SVG = (
+    '<svg height="14" viewBox="0 0 16 16" width="14" fill="currentColor" aria-hidden="true">'
+    '<path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 '
+    '1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Z"></path></svg>'
+)
+
 # Shared stylesheet, matching the tutorial's Tokyo Night palette so the entire
 # site is visually unified.
-CSS = """
+CSS = r"""
+:root {
+  --gh-canvas:      #0d1117;
+  --gh-inset:       #010409;
+  --gh-subtle:      #161b22;
+  --gh-overlay:     #1c2128;
+  --gh-border:      #30363d;
+  --gh-border-muted:#21262d;
+  --gh-fg:          #e6edf3;
+  --gh-fg-muted:    #8b949e;
+  --gh-fg-subtle:   #6e7681;
+  --gh-accent:      #58a6ff;
+  --gh-accent-emph: #1f6feb;
+  --gh-success:     #3fb950;
+  --gh-success-emph:#238636;
+  --gh-attention:   #d29922;
+  --gh-danger:      #f85149;
+  --gh-done:        #a371f7;
+}
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  max-width: 920px; margin: 2rem auto; padding: 0 1.5rem;
-  line-height: 1.6; color: #c0caf5; background: #1a1b26;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  margin: 0; line-height: 1.5; color: var(--gh-fg); background: var(--gh-canvas);
+  -webkit-font-smoothing: antialiased;
 }
-header.sitenav {
-  position: sticky; top: 0; z-index: 10;
-  display: flex; flex-wrap: wrap; gap: .4rem .9rem; align-items: center;
-  background: rgba(26,27,38,.92); backdrop-filter: blur(6px);
-  padding: .55rem 0; margin: -1rem 0 1.5rem;
-  border-bottom: 1px solid #333653;
+
+/* ── GitHub-style global header ───────────────────────────── */
+.gh-header {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--gh-inset);
+  border-bottom: 1px solid var(--gh-border-muted);
 }
-header.sitenav .brand { font-weight: 700; color: #7aa2f7; letter-spacing: .02em; }
-header.sitenav a { color: #9aa5ce; font-size: .9rem; text-decoration: none; }
-header.sitenav a:hover { color: #7dcfff; text-decoration: underline; }
-header.sitenav .sep { color: #414868; }
-h1 { font-size: 2rem; border-bottom: 3px solid #7aa2f7; color: #7aa2f7; padding-bottom: .3rem; margin-top: 1.2rem; }
-h2 { font-size: 1.4rem; margin-top: 2.5rem; border-bottom: 1px solid #333653; color: #7dcfff; padding-bottom: .2rem; }
-h3 { font-size: 1.15rem; margin-top: 1.8rem; color: #bb9af7; }
-h4 { color: #bb9af7; }
-h5, h6 { color: #9aa5ce; }
-p { margin: 1rem 0; }
-code { font-family: "Consolas","Courier New",monospace; background: #2a2b3d; color: #e0af68; padding: .1em .35em; border-radius: 3px; font-size: .9em; }
-pre { background: #13131f; color: #c0caf5; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #333653; }
-pre code { background: none; color: inherit; padding: 0; font-size: .88em; }
-blockquote { border-left: 4px solid #7aa2f7; background: #24283b; margin: 1rem 0; padding: .8rem 1.2rem; border-radius: 0 6px 6px 0; }
-table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-th, td { border: 1px solid #333653; padding: .5rem .8rem; text-align: left; vertical-align: top; }
-th { background: #7aa2f7; color: #1a1b26; }
-tr:nth-child(even) { background: #1f2335; }
-a { color: #7dcfff; text-decoration: none; }
+.gh-header-inner {
+  display: flex; align-items: center; gap: .85rem;
+  max-width: 1180px; margin: 0 auto; padding: .7rem 1.5rem;
+}
+.gh-mark-link { display: inline-flex; color: #f0f6fc; flex-shrink: 0; }
+.gh-mark-link:hover { color: var(--gh-fg-muted); }
+.gh-breadcrumb { display: flex; align-items: center; gap: .25rem; font-size: 1.1rem; min-width: 0; }
+.gh-breadcrumb a { color: var(--gh-accent); text-decoration: none; font-weight: 500; }
+.gh-breadcrumb a:hover { text-decoration: underline; }
+.gh-breadcrumb .gh-owner { color: var(--gh-fg-muted); font-weight: 400; }
+.gh-breadcrumb .gh-sep { color: var(--gh-fg-subtle); padding: 0 .1rem; }
+.gh-pub-badge {
+  font-size: .75rem; font-weight: 500; color: var(--gh-fg-muted);
+  border: 1px solid var(--gh-border); border-radius: 999px;
+  padding: .05rem .55rem; background: transparent;
+}
+.gh-spacer { flex: 1; }
+.gh-btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  font-size: .85rem; font-weight: 500; color: var(--gh-fg);
+  background: var(--gh-subtle); border: 1px solid var(--gh-border);
+  border-radius: 6px; padding: .35rem .8rem; text-decoration: none; cursor: pointer;
+  transition: background .12s, border-color .12s; line-height: 1.2;
+}
+.gh-btn:hover { background: var(--gh-border-muted); border-color: var(--gh-fg-subtle); text-decoration: none; }
+.gh-btn .gh-count {
+  display: inline-flex; align-items: center; gap: .25rem;
+  padding-left: .6rem; margin-left: .15rem;
+  border-left: 1px solid var(--gh-border); color: var(--gh-fg-muted);
+}
+.gh-btn .gh-count b { color: var(--gh-fg); font-weight: 600; }
+
+/* ── Repo tab nav ─────────────────────────────────────────── */
+.gh-tabs {
+  position: sticky; top: 48px; z-index: 40;
+  background: var(--gh-canvas);
+  border-bottom: 1px solid var(--gh-border-muted);
+  overflow-x: auto;
+}
+.gh-tabs-inner {
+  display: flex; gap: .5rem; max-width: 1180px; margin: 0 auto;
+  padding: 0 1.5rem;
+}
+.gh-tab {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .75rem .85rem; font-size: .9rem; color: var(--gh-fg-muted);
+  text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent;
+  border-radius: 0; margin-bottom: -1px;
+}
+.gh-tab:hover { color: var(--gh-fg); text-decoration: none; border-bottom-color: var(--gh-border-muted); }
+.gh-tab.active { color: var(--gh-fg); font-weight: 600; border-bottom-color: #fd8c73; }
+
+/* ── Page container ───────────────────────────────────────── */
+.gh-container {
+  max-width: 1180px; margin: 0 auto; padding: 1.8rem 1.5rem 4rem;
+}
+
+/* ── Content typography (GitHub markdown style) ───────────── */
+.docbody, .gh-main { font-size: 1rem; }
+.gh-main { min-width: 0; }
+h1 { font-size: 2rem; font-weight: 600; color: var(--gh-fg); padding-bottom: .4rem; margin: 0 0 1rem; border-bottom: 1px solid var(--gh-border-muted); }
+h2 { font-size: 1.4rem; font-weight: 600; color: var(--gh-fg); margin: 2.4rem 0 1rem; padding-bottom: .35rem; border-bottom: 1px solid var(--gh-border-muted); }
+h3 { font-size: 1.2rem; font-weight: 600; color: var(--gh-fg); margin: 1.8rem 0 .8rem; }
+h4 { font-size: 1.05rem; font-weight: 600; color: var(--gh-fg); margin: 1.4rem 0 .6rem; }
+h5, h6 { color: var(--gh-fg-muted); margin: 1.2rem 0 .5rem; }
+p { margin: 0 0 1rem; }
+a { color: var(--gh-accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-hr { border: none; border-top: 1px solid #333653; margin: 2rem 0; }
-ul, ol { padding-left: 1.4rem; }
+strong { color: var(--gh-fg); font-weight: 600; }
+code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; background: var(--gh-subtle); color: #e6edf3; padding: .15em .4em; border-radius: 6px; font-size: .85em; }
+pre { background: var(--gh-canvas); color: #e6edf3; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid var(--gh-border-muted); margin: 0 0 1rem; }
+pre code { background: none; color: inherit; padding: 0; font-size: .85em; }
+blockquote { border-left: 3px solid var(--gh-border); color: var(--gh-fg-muted); margin: 0 0 1rem; padding: 0 1rem; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 1rem; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--gh-border-muted); padding: .45rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--gh-subtle); color: var(--gh-fg); font-weight: 600; }
+tr:nth-child(2n) { background: rgba(110,118,129,.07); }
+hr { border: none; border-top: 1px solid var(--gh-border-muted); margin: 2rem 0; }
+ul, ol { padding-left: 1.6rem; margin: 0 0 1rem; }
 li { margin-bottom: .3rem; }
-.docbody { font-size: 1rem; }
-.lead { font-size: 1.1rem; color: #9aa5ce; }
-footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #333653; color: #565f89; font-size: .85rem; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
-.card { background: #1f2335; border: 1px solid #333653; border-radius: 10px; padding: 1.1rem 1.3rem; transition: border-color .15s, transform .15s; }
-.card:hover { border-color: #7aa2f7; transform: translateY(-2px); }
-.card h3 { margin-top: 0; color: #7aa2f7; }
-.card p { margin: .4rem 0 0; color: #9aa5ce; font-size: .92rem; }
-.card a { color: inherit; text-decoration: none; }
-.card h3 a { color: #7aa2f7; }
-.section-title { font-size: 1.25rem; font-weight: 700; color: #7dcfff; margin: 2.4rem 0 .2rem; padding-bottom: .3rem; border-bottom: 2px solid #333653; }
-.hero { background: #1f2335; border: 1px solid #7aa2f7; border-radius: 14px; padding: 1.8rem 2rem; margin: 1.5rem 0 1rem; }
-.hero h1 { border: none; margin-top: 0; }
-.tags { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .6rem; }
-.tag { font-size: .75rem; background: #2a2b3d; border: 1px solid #333653; color: #9aa5ce; padding: .15rem .55rem; border-radius: 999px; }
+img { max-width: 100%; }
+.lead { font-size: 1.12rem; color: var(--gh-fg-muted); margin-bottom: 1.4rem; }
+
+/* ── Landing: hero ────────────────────────────────────────── */
+.gh-hero {
+  background: linear-gradient(180deg, var(--gh-subtle) 0%, var(--gh-canvas) 100%);
+  border: 1px solid var(--gh-border-muted); border-radius: 10px;
+  padding: 1.8rem 2rem; margin-bottom: 1.8rem;
+}
+.gh-hero h1 { border: none; margin-top: 0; }
+.gh-hero .lead { margin-bottom: 0; }
+.gh-tags { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1.1rem; }
+.gh-tag {
+  display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .8rem; color: var(--gh-accent);
+  background: rgba(56,139,253,.12); border: 1px solid rgba(56,139,253,.4);
+  border-radius: 999px; padding: .2rem .75rem; text-decoration: none;
+}
+.gh-tag:hover { background: rgba(56,139,253,.2); text-decoration: none; }
+
+/* ── Landing: two-column layout ───────────────────────────── */
+.gh-layout { display: grid; grid-template-columns: minmax(0, 1fr) 296px; gap: 1.8rem; align-items: start; }
+@media (max-width: 900px) { .gh-layout { grid-template-columns: 1fr; } }
+
+.gh-sidebar { position: sticky; top: 108px; }
+.gh-about {
+  background: var(--gh-canvas); border: 1px solid var(--gh-border-muted);
+  border-radius: 10px; padding: 1rem 1.1rem;
+}
+.gh-about h2 { font-size: 1rem; margin: 0 0 .6rem; border: none; padding: 0; color: var(--gh-fg); }
+.gh-about p { font-size: .92rem; color: var(--gh-fg-muted); margin: 0 0 1rem; }
+.gh-about-meta { list-style: none; padding: 0; margin: 0 0 1rem; border-top: 1px solid var(--gh-border-muted); padding-top: .8rem; }
+.gh-about-meta li { display: flex; align-items: center; gap: .5rem; font-size: .88rem; color: var(--gh-fg-muted); margin-bottom: .5rem; }
+.gh-about-meta li svg { color: var(--gh-fg-muted); flex-shrink: 0; }
+.gh-about-meta b { color: var(--gh-fg); font-weight: 600; }
+.gh-about-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* ── Landing: doc cards ───────────────────────────────────── */
+.section-title {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: 1.15rem; font-weight: 600; color: var(--gh-fg);
+  margin: 2rem 0 .8rem; padding-bottom: .5rem; border-bottom: 1px solid var(--gh-border-muted);
+}
+.section-title .section-count {
+  font-size: .8rem; font-weight: 500; color: var(--gh-fg-muted);
+  background: var(--gh-subtle); border: 1px solid var(--gh-border-muted);
+  border-radius: 999px; padding: .05rem .55rem;
+}
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
+.card {
+  background: var(--gh-subtle); border: 1px solid var(--gh-border-muted); border-radius: 10px;
+  padding: 1rem 1.2rem; transition: border-color .14s, transform .14s, box-shadow .14s;
+  display: flex; flex-direction: column;
+}
+.card:hover { border-color: var(--gh-accent); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(1,4,9,.4); }
+.card h3 { margin: 0 0 .4rem; font-size: 1.02rem; font-weight: 600; }
+.card h3 a { color: var(--gh-accent); text-decoration: none; }
+.card h3 a:hover { text-decoration: underline; }
+.card p { margin: 0; color: var(--gh-fg-muted); font-size: .88rem; }
+.card .card-icon { font-size: 1.1rem; line-height: 1; margin-right: .3rem; }
+
+.gh-manuals { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .6rem; }
+.gh-manuals li { margin: 0; }
+.gh-manuals a {
+  display: flex; align-items: center; gap: .5rem; font-size: .9rem;
+  padding: .6rem .9rem; background: var(--gh-subtle); border: 1px solid var(--gh-border-muted);
+  border-radius: 8px;
+}
+.gh-manuals a:hover { border-color: var(--gh-accent); }
+.gh-manuals .gh-manual-size { margin-left: auto; color: var(--gh-fg-subtle); font-size: .8rem; }
+
+footer.gh-footer {
+  border-top: 1px solid var(--gh-border-muted); color: var(--gh-fg-muted); font-size: .82rem;
+  padding: 1.2rem 1.5rem; max-width: 1180px; margin: 0 auto;
+}
+footer.gh-footer a { color: var(--gh-accent); }
+footer.gh-footer .gh-footer-links { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; }
+footer.gh-footer .gh-footer-copy { margin-top: .5rem; color: var(--gh-fg-subtle); }
 """
 
 DOCS = [
@@ -220,16 +425,47 @@ def log(msg: str) -> None:
 
 
 def nav_html(current_slug: str | None = None) -> str:
-    """Top navigation bar present on every generated page."""
-    items = [("index.html", "Home"), ("readme.html", "Overview"),
-             ("tutorial/index.html", "Tutorial"),
-             ("man/rpgc.html", "rpgc(1)"), ("man/rpg-analyze.html", "rpg-analyze(1)")]
-    links = ['<span class="brand">rpglang docs</span>']
-    for href, label in items:
-        cls = ' style="color:#7dcfff;font-weight:600"' if href.rstrip("/") == (current_slug or "") else ""
-        links.append(f'<a href="{href}"{cls}>{label}</a>')
-    sep = '<span class="sep">·</span>'
-    return '<header class="sitenav">' + sep.join(links) + "</header>"
+    """GitHub-style header: black global bar + repo tab nav."""
+    star = REPO_META.get("stargazers_count")
+    fork = REPO_META.get("forks_count")
+    star_count = f"<b>{star}</b>" if star is not None else ""
+    fork_count = f"<b>{fork}</b>" if fork is not None else ""
+
+    header = f"""<div class="gh-header">
+  <div class="gh-header-inner">
+    <a class="gh-mark-link" href="{REPO_URL}" title="View on GitHub" target="_blank" rel="noopener">{GITHUB_MARK_SVG}</a>
+    <span class="gh-breadcrumb">
+      <a class="gh-owner" href="https://github.com/{REPO_OWNER}" target="_blank" rel="noopener">{REPO_OWNER}</a>
+      <span class="gh-sep">/</span>
+      <a href="{REPO_URL}" target="_blank" rel="noopener">{REPO_NAME}</a>
+    </span>
+    <span class="gh-pub-badge">Public</span>
+    <span class="gh-spacer"></span>
+    <a class="gh-btn" href="{REPO_URL}/fork" target="_blank" rel="noopener">{FORK_SVG} Fork{(' <span class="gh-count">' + fork_count + '</span>') if fork is not None else ''}</a>
+    <a class="gh-btn" href="{REPO_URL}/stargazers" target="_blank" rel="noopener">{STAR_SVG} Star{(' <span class="gh-count">' + star_count + '</span>') if star is not None else ''}</a>
+  </div>
+</div>"""
+
+    tabs = [
+        ("index.html", "Overview", BOOK_SVG),
+        ("tutorial/index.html", "Tutorial", BOOK_SVG),
+        ("man/rpgc.html", "rpgc(1)", None),
+        ("man/rpg-analyze.html", "rpg-analyze(1)", None),
+        ("spec-map.html", "Reference", None),
+        ("architecture.html", "Internals", None),
+    ]
+    tab_items = []
+    for href, label, icon in tabs:
+        active = " active" if href.rstrip("/") == (current_slug or "") else ""
+        icon_html = f"{icon} " if icon else ""
+        tab_items.append(f'<a class="gh-tab{active}" href="{href}">{icon_html}{label}</a>')
+
+    tabbar = f"""<nav class="gh-tabs">
+  <div class="gh-tabs-inner">
+{'    ' + chr(10).join(tab_items)}
+  </div>
+</nav>"""
+    return header + "\n" + tabbar
 
 
 def page(title: str, body: str, current_slug: str | None = None, extra_head: str = "") -> str:
@@ -246,10 +482,24 @@ def page(title: str, body: str, current_slug: str | None = None, extra_head: str
 </head>
 <body>
 {nav_html(current_slug)}
+<div class="gh-container">
 {body}
-<footer>Generated from the <code>rpglang</code> repository source ·
-<a href="readme.html">Overview</a> · <a href="tutorial/index.html">Tutorial</a> ·
-<a href="man/rpgc.html">rpgc(1)</a> · <a href="man/rpg-analyze.html">rpg-analyze(1)</a></footer>
+</div>
+<footer class="gh-footer">
+  <div class="gh-footer-links">
+    {GITHUB_MARK_SVG}
+    <a href="{REPO_URL}" target="_blank" rel="noopener">View repository on GitHub</a>
+    <span class="gh-sep">·</span>
+    <a href="index.html">Docs home</a>
+    <span class="gh-sep">·</span>
+    <a href="tutorial/index.html">Tutorial</a>
+    <span class="gh-sep">·</span>
+    <a href="man/rpgc.html">rpgc(1)</a>
+    <span class="gh-sep">·</span>
+    <a href="man/rpg-analyze.html">rpg-analyze(1)</a>
+  </div>
+  <div class="gh-footer-copy">Generated from the <code>{REPO_NAME}</code> repository · © {REPO_OWNER}</div>
+</footer>
 </body>
 </html>
 """
@@ -348,46 +598,81 @@ def build_landing() -> str:
                     else (d["slug"] + ".html"))
             icon = d.get("icon", "▪")
             cards.append(
-                f'<article class="card"><h3><a href="{href}">{icon} {html.escape(d["title"].split(" — ")[0])}</a></h3>'
+                f'<article class="card"><h3><a href="{href}"><span class="card-icon">{icon}</span>{html.escape(d["title"].split(" — ")[0])}</a></h3>'
                 f'<p>{html.escape(d["blurb"])}</p></article>'
             )
         sections.append(
-            f'<div class="section-title">{html.escape(cat)}</div>\n'
+            f'<div class="section-title">{html.escape(cat)} <span class="section-count">{len(items)}</span></div>\n'
             f'<div class="cards">\n' + "\n".join(cards) + "\n</div>"
         )
 
-    body = f"""
-<div class="hero">
-  <h1>rpglang documentation</h1>
-  <p class="lead">An <strong>RPG&nbsp;II</strong> compiler and static-analysis toolkit for Linux,
-  compiling the column-oriented fixed-format language of IBM System/34, System/36,
-  and AS/400 midrange systems into native ELF executables via <strong>LLVM&nbsp;19</strong>.</p>
-  <div class="tags">
-    <span class="tag">RPG II compiler</span>
-    <span class="tag">LLVM 19 codegen</span>
-    <span class="tag">static analysis</span>
-    <span class="tag">C runtime</span>
-    <span class="tag">Linux native</span>
-  </div>
-</div>
+    # About sidebar — mirrors GitHub's repo "About" box.
+    stars = REPO_META.get("stargazers_count")
+    forks = REPO_META.get("forks_count")
+    lang = REPO_META.get("language") or "C++"
+    desc = REPO_META.get("description") or "RPG II compiler, runtime, and static-analysis toolkit"
+    topics = REPO_META.get("topics") or []
+    stars_str = str(stars) if stars is not None else "—"
+    forks_str = str(forks) if forks is not None else "—"
+    topics_html = "".join(
+        f'<a class="gh-tag" href="{REPO_URL}/topics/{t}" target="_blank" rel="noopener">{html.escape(t)}</a>'
+        for t in topics
+    )
+    topic_section = f'<div class="gh-tags">{topics_html}</div>' if topics_html else ""
 
-<p>Everything is reachable from this page: the interactive tutorial, the
-<code>rpgc</code> and <code>rpg-analyze</code> man pages, the column-reference
-and build guides, and the internal architecture &amp; design documents.
-Pick a card below, or use the navigation bar at the top of any page.</p>
+    sidebar = f"""<aside class="gh-sidebar">
+  <div class="gh-about">
+    <h2>About</h2>
+    <p>{html.escape(desc)}</p>
+    {topic_section}
+    <ul class="gh-about-meta">
+      <li>{BOOK_SVG} <span>Docs site for <b>{REPO_OWNER}/{REPO_NAME}</b></span></li>
+      <li>{STAR_SVG} <b>{stars_str}</b> stars</li>
+      <li>{FORK_SVG} <b>{forks_str}</b> forks</li>
+      <li>{TAG_SVG} Language: <b>{html.escape(lang)}</b></li>
+    </ul>
+    <div class="gh-about-actions">
+      <a class="gh-btn" href="{REPO_URL}" target="_blank" rel="noopener">{GITHUB_MARK_SVG} View on GitHub</a>
+    </div>
+  </div>
+</aside>"""
+
+    manuals = f"""<div class="section-title">IBM RPG II reference manuals (raw) <span class="section-count">2</span></div>
+<ul class="gh-manuals">
+  <li><a href="ref/manual_text.html">{BOOK_SVG} <strong>manual_text.txt</strong> — full IBM RPG II reference text <span class="gh-manual-size">~1.9&nbsp;MB</span></a></li>
+  <li><a href="ref/manual_layout.txt">{BOOK_SVG} <strong>manual_layout.txt</strong> — column layout dump (raw) <span class="gh-manual-size">~5&nbsp;MB</span></a></li>
+</ul>"""
+
+    body = f"""
+<div class="gh-layout">
+<main class="gh-main">
+  <div class="gh-hero">
+    <h1>rpglang documentation</h1>
+    <p class="lead">An <strong>RPG&nbsp;II</strong> compiler and static-analysis toolkit for Linux,
+    compiling the column-oriented fixed-format language of IBM System/34, System/36,
+    and AS/400 midrange systems into native ELF executables via <strong>LLVM&nbsp;19</strong>.</p>
+    <div class="gh-tags">
+      <a class="gh-tag" href="{REPO_URL}" target="_blank" rel="noopener">RPG II compiler</a>
+      <a class="gh-tag" href="architecture.html">LLVM 19 codegen</a>
+      <a class="gh-tag" href="analyzer-design.html">static analysis</a>
+      <a class="gh-tag" href="building.html">C runtime</a>
+      <a class="gh-tag" href="{REPO_URL}" target="_blank" rel="noopener">Linux native</a>
+    </div>
+  </div>
+
+  <p>Everything is reachable from this page: the interactive tutorial, the
+  <code>rpgc</code> and <code>rpg-analyze</code> man pages, the column-reference
+  and build guides, and the internal architecture &amp; design documents.
+  Pick a card below, or use the tab bar at the top of any page.</p>
 
 {chr(10).join(sections)}
 
-<div class="section-title">IBM RPG II reference manuals (raw)</div>
-<p>Two large plain-text scans of the original IBM System/36 RPG II reference
-manual are bundled in the repository under <code>docs/ref/</code> and linked
-here for deep reference:</p>
-<ul>
-  <li><a href="ref/manual_text.html"><strong>manual_text.txt</strong></a> — full text of the IBM RPG II reference (text view, ~1.9&nbsp;MB)</li>
-  <li><a href="ref/manual_layout.txt"><strong>manual_layout.txt</strong></a> — the original column layout dump (raw text, ~5&nbsp;MB)</li>
-</ul>
+{manuals}
+</main>
+{sidebar}
+</div>
 """
-    return page("rpglang — Documentation", body)
+    return page("rpglang — Documentation", body, current_slug="index.html")
 
 
 def render_text_file(path: Path, title: str) -> str:
