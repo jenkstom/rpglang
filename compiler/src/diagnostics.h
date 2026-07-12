@@ -7,6 +7,7 @@
 #ifndef RPGC_DIAGNOSTICS_H
 #define RPGC_DIAGNOSTICS_H
 
+#include <functional>
 #include <string>
 
 namespace rpgc {
@@ -36,6 +37,21 @@ void fatal(const std::string &msg);
 
 /* Number of errors reported so far in this compilation. */
 int  error_count();
+
+/* Reset the error counter to zero (tools that parse multiple files in one
+ * process, like rpg-analyze, call this between files). */
+void reset_diagnostics();
+
+using DiagnosticSink = std::function<void(const std::string &file, int line,
+                                          int col, DiagKind kind,
+                                          const std::string &message)>;
+
+/* Install a callback that receives every diagnostic instead of the default
+ * stderr print (the error counter is still updated either way). Pass an empty
+ * std::function to restore the default stderr behavior. `rpgc` never installs
+ * a sink; `rpg-analyze` uses this to fold parse diagnostics into findings
+ * instead of leaking raw compiler chatter onto stderr. */
+void set_diagnostic_sink(DiagnosticSink sink);
 
 } // namespace rpgc
 

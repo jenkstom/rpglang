@@ -1,12 +1,17 @@
 # =============================================================================
 # compiler/CMakeLists.txt
 #
-# Builds the `rpgc` executable. It links against LLVM (via the CMake package
-# located in the top-level CMakeLists.txt) and against the runtime library.
+# Builds:
+#   - `rpgc_parse` - a static library holding the LLVM-independent frontend
+#     (source loading, F/H/I/C/O/E/U-spec parsing, diagnostics). Consumed by
+#     both `rpgc` and the standalone `rpg-analyze` tool (see analyze/), which
+#     has no need to link LLVM at all.
+#   - `rpgc`       - the compiler executable. Links against LLVM (via the
+#     CMake package located in the top-level CMakeLists.txt) and against the
+#     runtime library, plus `rpgc_parse` for the frontend.
 # =============================================================================
 
-add_executable(rpgc
-    src/main.cpp
+add_library(rpgc_parse STATIC
     src/diagnostics.cpp
     src/source.cpp
     src/cspec.cpp
@@ -16,6 +21,11 @@ add_executable(rpgc
     src/ospec.cpp
     src/espec.cpp
     src/uspec.cpp
+)
+target_include_directories(rpgc_parse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(rpgc
+    src/main.cpp
     src/symbols.cpp
     src/codegen.cpp
     src/driver.cpp
@@ -49,6 +59,7 @@ target_include_directories(rpgc PRIVATE
 )
 
 target_link_libraries(rpgc PRIVATE
+    rpgc_parse
     ${LLVM_LIBS}
     rpgruntime          # so rpgc itself can sanity-check the runtime ABI
 )

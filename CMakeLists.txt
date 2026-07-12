@@ -110,3 +110,4 @@ set(RPGC_CLANG "${LLVM_CLANG}" CACHE STRING "Path to clang used by rpgc")
 # -----------------------------------------------------------------------------
 add_subdirectory(runtime)
 add_subdirectory(compiler)
+add_subdirectory(analyze)

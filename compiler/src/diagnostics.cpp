@@ -19,6 +19,7 @@ const char *kind_str(DiagKind k) {
 }
 
 int g_error_count = 0;
+DiagnosticSink g_sink;
 } // namespace
 
 void report(const std::string &file,
@@ -26,12 +27,16 @@ void report(const std::string &file,
             int col,
             DiagKind kind,
             const std::string &message) {
-    std::fprintf(stderr, "%s:", file.c_str());
-    if (line > 0) {
-        std::fprintf(stderr, "%d:", line);
-        if (col > 0) std::fprintf(stderr, "%d:", col);
+    if (g_sink) {
+        g_sink(file, line, col, kind, message);
+    } else {
+        std::fprintf(stderr, "%s:", file.c_str());
+        if (line > 0) {
+            std::fprintf(stderr, "%d:", line);
+            if (col > 0) std::fprintf(stderr, "%d:", col);
+        }
+        std::fprintf(stderr, " %s: %s\n", kind_str(kind), message.c_str());
     }
-    std::fprintf(stderr, " %s: %s\n", kind_str(kind), message.c_str());
 
     if (kind == DiagKind::Error || kind == DiagKind::Fatal) {
         ++g_error_count;
@@ -48,6 +53,14 @@ void fatal(const std::string &msg) {
 
 int error_count() {
     return g_error_count;
+}
+
+void reset_diagnostics() {
+    g_error_count = 0;
+}
+
+void set_diagnostic_sink(DiagnosticSink sink) {
+    g_sink = std::move(sink);
 }
 
 } // namespace rpgc
