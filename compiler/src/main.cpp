@@ -59,6 +59,14 @@
 
 namespace {
 
+// GPLv3-mandated copyright/warranty notice (§5(a)). Printed by --version,
+// --help, and the interactive startup banner.
+const std::string kLicenseNotice =
+    "Copyright (C) 2026 Tom White\n"
+    "License GPLv3+: GNU GPL version 3 or later <https://www.gnu.org/licenses/gpl.html>\n"
+    "This is free software: you are free to change and redistribute it.\n"
+    "There is NO WARRANTY, to the extent permitted by law.\n";
+
 bool file_exists(const std::string &path) {
     struct stat st;
     return stat(path.c_str(), &st) == 0;
@@ -129,7 +137,9 @@ void print_help() {
         "    --save-temps       keep intermediate .ll/.o files\n"
         "    -v                 verbose (print each tool invocation)\n"
         "    --version          print version and exit\n"
-        "    -h, --help         print this help and exit\n";
+        "    -h, --help         print this help and exit\n"
+        "\n"
+        + kLicenseNotice;
 }
 
 void print_version() {
@@ -137,6 +147,7 @@ void print_version() {
     std::cout << "LLVM " << LLVM_VERSION_STRING
               << " (linked; target triple default = "
               << llvm::sys::getDefaultTargetTriple() << ")\n";
+    std::cout << kLicenseNotice;
 }
 
 /* Read the whole source file into a string. Returns false on I/O error. */

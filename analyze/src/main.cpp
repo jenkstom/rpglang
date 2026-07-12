@@ -23,6 +23,14 @@ namespace {
 
 const char *kVersion = "rpg-analyze 0.1.0";
 
+// GPLv3-mandated copyright/warranty notice (§5(a)). Printed by --version
+// and --help.
+const std::string kLicenseNotice =
+    "Copyright (C) 2026 Tom White\n"
+    "License GPLv3+: GNU GPL version 3 or later <https://www.gnu.org/licenses/gpl.html>\n"
+    "This is free software: you are free to change and redistribute it.\n"
+    "There is NO WARRANTY, to the extent permitted by law.\n";
+
 void print_help() {
     std::cout <<
         "rpg-analyze -- static analysis for RPG II source\n"
@@ -73,6 +81,7 @@ void print_help() {
         "MODULES:\n";
     for (auto &m : module_catalog())
         std::cout << "    " << m.id << "\n";
+    std::cout << "\n" << kLicenseNotice;
 }
 
 struct Options {
@@ -256,7 +265,7 @@ int main(int argc, char **argv) {
         return 3;
     }
     if (o.help) { print_help(); return 0; }
-    if (o.version) { std::cout << kVersion << "\n"; return 0; }
+    if (o.version) { std::cout << kVersion << "\n" << kLicenseNotice; return 0; }
 
     std::string cmd = o.command.empty() ? "report" : o.command;
 
