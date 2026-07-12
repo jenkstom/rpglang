@@ -59,6 +59,34 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
                 break;
         }
 
+        // E5: record-address files (designation R) drive a companion "to
+        // filename" (E-spec cols 19-26) through the implicit cycle by
+        // chaining that file's records off addresses read from this one --
+        // a distinct data-flow mode this compiler's cycle codegen never
+        // implemented (codegen.cpp never consumes FileDesign::RecordAddr).
+        // Rather than silently compile a program whose record-address file
+        // is parsed but never actually drives anything (manual 79661), this
+        // is a hard error, matching the EXTK/composite-key precedent (B6).
+        if (f.design == FileDesign::RecordAddr) {
+            report("input", sl.lineno, 16, DiagKind::Error,
+                   "F-spec file '" + f.name + "': record-address files "
+                   "(designation R) are not implemented");
+        }
+
+        // E3: col 17 (end-of-file requirement): E means the file must reach
+        // EOF before the program can end; blank means it need not (Section
+        // F cycle end-of-job logic; see codegen.cpp's required-files check).
+        // Manual 76968-76989.
+        std::string eof = upper(col_trim(sl.text, 17, 17));
+        f.end_required = (!eof.empty() && eof[0] == 'E');
+
+        // E2: col 18 (sequence): A/D/blank. Consumed by multifile matching
+        // (codegen.cpp's decode_m1/selection loop) to detect a
+        // descending-sequence file (manual 77002-77030).
+        std::string seq18 = upper(col_trim(sl.text, 18, 18));
+        if (!seq18.empty() && (seq18[0] == 'A' || seq18[0] == 'D'))
+            f.sequence = seq18[0];
+
         // Format (col 19): F or blank => fixed.
         std::string fmt = upper(col_trim(sl.text, 19, 19));
         f.format = fmt.empty() ? 'F' : fmt[0];
@@ -78,6 +106,23 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         else if (f.device_text == "SPECIAL")  f.device = Device::Special;
         else if (f.device_text == "CONSOLE")  f.device = Device::Console;
         else                                  f.device = Device::Other;
+
+        // E8: WORKSTN/SPECIAL/CONSOLE devices have no codegen support --
+        // every file open in this compiler (open_input/open_output/
+        // open_update, codegen.cpp) treats the F-spec filename as an
+        // ordinary flat DISK/PRINTER file on Linux, regardless of the
+        // declared device. A WORKSTN/SPECIAL/CONSOLE file compiled without
+        // error would silently try to read/write a plain file named after
+        // the device instead of driving an interactive terminal or a
+        // special device handler. Hard error instead (manual scope cut,
+        // same precedent as EXTK/B6 and record-address files/E5).
+        if (f.device == Device::Workstn || f.device == Device::Special ||
+            f.device == Device::Console) {
+            report("input", sl.lineno, 40, DiagKind::Error,
+                   "F-spec file '" + f.name + "': device '" + f.device_text +
+                   "' is not implemented (only DISK and PRINTER are "
+                   "supported)");
+        }
 
         // Keyed/random access fields (Section G, G24):
         //   col 28 = mode (blank / L / R), cols 29-30 = key length,
@@ -119,6 +164,16 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         if (ovind <= -13 && ovind >= -20) {   // an overflow indicator
             f.overflow_ind = ovind;
             f.has_overflow = true;
+        }
+
+        // E1: cols 71-72, external file conditioning (U1-U8). When the
+        // indicator is off, the file is treated as though it has reached
+        // end of file: no records are read from or written to it (manual
+        // 78727-78739).
+        int condind = parse_indicator_token(col_trim(sl.text, 71, 72));
+        if (condind <= -21 && condind >= -28) {   // U1..U8
+            f.cond_ind = condind;
+            f.has_cond = true;
         }
 
         out.push_back(std::move(f));

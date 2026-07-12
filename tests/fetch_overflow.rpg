@@ -1,0 +1,23 @@
+     C* F2: O-spec col 16 = F (fetch overflow, manual 88310-88356).
+     C* FETOUT's overflow line is set to 2 (via the L-spec below; the
+     C* runtime clamps overflow_line < 2 to lines_per_page, so 2 is the
+     C* lowest usable value), so the very first line printed (which
+     C* advances the page line by 1 + space-after = 2) already
+     C* crosses it. D1 (FIRSTLINE) has F in col 16: the overflow
+     C* routine must fire immediately after it prints -- OVERFLOWHDR
+     C* (conditioned on OA) must appear between FIRSTLINE and
+     C* SECONDLINE. This is a single-cycle program, so the normal
+     C* once-per-cycle poll (after total time, before detail time)
+     C* never runs at all -- without the fetch-overflow fix,
+     C* OVERFLOWHDR would never print here.
+     FPFDATA  IP  F    80              DISK
+     FFETOUT  O   F    132      OA     PRINTER
+     LFETOUT     FL  2OL
+     IPFDATA      AA
+     I                                     1   1   0DUMMY
+     OFETOUT  H  1    OA
+     O                                 20   'OVERFLOWHDR'
+     OFETOUT  DF 1
+     O                                 20   'FIRSTLINE'
+     OFETOUT  D  1
+     O                                 20   'SECONDLINE'

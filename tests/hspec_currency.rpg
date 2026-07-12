@@ -1,0 +1,10 @@
+     C* D1: H-spec currency symbol (col 18) feeds the floating-currency
+     C* detection in edit words: '#0000' on VAL=1234 must print '#1234'.
+     H           #
+     FEDATA   IP  F    80              DISK
+     FQOUT    O   F    132             PRINTER
+     IEDATA       AA
+     I                                     1   1   0DUMMY
+     C                     Z-ADD1234      VAL      0
+     OQOUT    D  1
+     O                         VAL     20   '#0000'

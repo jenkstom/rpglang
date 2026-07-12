@@ -11,9 +11,11 @@ add_executable(rpgc
     src/source.cpp
     src/cspec.cpp
     src/fspec.cpp
+    src/hspec.cpp
     src/ispec.cpp
     src/ospec.cpp
     src/espec.cpp
+    src/uspec.cpp
     src/symbols.cpp
     src/codegen.cpp
     src/driver.cpp

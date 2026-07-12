@@ -1,0 +1,14 @@
+     C* E1: F-spec cols 71-72 external file conditioning (U1-U8).
+     C* Same data as secnofm.rpg (primary 1,2,3 / secondary 10,20), but the
+     C* secondary is now conditioned on U1, which defaults off -- it must
+     C* contribute NO records. RPGRET = 1+2+3 = 6 (secnofm's unconditioned
+     C* run gets 36; if the gate were missing here we'd see 36 too).
+     FSNPRIM  IP  F    80              DISK
+     FSNSC    IS  F    80              DISK                           U1
+     ISNPRIM      01
+     I                                        1   20PVAL
+     ISNSC        02
+     I                                        1   20SVAL
+     C  01                 ADD  PVAL      RPGRET
+     C  02                 ADD  SVAL      RPGRET
+     CLR                   SETOF

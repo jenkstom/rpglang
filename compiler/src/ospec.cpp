@@ -71,6 +71,32 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
 
         const std::string &t = sl.text;
 
+        // F1: an AND/OR continuation line (cols 14-16) extends the most
+        // recent record line's conditioning beyond the 3-indicator-per-line
+        // limit (manual 88200-88217, 88491-88493). It carries no Type (col
+        // 15) of its own -- must be checked before the record/field-line
+        // heuristic below, or it falls into the field-line path and is
+        // silently dropped (the bug this fixes).
+        std::string relAndOr = upper(col_trim(t, 14, 16));
+        if (relAndOr == "AND" || relAndOr == "OR") {
+            if (!current) {
+                report("input", sl.lineno, 14, DiagKind::Warning,
+                       "AND/OR output-conditioning line with no preceding "
+                       "record line (ignored)");
+                continue;
+            }
+            std::vector<CondInd> grp = parse_o_conditions(t);
+            if (relAndOr == "AND") {
+                if (current->conditions.empty())
+                    current->conditions.push_back({});
+                auto &last = current->conditions.back();
+                last.insert(last.end(), grp.begin(), grp.end());
+            } else {
+                current->conditions.push_back(std::move(grp));
+            }
+            continue;
+        }
+
         // Record line: column 15 has H/D/T/E (or U for an update record, G25).
         std::string typech = upper(col_trim(t, 15, 15));
         // Cols 16-18 may carry ADD / DEL / UPDATE for disk update records (G25).
@@ -100,6 +126,29 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
             if (op16 == "ADD")         rec.rec_op = ORecOp::Add;
             else if (op16 == "DEL")    rec.rec_op = ORecOp::Delete;
             else if (op16 == "UPDATE") rec.rec_op = ORecOp::Update;
+            else {
+                // F2: col 16 alone (not part of a 3-char ADD/DEL/UPDATE
+                // mnemonic) may carry F (fetch overflow) or R (release
+                // device), manual 88310-88356. Checked on col 16 in
+                // isolation, not the 16-18 window used above, since cols
+                // 17-18 independently hold the space-before/after digits.
+                std::string c16 = upper(col_trim(t, 16, 16));
+                if (c16 == "F") {
+                    rec.fetch_overflow = true;
+                } else if (c16 == "R") {
+                    // Release is meaningful only for a WORKSTN display
+                    // station or ICF session (manual: "release the device
+                    // ... after output has been written"); this compiler
+                    // has no WORKSTN/ICF device support at all (E8 already
+                    // hard-errors those F-spec devices), so a real R here
+                    // would silently do nothing. Loud error, same E8/E5
+                    // precedent, instead of a silent no-op.
+                    report("input", sl.lineno, 16, DiagKind::Error,
+                           "O-spec col 16 'R' (release device) requires a "
+                           "WORKSTN/ICF file, which this compiler does not "
+                           "support");
+                }
+            }
             // Space before/after (cols 17/18): digit 0-3.
             std::string sb = col_trim(t, 17, 17);
             if (!sb.empty() && std::isdigit((unsigned char)sb[0]))
@@ -115,7 +164,10 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
             // Skip before/after (cols 19-22): absolute line number to skip to.
             rec.skip_before = decode_skip(col_trim(t, 19, 20));
             rec.skip_after  = decode_skip(col_trim(t, 21, 22));
-            rec.conditions = parse_o_conditions(t);
+            // F1: this line's own indicators are group 0; AND/OR continuation
+            // lines (handled above, before this record line is even reached
+            // on later iterations) extend or add to this list.
+            rec.conditions.push_back(parse_o_conditions(t));
             // EXCPT name (cols 32-37) is only meaningful for type-E records.
             if (rec.type == OType::Exception) {
                 rec.except_name = col_trim(t, 32, 37);
@@ -191,6 +243,19 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
                 fld.is_const = true;
                 fld.text = unquote(conArea);
             } else if (!nameArea.empty()) {
+                // D3: *AUTO (manual Ch. 26) requests Auto Report Feature
+                // field expansion, which this compiler does not implement
+                // (see uspec.h). Left unchecked, *AUTO is just an ordinary
+                // (nonexistent) field name that silently prints nothing --
+                // catch it here with a clear diagnostic instead, the same
+                // *LIKE-precedent pattern cspec.cpp's DEFN parsing uses.
+                if (upper(nameArea) == "*AUTO") {
+                    report("input", sl.lineno, 32, DiagKind::Error,
+                           "*AUTO (Auto Report Feature field expansion, "
+                           "manual Ch. 26) is not implemented; use an "
+                           "explicit field name instead");
+                    continue;
+                }
                 fld.name = nameArea;
             } else {
                 // Neither constant nor field name; ignore.

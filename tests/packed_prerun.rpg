@@ -1,0 +1,4 @@
+     C* E7: E-spec col 43 = 'P' (packed-decimal prerun-time array).
+     C* PPARR=[10,20,30] packed-decimal from PPDATA; XFOOT = 60.
+     E    PPDATA          PPARR       3  2P0
+     C                     XFOOTPPARR     RPGRET

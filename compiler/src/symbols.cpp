@@ -2,6 +2,7 @@
  * symbols.cpp -- symbol-table implementation (numeric + character fields).
  * ========================================================================== */
 #include "symbols.h"
+#include "diagnostics.h"
 
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -27,7 +28,23 @@ bool is_integer_literal(const std::string &s) {
 
 llvm::Value *SymbolTable::get_or_create_field(const std::string &name) {
     auto it = fields_.find(name);
-    if (it != fields_.end()) return it->second.gv;
+    if (it != fields_.end()) {
+        // D2: a numeric data-structure subfield has no native i32 storage to
+        // store into (see FieldInfo::is_ds_field) -- every write call site in
+        // codegen.cpp funnels through get_or_create_field() to obtain the
+        // destination pointer before CreateStore, so this is the single
+        // choke point that can catch every one of them without touching each
+        // opcode's own codegen individually.
+        if (it->second.is_ds_field && it->second.kind == FieldKind::Numeric) {
+            rpgc::error("field '" + name + "' is a numeric data-structure "
+                        "subfield; this compiler supports numeric DS "
+                        "subfields as read operands only (no i32-to-zoned-"
+                        "decimal encoder exists to write one back) -- it "
+                        "cannot be used as a calc result field");
+            return ds_write_guard();
+        }
+        return it->second.gv;
+    }
 
     auto *i32 = llvm::Type::getInt32Ty(mod_.getContext());
     auto *gv = new llvm::GlobalVariable(
@@ -168,13 +185,78 @@ bool SymbolTable::parse_array_ref(const std::string &token,
     return is_array(arr_name);
 }
 
-llvm::Value *SymbolTable::load_field(const std::string &name) {    auto it = fields_.find(name);
+llvm::Value *SymbolTable::load_field(const std::string &name) {
+    auto it = fields_.find(name);
     if (it == fields_.end()) return nullptr;
     if (it->second.kind == FieldKind::Numeric) {
+        if (it->second.is_ds_field) return decode_ds_numeric(it->second, name);
         return builder_.CreateLoad(
             llvm::Type::getInt32Ty(mod_.getContext()), it->second.gv, name+"_v");
     }
     return nullptr;   // character fields have no scalar "load"
+}
+
+llvm::Value *SymbolTable::decode_ds_numeric(const FieldInfo &fi,
+                                            const std::string &name) {
+    auto &ctx  = mod_.getContext();
+    auto *i32  = llvm::Type::getInt32Ty(ctx);
+    auto *i64  = llvm::Type::getInt64Ty(ctx);
+    auto *ptrTy = llvm::PointerType::get(ctx, 0);
+    auto fnTy = llvm::FunctionType::get(i64, {ptrTy, i32, i32, i32}, false);
+    auto callee = mod_.getOrInsertFunction("rpg_rt_get_decimal", fnTy);
+    auto *dsArrTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx),
+                                         (unsigned)fi.ds_len);
+    llvm::Value *base = builder_.CreateConstInBoundsGEP2_32(
+        dsArrTy, fi.ds_base, 0, 0, name + "_dsp");
+    llvm::Value *v64 = builder_.CreateCall(callee, {
+        base,
+        llvm::ConstantInt::get(i32, fi.ds_len, true),
+        llvm::ConstantInt::get(i32, fi.ds_offset + 1, true),
+        llvm::ConstantInt::get(i32, fi.ds_offset + fi.length, true)},
+        name + "_dsv");
+    return builder_.CreateTrunc(v64, i32, name + "_dsv32");
+}
+
+llvm::GlobalVariable *SymbolTable::ds_write_guard() {
+    if (!ds_write_guard_gv_) {
+        auto *i32 = llvm::Type::getInt32Ty(mod_.getContext());
+        ds_write_guard_gv_ = new llvm::GlobalVariable(
+            mod_, i32, /*isConstant=*/false,
+            llvm::GlobalValue::InternalLinkage,
+            llvm::ConstantInt::get(i32, 0), "rpg_ds_write_guard");
+    }
+    return ds_write_guard_gv_;
+}
+
+void SymbolTable::declare_ds_char_subfield(const std::string &name,
+                                           llvm::GlobalVariable *ds_base,
+                                           int ds_len, int ds_offset,
+                                           int length) {
+    if (fields_.find(name) != fields_.end()) return;
+    FieldInfo fi;
+    fi.kind = FieldKind::Character;
+    fi.length = length;
+    fi.is_ds_field = true;
+    fi.ds_base = ds_base;
+    fi.ds_len = ds_len;
+    fi.ds_offset = ds_offset;
+    fields_[name] = fi;
+}
+
+void SymbolTable::declare_ds_numeric_subfield(const std::string &name,
+                                              llvm::GlobalVariable *ds_base,
+                                              int ds_len, int ds_offset,
+                                              int length, int decimals) {
+    if (fields_.find(name) != fields_.end()) return;
+    FieldInfo fi;
+    fi.kind = FieldKind::Numeric;
+    fi.decimals = decimals;
+    fi.length = length;
+    fi.is_ds_field = true;
+    fi.ds_base = ds_base;
+    fi.ds_len = ds_len;
+    fi.ds_offset = ds_offset;
+    fields_[name] = fi;
 }
 
 llvm::GlobalVariable *SymbolTable::table_shadow(const std::string &name) {
@@ -243,6 +325,7 @@ llvm::Value *SymbolTable::resolve_operand(const std::string &token) {
         it = fields_.find(token);
     }
     if (it->second.kind == FieldKind::Numeric) {
+        if (it->second.is_ds_field) return decode_ds_numeric(it->second, token);
         return builder_.CreateLoad(
             llvm::Type::getInt32Ty(mod_.getContext()), it->second.gv, token+"_v");
     }
@@ -279,6 +362,25 @@ bool SymbolTable::resolve_char_operand(const std::string &token,
     }
     auto it = fields_.find(token);
     if (it != fields_.end() && it->second.kind == FieldKind::Character) {
+        if (it->second.is_ds_field) {
+            // D2: an alphameric DS subfield is a byte-range VIEW into the
+            // parent DS buffer, not independent storage -- GEP the parent's
+            // base pointer by this subfield's offset. Every caller of
+            // resolve_char_operand (MOVE/MOVEL/MOVEA/TESTB/BITON/O-spec
+            // print/etc.) already treats the returned ptr as a plain i8*, so
+            // this makes read AND write on DS subfields work for free.
+            auto *dsArrTy = llvm::ArrayType::get(
+                llvm::Type::getInt8Ty(mod_.getContext()), (unsigned)it->second.ds_len);
+            llvm::Value *base = builder_.CreateConstInBoundsGEP2_32(
+                dsArrTy, it->second.ds_base, 0, 0, token + "_dsp");
+            ptr = builder_.CreateInBoundsGEP(
+                llvm::Type::getInt8Ty(mod_.getContext()), base,
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(mod_.getContext()),
+                                       (uint32_t)it->second.ds_offset, true),
+                token + "_p");
+            length = it->second.length;
+            return true;
+        }
         auto *arrTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(mod_.getContext()),
                                            (unsigned)it->second.length);
         ptr = builder_.CreateConstInBoundsGEP2_32(arrTy, it->second.gv, 0, 0,

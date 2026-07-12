@@ -1,0 +1,15 @@
+     C* E3: F-spec col 17 (end-of-file requirement). Primary EOPRIM
+     C* is marked E (must reach EOF); secondary EOSEC is blank (may
+     C* be left unread). Primary has 2 records (1,2 -> 3); secondary
+     C* has 3 (100,200,300). The program must end as soon as EOPRIM
+     C* is exhausted, without ever touching EOSEC's records: RPGRET
+     C* = 3, not 603.
+     FEOPRIM  IPE F    80              DISK
+     FEOSEC   IS  F    80              DISK
+     IEOPRIM      01
+     I                                        1   20PVAL
+     IEOSEC       02
+     I                                        1   30SVAL
+     C  01                 ADD  PVAL      RPGRET
+     C  02                 ADD  SVAL      RPGRET
+     CLR                   SETOF

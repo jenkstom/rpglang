@@ -35,6 +35,20 @@ std::string col_trim(const std::string &line, int first, int last);
  * too short. */
 char form_type(const SourceLine &l);
 
+/* D3: expand /COPY directives (manual Ch. 26, "Auto Report /COPY Statement
+ * Specifications", 90360-90450) in place. A /COPY line (cols 7-11 == "/COPY",
+ * cols 13-29 == "LIBRARY,MEMBER" or just "MEMBER") is replaced by the spliced
+ * contents of a source file named MEMBER (optionally MEMBER.rpg/MEMBER.cpy),
+ * looked up in `base_dir` -- the library segment is parsed but not used for
+ * path resolution: this compiler has no System/36 library-catalog filesystem
+ * to resolve it against, only a plain host directory. Nested /COPY lines in
+ * the copied member are expanded recursively; a member that (directly or
+ * transitively) copies itself is a hard error rather than infinite recursion.
+ * Returns false (with a diagnostic already reported) on a missing member or a
+ * copy cycle. */
+bool expand_copy_statements(std::vector<SourceLine> &src,
+                            const std::string &base_dir);
+
 } // namespace rpgc
 
 #endif // RPGC_SOURCE_H

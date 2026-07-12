@@ -197,11 +197,13 @@ int rpg_rt_edit_dec(long value, char edit_code, int width, int decimals,
  * RPG II edit word (Section D, D16). The word's blanks are replaceable (filled
  * by source digits), the first '0' stops zero-suppression, the first '*' does
  * check-protection, a trailing '-' or "CR" is a sign, '&' forces a blank. A
- * '$' directly followed by '0' floats to just left of the first significant
- * digit instead of printing at its own position (A13, manual 63666-63669).
- * Returns the string length. */
+ * `currency` character directly followed by '0' floats to just left of the
+ * first significant digit instead of printing at its own position (A13,
+ * manual 63666-63669; D1: the character is now the H-spec col 18 currency
+ * symbol, defaulting to '$', instead of a hardcoded '$'). Returns the string
+ * length. */
 int rpg_rt_edit_word(long value, const char *word, int word_len,
-                     int decimals, char *out, int out_cap);
+                     int decimals, char currency, char *out, int out_cap);
 
 /* Extract a numeric field from a fixed-length record buffer. `from`/`to` are
  * 1-based inclusive record positions. The columns are decoded as plain ASCII
@@ -228,15 +230,22 @@ long rpg_rt_overpunch_in(const char *s, int len);
 int rpg_rt_overpunch_out(long value, char *out, int len);
 
 /* Load a prerun-time array/table from a file at program start (Section B).
- * Reads newline-delimited records from `path` and parses fixed-width ASCII
- * decimal fields of `len_a` digits each, storing up to `total` elements into
- * `out_a`. When `len_b > 0` and `out_b` is non-NULL, the partner array/table
- * is loaded in alternating format: A1 B1 A2 B2 ... on each record, with
- * `len_b`-digit partner fields. Returns the number of elements stored in
- * out_a. The output arrays are zero-initialised by the caller; a short file
- * leaves the unused tail as zero. */
+ * `fmt_a`/`fmt_b` (E-spec col 43/55, E7): 0 = zoned-decimal ASCII digits
+ * (newline-delimited records, as before), 1 = packed-decimal, 2 = binary.
+ * For fmt 0, records are newline-delimited and fields are parsed as ASCII
+ * decimal digits, `len_a` digits each, storing up to `total` elements into
+ * `out_a`. For fmt 1/2 the file is a flat sequence of fixed-width bytes with
+ * no line structure (packed/binary data can legitimately contain byte values
+ * that look like '\n'), decoded via the same packed/binary decoders used for
+ * ordinary input fields. When `len_b > 0` and `out_b` is non-NULL, the
+ * partner array/table is loaded in alternating format: A1 B1 A2 B2 ... on
+ * each record/chunk, with `len_b`-byte partner fields decoded per `fmt_b`.
+ * Returns the number of elements stored in out_a. The output arrays are
+ * zero-initialised by the caller; a short file leaves the unused tail as
+ * zero. */
 int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
-                       int total, int *out_a, int *out_b);
+                       int total, int *out_a, int *out_b,
+                       int fmt_a, int fmt_b);
 
 /* Alphameric counterpart of rpg_rt_load_arrays (A9): same file layout and
  * partner semantics, but copies raw `len_a`/`len_b`-byte fields verbatim

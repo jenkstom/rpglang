@@ -1,0 +1,5 @@
+     C* E5: F-spec designation R (record-address file) is not
+     C* implemented and must be a hard compile error, not a
+     C* silently-inert F-spec entry.
+     FRADATA  IR  F    80              DISK
+     CLR                   SETOF

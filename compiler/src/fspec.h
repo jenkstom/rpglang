@@ -35,6 +35,10 @@ struct FSpec {
     bool        has_overflow = false; // true if an overflow indicator is assigned
     Device      device   = Device::Disk;           // cols 40-46
     std::string device_text;          // raw, for diagnostics
+    char        sequence = 0;         // col 18: blank / A (ascending) / D (descending)
+    bool        end_required = false; // col 17: file must reach EOF before program can end
+    int         cond_ind  = 0;        // cols 71-72: U1-U8 external file-condition indicator
+    bool        has_cond  = false;    // true if a conditioning indicator is assigned
 };
 
 /* Parse all F-specs. Returns one FSpec per 'F' line. */

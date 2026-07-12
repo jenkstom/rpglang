@@ -54,10 +54,39 @@ struct ISpecField {
     int         zero_ind  = 0;        // cols 69-70: field indicator on 0/blank (E18)
 };
 
+/* Data structure statement (D2, manual Ch. 15, cols 19-20 == "DS"). Must be
+ * the last entries on the input specifications. */
+struct ISpecDS {
+    int         lineno = 0;
+    std::string name;       // cols 7-12, may be blank (anonymous DS)
+    bool        is_lda = false;   // col 18 == 'U': local data area for a
+                                   // display station -- WORKSTN-adjacent,
+                                   // unimplemented (see the WORKSTN scope cut
+                                   // already documented elsewhere); reported
+                                   // as a hard error at codegen time rather
+                                   // than silently ignored.
+};
+
+/* One subfield line under a data structure statement. `ds_index` identifies
+ * the owning ISpecDS by position in ISpecs::data_structures (not by name --
+ * a DS statement's name column may be blank, and name-based lookup can't
+ * disambiguate two anonymous data structures in the same program). From/To
+ * are positions within the data structure, not the input record. */
+struct ISpecSubfield {
+    int         lineno = 0;
+    int         ds_index = -1;
+    int         from = 0;    // cols 44-47, relative to the DS start
+    int         to   = 0;    // cols 48-51
+    int         decimals = -1;   // col 52 (-1 = alphameric)
+    std::string name;        // cols 53-58
+};
+
 struct ISpecs {
     std::vector<ISpecRec>   records;
     std::vector<ISpecField> fields;
     std::vector<ISpecField> lookahead_fields;   // fields under a '**' line (E19)
+    std::vector<ISpecDS>       data_structures; // D2
+    std::vector<ISpecSubfield> ds_subfields;    // D2
 };
 
 /* Parse all I-specs. Maintains the "current file" as record-identification

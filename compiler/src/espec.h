@@ -28,6 +28,7 @@ struct ESpecArray {
     int         entry_len = 0;        // cols 40-42 (digits per element)
     int         decimals = -1;        // col 44 (-1 = alphanumeric)
     bool        ascending = false;    // col 45 == 'A'
+    char        data_format = 0;      // col 43: 0=zoned(blank), 'P'=packed, 'B'=binary
     ArrayLoad   load = ArrayLoad::RunTime;
     std::string from_file;            // cols 11-18 (prerun-time)
     std::vector<long> init_data;      // compile-time values (numeric)
@@ -41,6 +42,7 @@ struct ESpecArray {
     int         alt_entry_len = 0;    // cols 52-54
     int         alt_decimals  = -1;   // col 56 (-1 = alphanumeric)
     bool        alt_ascending = false;// col 57 == 'A'
+    char        alt_data_format = 0;  // col 55: 0=zoned(blank), 'P'=packed, 'B'=binary
     std::vector<long> alt_init_data;  // compile-time values for the partner
     std::vector<std::string> alt_init_str;  // alphanumeric partner values (A9)
 };

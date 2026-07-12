@@ -1,0 +1,7 @@
+     C* D3 negative: *AUTO in the O-spec field-name column must be a hard
+     C* compile error instead of silently printing nothing.
+     FADATA   IP  F    80              DISK
+     IADATA       AA
+     I                                        1   10VAL
+     OADATA   D  1
+     O                         *AUTO     20

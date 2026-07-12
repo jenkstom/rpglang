@@ -1,0 +1,13 @@
+     C* E6: F-spec col 31 = 'I' (RRN access) must still be RRN-based
+     C* even when cols 29-30 declare a key length (here, 3 -- the
+     C* RRN digit width). RRN2FILE has records 11,22,33; CHAIN RRN 3
+     C* must read the 3rd record (33), not fail a byte-key search.
+     FRRNTRAN IP  F      80            DISK
+     FRRN2FILEIF  F      80 03I   0001 DISK
+     IRRNTRAN     01
+     I                                        1   20RRN
+     IRRN2FILE    02
+     I                                        1   20RVAL
+     C           RRN       CHAINRRN2FILE             99
+     C                     ADD  RVAL      RPGRET
+     CLR                   SETOF

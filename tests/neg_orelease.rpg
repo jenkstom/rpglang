@@ -1,0 +1,10 @@
+     C* F2: O-spec col 16 = R (release device) requires a WORKSTN/ICF
+     C* file. This compiler has no WORKSTN/ICF device support at all
+     C* (E8), so R on a PRINTER file must be a hard compile error, not
+     C* a silent no-op.
+     FPFDATA  IP  F    80              DISK
+     FRELOUT  O   F    132             PRINTER
+     IPFDATA      AA
+     I                                     1   1   0DUMMY
+     ORELOUT  DR 1
+     O                                 10   'YES'

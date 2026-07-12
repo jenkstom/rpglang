@@ -1,0 +1,13 @@
+     C* E1: F-spec cols 71-72 external file conditioning (U1-U8),
+     C* output side. CONDOUT is unconditioned and gets its line;
+     C* CONDOUT2 is conditioned on U2 (default off) and must get
+     C* NO output line at all, despite an unconditioned O-spec.
+     FPFDATA  IP  F    80              DISK
+     FCONDOUT O   F    132             PRINTER
+     FCONDOUT2O   F    132             PRINTER                        U2
+     IPFDATA  AA
+     I                                     1   1   0DUMMY
+     OCONDOUT D  1
+     O                                 10   'YES'
+     OCONDOUT2D  1
+     O                                 10   'ALSO'

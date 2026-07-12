@@ -1,0 +1,19 @@
+     C* E2: F-spec col 18 sequence (D = descending). Primary MDPRIM
+     C* keys 3,2,1 (descending) vals 30,20,10; secondary MDSEC key
+     C* 2 val 5. Correct descending-aware selection must pick the
+     C* running MAXIMUM key each cycle and still detect the key=2
+     C* match between files (MR). RPGRET = 30+20+10+5+1 = 66; a
+     C* wrong ascending-assuming comparator desyncs the match and
+     C* yields 65 (no MR) instead.
+     FMDPRIM  IP DF    80              DISK
+     FMDSEC   IS DF    80              DISK
+     IMDPRIM      01
+     I                                        1   20KEY     M1
+     I                                        3   40VAL
+     IMDSEC       02
+     I                                        1   20SKEY    M1
+     I                                        3   40SVAL
+     C  01                 ADD  VAL       RPGRET
+     C  02                 ADD  SVAL      RPGRET
+     C  MR                 ADD  1         RPGRET
+     CLR                   SETOF

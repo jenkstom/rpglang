@@ -1,0 +1,22 @@
+     C* F1: AND/OR continuation lines on O-spec record lines (cols 14-16),
+     C* extending the 3-indicator-per-line conditioning limit (manual
+     C* 88200-88217, 88491-88493). Ind 30 and 32 are set ON; 31 stays OFF.
+     C*  - AND group: base line on 30, AND-line on 31 -> both required;
+     C*    since 31 is off the whole group is false, so AYES must NOT
+     C*    print (previously the AND line was silently dropped and the
+     C*    line wrongly printed on ind 30 alone).
+     C*  - OR group: base line on 31 (off), OR-line on 32 (on) -> either
+     C*    satisfies the group, so OYES must print (previously the OR
+     C*    line was dropped and the line never printed).
+     FPFDATA  IP  F    80              DISK
+     FANDOR   O   F    132             PRINTER
+     IPFDATA      AA
+     I                                     1   1   0DUMMY
+     C                     SETON                     30
+     C                     SETON                     32
+     OANDOR   D  1    30
+     O       AND      31
+     O                                 10   'AYES'
+     OANDOR   D  1    31
+     O       OR       32
+     O                                 10   'OYES'

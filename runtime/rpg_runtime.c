@@ -674,10 +674,23 @@ static long parse_dec(const char *p, int len) {
     return v;
 }
 
+/* Decode one `len`-byte field at `p` per `fmt` (0=zoned ASCII, 1=packed,
+ * 2=binary), reusing the same decoders ordinary input fields use so a
+ * prerun-time array/table sees the identical packed/binary encoding rules
+ * (E7). `rpg_rt_get_packed`/`rpg_rt_get_binary` index 1-based [from..to]
+ * within a `reclen`-byte record; a bare `len`-byte chunk is exactly that
+ * record, so from=1, to=reclen=len. */
+static long decode_field(const char *p, int len, int fmt) {
+    if (fmt == 1) return rpg_rt_get_packed(p, len, 1, len);
+    if (fmt == 2) return rpg_rt_get_binary(p, len, 1, len);
+    return parse_dec(p, len);
+}
+
 int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
-                       int total, int *out_a, int *out_b) {
+                       int total, int *out_a, int *out_b,
+                       int fmt_a, int fmt_b) {
     if (!path || !out_a || total <= 0 || len_a <= 0) return 0;
-    FILE *fp = fopen(path, "r");
+    FILE *fp = fopen(path, "rb");
     if (!fp) {
         fprintf(stderr, "rpg_rt: cannot open prerun-time array file '%s'\n", path);
         return 0;
@@ -699,19 +712,27 @@ int rpg_rt_load_arrays(const char *path, int len_a, int len_b,
     }
     fclose(fp);
 
+    /* E7: packed/binary data is a flat sequence of fixed-width bytes with no
+     * line structure -- unlike zoned ASCII, a packed/binary byte can equal
+     * '\n' or '\r' by coincidence of its digit/sign encoding, so those bytes
+     * must not be skipped as record separators the way zoned text is. */
+    int line_delimited = (fmt_a == 0 && (len_b <= 0 || fmt_b == 0));
+
     int stored = 0;            /* elements written to out_a */
     int i = 0;                 /* cursor into buf */
     int pair = 0;              /* partner elements written (out_b) */
     while (stored < total && i + len_a <= (int)n) {
-        /* Skip a newline before the next primary element (records are
-         * newline-delimited; element fields are fixed width). */
-        while (i < (int)n && (buf[i] == '\n' || buf[i] == '\r')) ++i;
-        if (i + len_a > (int)n) break;
-        out_a[stored++] = (int)parse_dec(buf + i, len_a);
+        if (line_delimited) {
+            /* Skip a newline before the next primary element (records are
+             * newline-delimited; element fields are fixed width). */
+            while (i < (int)n && (buf[i] == '\n' || buf[i] == '\r')) ++i;
+            if (i + len_a > (int)n) break;
+        }
+        out_a[stored++] = (int)decode_field(buf + i, len_a, fmt_a);
         i += len_a;
         if (len_b > 0 && out_b && pair < total) {
             if (i + len_b <= (int)n) {
-                out_b[pair++] = (int)parse_dec(buf + i, len_b);
+                out_b[pair++] = (int)decode_field(buf + i, len_b, fmt_b);
                 i += len_b;
             } else {
                 out_b[pair++] = 0;
@@ -909,7 +930,8 @@ int rpg_rt_edit(long value, char code, int width, char *out, int out_cap) {
 /* consumed right-to-left from the value's decimal-adjusted digit string.      */
 /* -------------------------------------------------------------------------- */
 int rpg_rt_edit_word(long value, const char *word, int word_len,
-                     int decimals, char *out, int out_cap) {
+                     int decimals, char currency, char *out, int out_cap) {
+    if (!currency) currency = '$';
     if (!out || out_cap <= 0) return 0;
     int neg = value < 0;
     unsigned long uv = neg ? (unsigned long)(-value) : (unsigned long)value;
@@ -933,10 +955,11 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
     char stopch = 0;
     int nrep = 0;
     int negat = -1;         /* index of a trailing '-' sign indicator */
-    /* A13: a currency symbol ('$') directly followed by '0' floats -- it
-     * prints immediately to the left of the first significant digit instead
-     * of at its own position (manual 63666-63669). A '$' not followed by '0'
-     * is left alone (falls through as an ordinary constant, unchanged). */
+    /* A13/D1: the currency symbol (H-spec col 18, default '$') directly
+     * followed by '0' floats -- it prints immediately to the left of the
+     * first significant digit instead of at its own position (manual
+     * 63666-63669). A currency char not followed by '0' is left alone (falls
+     * through as an ordinary constant, unchanged). */
     int curr = -1;
     for (int i = 0; i < word_len; ++i) {
         char w = word[i];
@@ -946,7 +969,7 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
             if (stop < 0 && (w == '0' || w == '*')) { stop = i; stopch = w; }
         }
         if (w == '-' && i > 0 && word[i-1] == ' ') negat = i;
-        if (curr < 0 && w == '$' && i + 1 < word_len && word[i+1] == '0') curr = i;
+        if (curr < 0 && w == currency && i + 1 < word_len && word[i+1] == '0') curr = i;
     }
     int negCR = -1;
     if (word_len >= 2 && word[word_len-2] == 'C' && word[word_len-1] == 'R')
@@ -985,7 +1008,7 @@ int rpg_rt_edit_word(long value, const char *word, int word_len,
                 tmp[oi++] = (stopch == '*') ? '*' : ' ';
             } else {
                 if (at_stop) significant = 1;   /* '0'/'*' anchor prints its digit */
-                if (curr_pending) { tmp[oi++] = '$'; curr_pending = 0; }
+                if (curr_pending) { tmp[oi++] = currency; curr_pending = 0; }
                 tmp[oi++] = d;
             }
         } else {

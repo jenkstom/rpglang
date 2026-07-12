@@ -1,0 +1,9 @@
+     C* D2: numeric data-structure subfield decode-on-read. Writing ASCII
+     C* '1234' through alphameric subfield CHRS must decode to 1234 when
+     C* read through the overlapping numeric subfield NUM.
+     I            DS
+     I                                        1   4 CHRS
+     I                                        1   40NUM
+     C                     MOVEL'1234'    CHRS
+     C           NUM       COMP 1234                     10
+     C  10                 Z-ADD1         RPGRET

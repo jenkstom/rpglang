@@ -274,6 +274,26 @@ llvm::Value *eval_conditions(IndicatorEmitter &ie,
     return acc;
 }
 
+/* F1: evaluate O-spec record-line conditioning as OR-of-AND groups (group 0
+ * is the record line's own 3 slots; each AND continuation line extends the
+ * current group, each OR continuation starts a new one). Empty group list
+ * => true (unconditional), matching eval_conditions' empty-list convention;
+ * an individual empty group (a bare record line with no indicators at all)
+ * is also true, so its OR contributes an unconditional true as expected. */
+llvm::Value *eval_conditions_grouped(
+        IndicatorEmitter &ie, llvm::IRBuilder<> &b,
+        const std::vector<std::vector<CondInd>> &groups) {
+    using namespace llvm;
+    if (groups.empty())
+        return ConstantInt::getTrue(b.getContext());
+    Value *acc = nullptr;
+    for (const auto &g : groups) {
+        Value *gval = eval_conditions(ie, b, g);
+        acc = acc ? b.CreateOr(acc, gval, "orc") : gval;
+    }
+    return acc;
+}
+
 /* Emit the result-field sign tests for arithmetic ops (HI/LO/EQ).
  * Per the manual: HI on positive, LO on negative, EQ on zero. We turn OFF any
  * slot not triggered and ON the slot that matches, matching RPG latch
@@ -311,6 +331,16 @@ public:
     /* Top-level: generate either the cycle (if a primary input file exists)
      * or the linear form (C-specs once). */
     bool generate(const Program &prog) {
+        // D1: H-spec col 18 currency symbol and cols 75-80 program
+        // identification (manual Ch. 18). Currency feeds the floating-
+        // currency-symbol detection in emit_edit_word_field; program-id, when
+        // actually specified, renames the LLVM module (visible in --emit-ir
+        // output) instead of the default source-filename-derived identifier
+        // -- left alone when blank so the ~70 existing tests without an
+        // H-spec see no behavior change.
+        currency_symbol_ = prog.hspec.currency_symbol;
+        if (!prog.hspec.program_id.empty())
+            mod_->setModuleIdentifier(prog.hspec.program_id);
         declare_runtime();
         // Create globals for every E-spec array/table, numeric or alphameric
         // (A9). Tables (TAB-prefixed) additionally get a current-element
@@ -339,6 +369,19 @@ public:
         // Stash F-specs and I-fields for calc-time file operations (Section G).
         files_ = &prog.files;
         in_fields_ = &prog.in_fields;
+        // D2: pre-declare every ordinary I-spec field's storage (idempotent;
+        // the extract loop's own get_or_create_field/get_or_create_char_field
+        // calls just find these already made) so data-structure redefinition
+        // below can find the field it's redefining regardless of source
+        // order, and so a subroutine that references a field before the
+        // cycle's extract loop runs sees the right kind (Numeric/Character)
+        // instead of falling into resolve_operand's numeric-by-default
+        // auto-create fallback.
+        declare_all_input_fields(prog);
+        // D2: data structures. Must run after declare_all_input_fields (so a
+        // DS that redefines an input field finds it) and before
+        // generate_subroutines (so calc code can reference DS subfields).
+        declare_data_structures(prog);
         // Compile subroutines first so EXSR calls in main can resolve.
         generate_subroutines(prog.calcs);
         if (!secondary_inputs(prog.files).empty() && find_primary_input(prog.files)) {
@@ -411,10 +454,16 @@ public:
                 }
             }
             int lenA = a.entry_len > 0 ? a.entry_len : 1;
+            // E7: E-spec col 43/55 packed/binary format (0=zoned default).
+            auto fmt_code = [](char f) -> int {
+                return f == 'P' ? 1 : f == 'B' ? 2 : 0;
+            };
             builder_.CreateCall(load_arrays_,
                 {path, ConstantInt::get(i32, lenA, true),
                  ConstantInt::get(i32, lenB, true),
-                 ConstantInt::get(i32, a.entries, true), outA, outB},
+                 ConstantInt::get(i32, a.entries, true), outA, outB,
+                 ConstantInt::get(i32, fmt_code(a.data_format), true),
+                 ConstantInt::get(i32, fmt_code(a.alt_data_format), true)},
                 a.name+"_ld");
         }
     }
@@ -605,14 +654,112 @@ private:
             FunctionType::get(i32, {i64, i32, i32, i32, i32, ptr, i32}, false),
             Function::ExternalLinkage, "rpg_rt_edit_dec", mod_.get());
 
-        // Section B: prerun-time array/table loader.
+        // Section B: prerun-time array/table loader. Trailing i32 pair is
+        // E7's fmt_a/fmt_b (0=zoned, 1=packed, 2=binary; E-spec cols 43/55).
         load_arrays_ = Function::Create(
-            FunctionType::get(i32, {ptr, i32, i32, i32, ptr, ptr}, false),
+            FunctionType::get(i32, {ptr, i32, i32, i32, ptr, ptr, i32, i32}, false),
             Function::ExternalLinkage, "rpg_rt_load_arrays", mod_.get());
         // A9: alphameric prerun-time array/table loader.
         load_char_arrays_ = Function::Create(
             FunctionType::get(i32, {ptr, i32, i32, i32, ptr, ptr}, false),
             Function::ExternalLinkage, "rpg_rt_load_char_arrays", mod_.get());
+    }
+
+    /* D2: pre-declare every ordinary I-spec field's storage up front (see the
+     * call site in generate() for why). Idempotent with the extract loop's
+     * own get_or_create_field/get_or_create_char_field calls. */
+    void declare_all_input_fields(const Program &prog) {
+        auto declare_one = [&](const ISpecField &fld) {
+            if (fld.name.empty()) return;
+            if (fld.decimals < 0) {
+                int len = fld.to - fld.from + 1;
+                if (len < 1) len = 1;
+                syms_.get_or_create_char_field(fld.name, len);
+            } else {
+                syms_.get_or_create_field(fld.name);
+                syms_.set_numeric_attrs(fld.name, fld.decimals);
+            }
+        };
+        for (const auto &fld : prog.in_fields)         declare_one(fld);
+        for (const auto &fld : prog.lookahead_fields)   declare_one(fld);
+    }
+
+    /* D2: process I-spec data-structure statements and their subfields
+     * (manual Ch. 15). A DS is a shared [len x i8] byte buffer; each
+     * alphameric subfield is a byte-range GEP view into it (full read/write,
+     * via SymbolTable::resolve_char_operand -- see symbols.cpp); each numeric
+     * subfield decode-reads its bytes on every access and cannot be a calc
+     * result field (see FieldInfo::is_ds_field in symbols.h for why).
+     *
+     * "The name of an input field ... being redefined in a data structure
+     * must be the data structure name" (manual 61412-61416): if the DS's own
+     * name (cols 7-12) matches an already-declared field, its storage is
+     * REUSED (true physical aliasing) instead of allocating a fresh buffer --
+     * this only works when that field is alphameric (Character kind), since
+     * a numeric field in this compiler is a native i32 with no addressable
+     * byte representation to alias into (manual's own "packed/binary numeric
+     * fields convert to zoned when placed in a DS" rule has no analog here
+     * either, for the same reason). */
+    void declare_data_structures(const Program &prog) {
+        using namespace llvm;
+        for (size_t i = 0; i < prog.data_structures.size(); ++i) {
+            const ISpecDS &ds = prog.data_structures[i];
+            if (ds.is_lda) {
+                rpgc::error("data structure '" + ds.name + "' (line " +
+                            std::to_string(ds.lineno) + "): local data areas "
+                            "(H-spec col 18 'U') are WORKSTN/display-station "
+                            "specific and are not implemented");
+                continue;
+            }
+            int max_to = 0;
+            for (const auto &sf : prog.ds_subfields)
+                if (sf.ds_index == (int)i) max_to = std::max(max_to, sf.to);
+            if (max_to < 1) max_to = 1;
+
+            GlobalVariable *ds_gv = nullptr;
+            int ds_len = max_to;
+            const FieldInfo *existing =
+                ds.name.empty() ? nullptr : syms_.info(ds.name);
+            if (existing) {
+                if (existing->kind == FieldKind::Character) {
+                    if (max_to > existing->length) {
+                        rpgc::error("data structure '" + ds.name +
+                                    "': subfields extend to position " +
+                                    std::to_string(max_to) +
+                                    ", beyond the redefined field's declared "
+                                    "length (" + std::to_string(existing->length) + ")");
+                    }
+                    ds_gv = existing->gv;
+                    ds_len = existing->length;
+                } else {
+                    rpgc::error("data structure '" + ds.name +
+                                "' redefines a numeric field, which this "
+                                "compiler cannot support (numeric fields "
+                                "have no addressable byte storage)");
+                    continue;
+                }
+            } else {
+                std::string key = ds.name.empty()
+                    ? ("$ds" + std::to_string(i)) : ds.name;
+                ds_gv = cast<GlobalVariable>(
+                    syms_.get_or_create_char_field(key, max_to));
+                ds_len = max_to;
+            }
+
+            for (const auto &sf : prog.ds_subfields) {
+                if (sf.ds_index != (int)i) continue;
+                if (sf.name.empty()) continue;
+                int len = sf.to - sf.from + 1;
+                if (len < 1) continue;
+                int offset = sf.from - 1;
+                if (sf.decimals < 0)
+                    syms_.declare_ds_char_subfield(sf.name, ds_gv, ds_len,
+                                                   offset, len);
+                else
+                    syms_.declare_ds_numeric_subfield(sf.name, ds_gv, ds_len,
+                                                      offset, len, sf.decimals);
+            }
+        }
     }
 
     /* Emit the implicit RPG program cycle. Phase 3 implements a simplified
@@ -871,6 +1018,53 @@ private:
         }
     }
 
+    /* E1: F-spec cols 71-72 external file conditioning (U1-U8). Returns an i1
+     * that is true when `fname` is either unconditioned or its conditioning
+     * indicator is on. Used to gate every read/write against that file. */
+    llvm::Value *file_cond_ok(const std::string &fname) {
+        using namespace llvm;
+        if (files_)
+            for (const auto &f : *files_)
+                if (f.name == fname)
+                    return f.has_cond ? inds_.load_resolved(f.cond_ind)
+                                      : ConstantInt::getTrue(mod_->getContext());
+        return ConstantInt::getTrue(mod_->getContext());
+    }
+
+    /* Gate a boolean-producing call (`do_call`, invoked with the builder
+     * positioned to emit it) behind `fname`'s U1-U8 conditioning indicator
+     * (E1): when the indicator is off, `do_call` is skipped entirely -- not
+     * just its result discarded -- and the gated value is false, matching the
+     * manual's "treated as though the end of the file is reached" (78727-
+     * 78739). When `fname` carries no conditioning, this reduces to just
+     * running `do_call` with no extra branching. */
+    llvm::Value *emit_conditioned_bool(llvm::Function *fn,
+                                       const std::string &fname,
+                                       const std::function<llvm::Value*()> &do_call) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        const FSpec *fs = nullptr;
+        if (files_) for (const auto &f : *files_) if (f.name == fname) { fs = &f; break; }
+        if (!fs || !fs->has_cond) return do_call();
+
+        Value *condOk = inds_.load_resolved(fs->cond_ind);
+        BasicBlock *doB    = BasicBlock::Create(ctx, "fcnd_do", fn);
+        BasicBlock *skipB  = BasicBlock::Create(ctx, "fcnd_skip", fn);
+        BasicBlock *afterB = BasicBlock::Create(ctx, "fcnd_after", fn);
+        builder_.CreateCondBr(condOk, doB, skipB);
+        builder_.SetInsertPoint(doB);
+        Value *r = do_call();
+        BasicBlock *doEnd = builder_.GetInsertBlock();
+        builder_.CreateBr(afterB);
+        builder_.SetInsertPoint(skipB);
+        builder_.CreateBr(afterB);
+        builder_.SetInsertPoint(afterB);
+        PHINode *phi = builder_.CreatePHI(Type::getInt1Ty(ctx), 2, "fcnd_res");
+        phi->addIncoming(r, doEnd);
+        phi->addIncoming(ConstantInt::getFalse(ctx), skipB);
+        return phi;
+    }
+
     /* Open the input/update files referenced by CHAIN/SETLL/READ/READE that are
      * not the cycle's own primary/secondary files (Section G, G24). Files with a
      * key declared on the F-spec (cols 29-30 length, 35-38 start) get a set_key
@@ -903,7 +1097,14 @@ private:
             int rl = f.reclen > 0 ? f.reclen : 80;
             builder_.CreateCall(set_reclen_,
                 {fid, ConstantInt::get(i32, rl, true)});
-            if (f.key_len > 0 && f.key_start > 0) {
+            // E6: col 31 'I' means factor1 is a relative record number, not
+            // a byte-compared key (manual 77334-77365), even when cols29-30
+            // declare a width (the RRN digit count). Skipping set_key leaves
+            // the runtime's key_len at 0, which rpg_rt_chain/setll/reade
+            // already treat as "RRN access" (see rpg_runtime.c); calling
+            // set_key here would instead binary-search the RRN digits as an
+            // ordinary byte key, silently misreading every random access.
+            if (f.key_len > 0 && f.key_start > 0 && f.addr_type != 'I') {
                 builder_.CreateCall(set_key_, {
                     fid,
                     ConstantInt::get(i32, f.key_start, true),
@@ -955,7 +1156,8 @@ private:
         // target it, and configure its key if declared.
         if (pf->type == FileType::Update) {
             in_ids_[pf->name] = fid;
-            if (pf->key_len > 0 && pf->key_start > 0) {
+            // E6: skip set_key for an 'I' (RRN) file -- see open_input_files.
+            if (pf->key_len > 0 && pf->key_start > 0 && pf->addr_type != 'I') {
                 builder_.CreateCall(set_key_, {
                     fid,
                     ConstantInt::get(i32, pf->key_start, true),
@@ -1038,16 +1240,19 @@ private:
         builder_.SetInsertPoint(head);
         // Step 6: turn off all control-level indicators (L0 stays on).
         inds_.reset_control_levels();
-        // read_next(fid, rec_buf, reclen+1)
+        // read_next(fid, rec_buf, reclen+1). E1: gated behind the primary
+        // file's U1-U8 conditioning indicator, if any -- off means treated
+        // as EOF with no actual read performed.
         Value *bufPtr = builder_.CreateConstInBoundsGEP2_32(
             ArrayType::get(Type::getInt8Ty(c), reclen + 1), rec_buf_, 0, 0);
-        Value *got = builder_.CreateCall(read_next_,
-            {fid, bufPtr, ConstantInt::get(i64, reclen + 1, false)}, "got_rec");
+        Value *haveRec = emit_conditioned_bool(main, pf->name, [&]() -> Value* {
+            Value *got = builder_.CreateCall(read_next_,
+                {fid, bufPtr, ConstantInt::get(i64, reclen + 1, false)}, "got_rec");
+            return builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "have_rec");
+        });
 
         BasicBlock *extract = BasicBlock::Create(c, "extract", main);
         BasicBlock *lrtotal = BasicBlock::Create(c, "lr.total", main);
-        Value *haveRec = builder_.CreateICmpNE(
-            got, ConstantInt::get(i32, 0), "have_rec");
         builder_.CreateCondBr(haveRec, extract, lrtotal);
 
         // extract: load each field from the buffer.
@@ -1489,11 +1694,14 @@ private:
         for (unsigned i = 0; i < nfiles; ++i) {
             MFFile &mf = mfs[i];
             Value *bp = buf_ptr(mf.buf);
-            Value *got = builder_.CreateCall(read_next_,
-                {mf.fid, bp, ConstantInt::get(i64, reclen + 1, false)},
-                mf.spec->name + "_prime");
-            Value *have = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0),
-                                                mf.spec->name + "_have");
+            // E1: gated behind this file's U1-U8 conditioning indicator.
+            Value *have = emit_conditioned_bool(main, mf.spec->name, [&]() -> Value* {
+                Value *got = builder_.CreateCall(read_next_,
+                    {mf.fid, bp, ConstantInt::get(i64, reclen + 1, false)},
+                    mf.spec->name + "_prime");
+                return builder_.CreateICmpNE(got, ConstantInt::get(i32, 0),
+                                             mf.spec->name + "_have");
+            });
             builder_.CreateStore(have, mf.got);
             if (mf.has_m1 && !mf.m1_alpha) {
                 // Only decode the key when a record was read. Alphameric M1
@@ -1555,8 +1763,56 @@ private:
             }
         }
 
+        // E2: F-spec col 18 (sequence). The manual requires the same A/D
+        // entry on every file that specifies match fields (77030-77032); take
+        // the first non-blank one found among the matching files as the
+        // group's direction (ascending unless a file says D), and flag a
+        // mismatch instead of silently picking one side.
+        bool mf_descending = false;
+        {
+            char group_seq = 0;
+            for (const auto &mf : mfs) {
+                if (!mf.has_m1 || mf.spec->sequence == 0) continue;
+                if (group_seq == 0) group_seq = mf.spec->sequence;
+                else if (group_seq != mf.spec->sequence) {
+                    report("input", mf.spec->lineno, 18, DiagKind::Error,
+                           "F-spec col 18 (sequence) for file '" + mf.spec->name +
+                           "' is '" + std::string(1, mf.spec->sequence) +
+                           "' but another matching file specifies '" +
+                           std::string(1, group_seq) +
+                           "' -- all files with match fields must agree "
+                           "(manual 77030-77032)");
+                }
+            }
+            mf_descending = (group_seq == 'D');
+        }
+
         BasicBlock *lrtotal = BasicBlock::Create(c, "lr.total", main);
         BasicBlock *extract = BasicBlock::Create(c, "extract", main);
+
+        // E3: F-spec col 17 (end-of-file requirement). If any file is marked
+        // E ("must reach EOF before the program can end"), the program ends
+        // as soon as every E-marked file is at EOF, regardless of whether
+        // other, unmarked files still hold data (manual 76968-76989). Checked
+        // up front, before the selection walk below, because a file with no
+        // match field jumps straight to `extract` as soon as it finds any
+        // held record -- that shortcut must not bypass this check.
+        bool mf_any_required = false;
+        for (const auto &mf : mfs)
+            if (mf.spec->end_required) { mf_any_required = true; break; }
+        if (mf_any_required) {
+            Value *allReqDone = ConstantInt::getTrue(c);
+            for (const auto &mf : mfs) {
+                if (!mf.spec->end_required) continue;
+                Value *have = builder_.CreateLoad(Type::getInt1Ty(c), mf.got,
+                                                  mf.spec->name + "_got_req");
+                Value *done = builder_.CreateNot(have, mf.spec->name + "_done");
+                allReqDone = builder_.CreateAnd(allReqDone, done, "req_done_and");
+            }
+            BasicBlock *scanBlk = BasicBlock::Create(c, "mf_scan", main);
+            builder_.CreateCondBr(allReqDone, lrtotal, scanBlk);
+            builder_.SetInsertPoint(scanBlk);
+        }
 
         // Walk files in priority order, refining the selection.
         for (unsigned i = 0; i < nfiles; ++i) {
@@ -1639,7 +1895,11 @@ private:
                 Value *minLen = builder_.CreateLoad(i32, minkeyLenAlloca, "mkl");
                 Value *cmp = builder_.CreateCall(cmp_str_,
                     {fptr, flenV, minBufPtr, minLen}, mf.spec->name + "_kcmp");
-                Value *isLT = builder_.CreateICmpSLT(cmp, ConstantInt::get(i32, 0), "lt");
+                // E2: descending sequence (F-spec col 18 'D') takes the
+                // running MAXIMUM key instead of the minimum.
+                Value *isLT = mf_descending
+                    ? builder_.CreateICmpSGT(cmp, ConstantInt::get(i32, 0), "lt")
+                    : builder_.CreateICmpSLT(cmp, ConstantInt::get(i32, 0), "lt");
                 Value *isEQ = builder_.CreateICmpEQ(cmp, ConstantInt::get(i32, 0), "eq");
                 BasicBlock *ltBlk = BasicBlock::Create(c,
                     "lt_" + std::to_string(i), main);
@@ -1681,7 +1941,11 @@ private:
 
             builder_.SetInsertPoint(cmpPick);
             Value *minkey = builder_.CreateLoad(i32, minkeyAlloca, "mk");
-            Value *isLT = builder_.CreateICmpSLT(mykey, minkey, "lt");
+            // E2: descending sequence (F-spec col 18 'D') takes the running
+            // MAXIMUM key instead of the minimum.
+            Value *isLT = mf_descending
+                ? builder_.CreateICmpSGT(mykey, minkey, "lt")
+                : builder_.CreateICmpSLT(mykey, minkey, "lt");
             Value *isEQ = builder_.CreateICmpEQ(mykey, minkey, "eq");
             BasicBlock *ltBlk = BasicBlock::Create(c,
                 "lt_" + std::to_string(i), main);
@@ -1711,12 +1975,19 @@ private:
             builder_.SetInsertPoint(nextFile);
         }
 
-        // After scanning all files: if selected == -1, all are at EOF -> LR.
-        {
+        // After scanning all files: with no E3-required files, the job ends
+        // once every held record is gone (selected == -1). When at least one
+        // file is E-required, the up-front check above already forced a jump
+        // to lrtotal if all required files were done -- reaching here means
+        // that wasn't the case, so a required file still has data and the
+        // scan above is guaranteed to have selected something.
+        if (!mf_any_required) {
             Value *curSel = builder_.CreateLoad(i32, selAlloca, "sel_final");
             Value *none = builder_.CreateICmpEQ(curSel,
                 ConstantInt::get(i32, -1, true), "all_eof");
             builder_.CreateCondBr(none, lrtotal, extract);
+        } else {
+            builder_.CreateBr(extract);
         }
 
         // ---- extract: copy the selected file's record into rpg_rec, decode its
@@ -1859,11 +2130,14 @@ private:
             asw->addCase(ConstantInt::get(i32, (int)i), adv);
             builder_.SetInsertPoint(adv);
             Value *bp = buf_ptr(mf.buf);
-            Value *got = builder_.CreateCall(read_next_,
-                {mf.fid, bp, ConstantInt::get(i64, reclen + 1, false)},
-                mf.spec->name + "_read");
-            Value *have = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0),
-                                                mf.spec->name + "_have2");
+            // E1: gated behind this file's U1-U8 conditioning indicator.
+            Value *have = emit_conditioned_bool(main, mf.spec->name, [&]() -> Value* {
+                Value *got = builder_.CreateCall(read_next_,
+                    {mf.fid, bp, ConstantInt::get(i64, reclen + 1, false)},
+                    mf.spec->name + "_read");
+                return builder_.CreateICmpNE(got, ConstantInt::get(i32, 0),
+                                             mf.spec->name + "_have2");
+            });
             builder_.CreateStore(have, mf.got);
             if (mf.has_m1 && !mf.m1_alpha) {
                 BasicBlock *dk = BasicBlock::Create(c, "adv_k_" + mf.spec->name, main);
@@ -1923,7 +2197,8 @@ private:
      * (emit_exception). A record whose file has no open output id is skipped. */
     llvm::BasicBlock *emit_one_record(llvm::Function *main,
                                       llvm::BasicBlock *prev,
-                                      const ORecord &rec) {
+                                      const ORecord &rec,
+                                      bool allow_fetch = true) {
         using namespace llvm;
         auto &c   = mod_->getContext();
         auto *i32 = Type::getInt32Ty(c);
@@ -1936,7 +2211,13 @@ private:
 
         builder_.SetInsertPoint(prev);
         // Conditioning: branch around the line if conditions don't hold.
-        Value *cond = eval_conditions(inds_, builder_, rec.conditions);
+        // F1: rec.conditions is OR-of-AND groups (base line + any AND/OR
+        // continuation lines). E1: also ANDed with the target file's U1-U8
+        // conditioning indicator (F-spec cols 71-72) -- off means no records
+        // are written to it.
+        Value *cond = builder_.CreateAnd(
+            eval_conditions_grouped(inds_, builder_, rec.conditions),
+            file_cond_ok(rec.file), "out_cond");
         BasicBlock *dob = BasicBlock::Create(c, "out_do", main);
         BasicBlock *nxt = BasicBlock::Create(c, "out_after", main);
         builder_.CreateCondBr(cond, dob, nxt);
@@ -1985,6 +2266,43 @@ private:
         if (rec.skip_after > 0) {
             builder_.CreateCall(skip_fn_, {fid,
                 ConstantInt::get(i32, rec.skip_after, true)});
+        }
+        // F2: fetch overflow (O-spec col 16 = F). Poll this file's overflow
+        // latch right here, immediately after this line prints, instead of
+        // waiting for the normal cycle-time check (emit_overflow_check,
+        // which only runs once per cycle, after total time and before
+        // detail time -- a detail line's own overflow would otherwise not
+        // be serviced until the *next* cycle, or never in a single-cycle
+        // program). Manual 88310-88356: fetch overflow is suppressed when
+        // this same line is itself conditioned on the file's overflow
+        // indicator ("the overflow routine is not fetched"). `allow_fetch`
+        // is false for records emitted from inside an overflow-output pass
+        // itself, so a fetch-flagged record reached that way services at
+        // most one nested level instead of chaining indefinitely.
+        if (rec.fetch_overflow && allow_fetch && outputs_) {
+            const FSpec *ofs = nullptr;
+            if (files_)
+                for (const auto &f : *files_)
+                    if (f.name == rec.file) { ofs = &f; break; }
+            if (ofs && ofs->has_overflow &&
+                !has_overflow_condition(rec.conditions, ofs->overflow_ind)) {
+                Value *latched = builder_.CreateCall(take_overflow_, {fid},
+                                                      "ov_take_fetch");
+                latched = builder_.CreateICmpNE(
+                    latched, ConstantInt::get(i32, 0), "ov_on_fetch");
+                BasicBlock *fdo = BasicBlock::Create(c, "fetchov_do", main);
+                BasicBlock *fafter = BasicBlock::Create(c, "fetchov_after", main);
+                builder_.CreateCondBr(latched, fdo, fafter);
+                builder_.SetInsertPoint(fdo);
+                inds_.store_resolved(ofs->overflow_ind, ConstantInt::getTrue(c));
+                BasicBlock *ovend = emit_overflow_output(main, fdo, *outputs_,
+                                                         ofs->overflow_ind,
+                                                         /*allow_fetch=*/false);
+                builder_.SetInsertPoint(ovend);
+                inds_.store_resolved(ofs->overflow_ind, ConstantInt::getFalse(c));
+                builder_.CreateBr(fafter);
+                builder_.SetInsertPoint(fafter);
+            }
         }
         builder_.CreateBr(nxt);
         builder_.SetInsertPoint(nxt);
@@ -2133,7 +2451,7 @@ private:
         auto *ptr = PointerType::get(c, 0);
         if (!edit_word_fn_) {
             edit_word_fn_ = Function::Create(
-                FunctionType::get(i32, {i64, ptr, i32, i32, ptr, i32}, false),
+                FunctionType::get(i32, {i64, ptr, i32, i32, i32, ptr, i32}, false),
                 Function::ExternalLinkage, "rpg_rt_edit_word", mod_.get());
         }
         Value *v = syms_.load_field(f.name);
@@ -2142,10 +2460,12 @@ private:
         Value *word = builder_.CreateGlobalStringPtr(f.edit_word, "eword");
         Value *buf = builder_.CreateAlloca(Type::getInt8Ty(c),
             ConstantInt::get(i32, 64, false), f.name+"_ewb");
+        // D1: the floating-currency character (H-spec col 18; default '$').
         Value *n = builder_.CreateCall(edit_word_fn_, {
             v64, word,
             ConstantInt::get(i32, (int)f.edit_word.size(), true),
             ConstantInt::get(i32, dec, true),
+            ConstantInt::get(i32, (int)currency_symbol_, true),
             buf,
             ConstantInt::get(i32, 64, true)}, f.name+"_ewn");
         builder_.CreateCall(line_put_str_, {buf, n,
@@ -2164,9 +2484,12 @@ private:
         return prev;
     }
 
-    /* True if any condition references the overflow indicator `ov_idx`. */
-    bool has_overflow_condition(const std::vector<CondInd> &conds, int ov_idx) {
-        for (const auto &c : conds) if (c.indicator == ov_idx) return true;
+    /* True if any condition (in any OR group) references the overflow
+     * indicator `ov_idx`. */
+    bool has_overflow_condition(const std::vector<std::vector<CondInd>> &groups,
+                                int ov_idx) {
+        for (const auto &g : groups)
+            for (const auto &c : g) if (c.indicator == ov_idx) return true;
         return false;
     }
 
@@ -2179,16 +2502,17 @@ private:
     llvm::BasicBlock *emit_overflow_output(llvm::Function *main,
                                            llvm::BasicBlock *prev,
                                            const std::vector<ORecord> &records,
-                                           int ov_idx) {
+                                           int ov_idx,
+                                           bool allow_fetch = true) {
         for (const auto &rec : records) {
             if (rec.type == OType::Exception) continue;
             if (rec.type == OType::Heading) {
                 if (has_overflow_condition(rec.conditions, ov_idx))
-                    prev = emit_one_record(main, prev, rec);
+                    prev = emit_one_record(main, prev, rec, allow_fetch);
             } else {
                 // Detail or Total lines conditioned by the overflow indicator.
                 if (has_overflow_condition(rec.conditions, ov_idx))
-                    prev = emit_one_record(main, prev, rec);
+                    prev = emit_one_record(main, prev, rec, allow_fetch);
             }
         }
         return prev;
@@ -2261,9 +2585,11 @@ private:
         return prev;
     }
 
-    /* True if any condition references the 1P indicator (idx -11). */
-    bool has_1p_condition(const std::vector<CondInd> &conds) {
-        for (const auto &c : conds) if (c.indicator == -11) return true;
+    /* True if any condition (in any OR group) references the 1P indicator
+     * (idx -11). */
+    bool has_1p_condition(const std::vector<std::vector<CondInd>> &groups) {
+        for (const auto &g : groups)
+            for (const auto &c : g) if (c.indicator == -11) return true;
         return false;
     }
 
@@ -3375,18 +3701,22 @@ private:
 
         // --- character -> character MOVE/MOVEL: right/left justified copy ---
         if (f2_char) {
-            int dstlen;
-            Value *rptr;
-            if (syms_.is_char_field(c.result)) {
-                dstlen = syms_.info(c.result)->length;
-                rptr = syms_.get_or_create_char_field(c.result, dstlen);
-            } else {
-                dstlen = c.result_len > 0 ? c.result_len : srclen;
-                rptr = syms_.get_or_create_char_field(c.result, dstlen);
+            // D2: go through resolve_char_operand for the destination pointer
+            // (rather than building a GEP off a freshly-fetched GlobalVariable
+            // directly) so a data-structure subfield result -- whose storage
+            // is an aliased byte range into its parent DS buffer, not its own
+            // global -- resolves correctly instead of hitting a null gv.
+            if (!syms_.is_char_field(c.result)) {
+                int newlen = c.result_len > 0 ? c.result_len : srclen;
+                syms_.get_or_create_char_field(c.result, newlen);
             }
-            auto *arrTy = ArrayType::get(i8, (unsigned)dstlen);
-            Value *dstp = builder_.CreateConstInBoundsGEP2_32(arrTy,
-                cast<GlobalVariable>(rptr), 0, 0, c.result+"_dp");
+            Value *dstp; int dstlen;
+            if (!syms_.resolve_char_operand(c.result, dstp, dstlen)) {
+                report("input", c.lineno, 43, DiagKind::Error,
+                       std::string(c.op == Op::MOVEL ? "MOVEL" : "MOVE") +
+                       " result field must be alphameric");
+                return;
+            }
             int copylen = std::min(srclen, dstlen);
             int srcoff = 0, dstoff = 0;
             if (c.op == Op::MOVE) {
@@ -3414,13 +3744,14 @@ private:
                        " requires factor 2");
                 return;
             }
-            int dstlen = syms_.is_char_field(c.result)
-                ? syms_.info(c.result)->length
-                : (c.result_len > 0 ? c.result_len : 1);
-            Value *rptr = syms_.get_or_create_char_field(c.result, dstlen);
-            auto *arrTy = ArrayType::get(i8, (unsigned)dstlen);
-            Value *dstp = builder_.CreateConstInBoundsGEP2_32(arrTy,
-                cast<GlobalVariable>(rptr), 0, 0, c.result+"_dp");
+            // D2: same resolve_char_operand rationale as the char->char branch
+            // above -- required for a DS subfield result.
+            if (!syms_.is_char_field(c.result)) {
+                int newlen = c.result_len > 0 ? c.result_len : 1;
+                syms_.get_or_create_char_field(c.result, newlen);
+            }
+            Value *dstp; int dstlen;
+            syms_.resolve_char_operand(c.result, dstp, dstlen);
             Value *v64 = builder_.CreateSExt(f2, i64, c.result+"_oe");
             builder_.CreateCall(overpunch_out_,
                 {v64, dstp, ConstantInt::get(i32, dstlen, true)}, c.result+"_o");
@@ -3617,10 +3948,13 @@ private:
         if (files_) for (const auto &f : *files_) if (f.name == c.factor2) rlen = f.reclen > 0 ? f.reclen : 80;
         Value *buf = builder_.CreateAlloca(Type::getInt8Ty(ctx),
             ConstantInt::get(i32, rlen + 1, false), "chain_buf");
-        Value *found = builder_.CreateCall(chain_,
-            {fid, keyp, ConstantInt::get(i32, keylen, true), buf,
-             ConstantInt::get(i64, rlen + 1, false)}, "chain_found");
-        found = builder_.CreateICmpNE(found, ConstantInt::get(i32, 0), "chain_ok");
+        // E1: gated behind factor2's U1-U8 conditioning indicator.
+        Value *found = emit_conditioned_bool(fn, c.factor2, [&]() -> Value* {
+            Value *r = builder_.CreateCall(chain_,
+                {fid, keyp, ConstantInt::get(i32, keylen, true), buf,
+                 ConstantInt::get(i64, rlen + 1, false)}, "chain_found");
+            return builder_.CreateICmpNE(r, ConstantInt::get(i32, 0), "chain_ok");
+        });
         // On success, decode the file's fields from buf (like the cycle extract).
         BasicBlock *doDec = BasicBlock::Create(ctx, "chain_dec", fn);
         BasicBlock *after = BasicBlock::Create(ctx, "chain_after", fn);
@@ -3647,8 +3981,24 @@ private:
                    "SETLL factor1 '" + c.factor1 + "' is not a valid key operand");
             return;
         }
+        // E1: skip the position call entirely when factor2's U1-U8
+        // conditioning indicator is off.
+        Value *condOk = file_cond_ok(c.factor2);
+        if (auto *cst = dyn_cast<ConstantInt>(condOk); cst && cst->isOne()) {
+            builder_.CreateCall(setll_,
+                {fid, keyp, ConstantInt::get(i32, keylen, true)});
+            return;
+        }
+        Function *fn = builder_.GetInsertBlock()->getParent();
+        auto &ctx = mod_->getContext();
+        BasicBlock *doB = BasicBlock::Create(ctx, "setll_do", fn);
+        BasicBlock *after = BasicBlock::Create(ctx, "setll_after", fn);
+        builder_.CreateCondBr(condOk, doB, after);
+        builder_.SetInsertPoint(doB);
         builder_.CreateCall(setll_,
             {fid, keyp, ConstantInt::get(i32, keylen, true)});
+        builder_.CreateBr(after);
+        builder_.SetInsertPoint(after);
     }
 
     /* READ: read the next record from file (factor2). On success decode the
@@ -3665,9 +4015,12 @@ private:
         if (files_) for (const auto &f : *files_) if (f.name == c.factor2) rlen = f.reclen > 0 ? f.reclen : 80;
         Value *buf = builder_.CreateAlloca(Type::getInt8Ty(ctx),
             ConstantInt::get(i32, rlen + 1, false), "read_buf");
-        Value *got = builder_.CreateCall(read_op_,
-            {fid, buf, ConstantInt::get(i64, rlen + 1, false)}, "read_got");
-        got = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "read_ok");
+        // E1: gated behind factor2's U1-U8 conditioning indicator.
+        Value *got = emit_conditioned_bool(fn, c.factor2, [&]() -> Value* {
+            Value *r = builder_.CreateCall(read_op_,
+                {fid, buf, ConstantInt::get(i64, rlen + 1, false)}, "read_got");
+            return builder_.CreateICmpNE(r, ConstantInt::get(i32, 0), "read_ok");
+        });
         BasicBlock *doDec = BasicBlock::Create(ctx, "read_dec", fn);
         BasicBlock *after = BasicBlock::Create(ctx, "read_after", fn);
         builder_.CreateCondBr(got, doDec, after);
@@ -3701,10 +4054,13 @@ private:
         if (files_) for (const auto &f : *files_) if (f.name == c.factor2) rlen = f.reclen > 0 ? f.reclen : 80;
         Value *buf = builder_.CreateAlloca(Type::getInt8Ty(ctx),
             ConstantInt::get(i32, rlen + 1, false), "reade_buf");
-        Value *got = builder_.CreateCall(reade_,
-            {fid, keyp, ConstantInt::get(i32, keylen, true), buf,
-             ConstantInt::get(i64, rlen + 1, false)}, "reade_got");
-        got = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "reade_ok");
+        // E1: gated behind factor2's U1-U8 conditioning indicator.
+        Value *got = emit_conditioned_bool(fn, c.factor2, [&]() -> Value* {
+            Value *r = builder_.CreateCall(reade_,
+                {fid, keyp, ConstantInt::get(i32, keylen, true), buf,
+                 ConstantInt::get(i64, rlen + 1, false)}, "reade_got");
+            return builder_.CreateICmpNE(r, ConstantInt::get(i32, 0), "reade_ok");
+        });
         BasicBlock *doDec = BasicBlock::Create(ctx, "reade_dec", fn);
         BasicBlock *after = BasicBlock::Create(ctx, "reade_after", fn);
         builder_.CreateCondBr(got, doDec, after);
@@ -3732,9 +4088,12 @@ private:
         if (files_) for (const auto &f : *files_) if (f.name == c.factor2) rlen = f.reclen > 0 ? f.reclen : 80;
         Value *buf = builder_.CreateAlloca(Type::getInt8Ty(ctx),
             ConstantInt::get(i32, rlen + 1, false), "readp_buf");
-        Value *got = builder_.CreateCall(readp_,
-            {fid, buf, ConstantInt::get(i64, rlen + 1, false)}, "readp_got");
-        got = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "readp_ok");
+        // E1: gated behind factor2's U1-U8 conditioning indicator.
+        Value *got = emit_conditioned_bool(fn, c.factor2, [&]() -> Value* {
+            Value *r = builder_.CreateCall(readp_,
+                {fid, buf, ConstantInt::get(i64, rlen + 1, false)}, "readp_got");
+            return builder_.CreateICmpNE(r, ConstantInt::get(i32, 0), "readp_ok");
+        });
         BasicBlock *doDec = BasicBlock::Create(ctx, "readp_dec", fn);
         BasicBlock *after = BasicBlock::Create(ctx, "readp_after", fn);
         builder_.CreateCondBr(got, doDec, after);
@@ -4311,6 +4670,9 @@ private:
     int last_remainder_dec_ = 0;
     // Hidden global holding the DIV remainder, lazily created.
     llvm::GlobalVariable *divrem_slot_ = nullptr;
+    // D1: H-spec col 18 currency symbol (default '$'), consulted by
+    // emit_edit_word_field for the floating-currency detection (A13).
+    char currency_symbol_ = '$';
 };
 
 } // namespace

@@ -54,7 +54,21 @@ struct ORecord {
     int         skip_before = 0;       // cols 19-20 skip-to line (D13); 0=none
     int         skip_after  = 0;       // cols 21-22 skip-to line (D13); 0=none
     ORecOp      rec_op = ORecOp::Write; // cols 16-18 ADD/UPDATE/DEL (G25)
-    std::vector<CondInd> conditions;   // cols 23-31, line conditioning
+    // F2: col 16 F (fetch overflow) / R (release device), single-character
+    // forms distinct from the 3-char ADD/DEL/UPDATE mnemonic above (manual
+    // 88310-88356). Release is WORKSTN/ICF-only (unsupported, hard error);
+    // fetch overflow polls this file's overflow latch immediately after this
+    // record prints instead of waiting for the normal cycle-time check.
+    bool        fetch_overflow = false; // col 16 == 'F'
+    bool        release_device = false; // col 16 == 'R'
+    // F1: cols 23-31 line-conditioning indicators, as OR-of-AND groups. Group
+    // 0 is this record line's own 3 slots; each AND continuation line (cols
+    // 14-16 == "AND") extends the *current* group's AND-list; each OR
+    // continuation ("OR") starts a new group. The record fires iff any group
+    // is fully satisfied (manual 88200-88217, 88491-88493). A plain record
+    // with no continuation lines has exactly one group, matching the old
+    // flat-AND-list behavior.
+    std::vector<std::vector<CondInd>> conditions;
     std::vector<OField> fields;        // field lines that follow this record line
     std::string except_name;           // cols 32-37, EXCPT name (type-E only)
 };

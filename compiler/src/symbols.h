@@ -42,6 +42,21 @@ struct FieldInfo {
     // storage instead of [array_count x i32]). `length` holds the per-element
     // byte width in this case.
     bool is_char_array = false;
+    // D2: a data-structure subfield. Instead of owning independent storage,
+    // it's a byte-range VIEW into `ds_base` (the parent DS's [ds_len x i8]
+    // buffer), starting at 0-based byte `ds_offset`. `length` is the
+    // subfield's own byte width (Character kind) or decode width (Numeric
+    // kind). A Numeric-kind DS subfield has no native i32 storage at all --
+    // reads decode from `ds_base`'s bytes on every access (mirroring
+    // ordinary I-spec numeric extraction); there is no corresponding
+    // i32->zoned-bytes encoder anywhere in this compiler (see codegen.cpp's
+    // Q1 finding for D2), so such a field cannot be used as a calc result
+    // field -- get_or_create_field() reports that as a compile error rather
+    // than silently returning unusable storage.
+    bool is_ds_field = false;
+    llvm::GlobalVariable *ds_base = nullptr;
+    int  ds_len = 0;
+    int  ds_offset = 0;
 };
 
 class SymbolTable {
@@ -79,6 +94,19 @@ public:
                                           int entry_len,
                                           const std::vector<std::string> &init,
                                           bool is_table = false);
+
+    /* D2: declare a data-structure subfield as a byte-range view into an
+     * already-declared DS buffer `ds_base` ([ds_len x i8]), rather than
+     * independent storage. Alphameric subfields alias the bytes directly
+     * (read AND write, via the same resolve_char_operand() path every other
+     * character field goes through); numeric subfields decode-on-read only
+     * (see FieldInfo::is_ds_field). No-op if `name` is already declared. */
+    void declare_ds_char_subfield(const std::string &name,
+                                  llvm::GlobalVariable *ds_base, int ds_len,
+                                  int ds_offset, int length);
+    void declare_ds_numeric_subfield(const std::string &name,
+                                     llvm::GlobalVariable *ds_base, int ds_len,
+                                     int ds_offset, int length, int decimals);
 
     bool has_field(const std::string &name) const {
         return fields_.find(name) != fields_.end();
@@ -133,6 +161,15 @@ private:
     llvm::Module        &mod_;
     llvm::IRBuilder<>   &builder_;
     std::unordered_map<std::string, FieldInfo> fields_;
+
+    /* D2: decode a numeric DS subfield's current bytes via the same
+     * rpg_rt_get_decimal runtime helper ordinary zoned I-spec fields use. */
+    llvm::Value *decode_ds_numeric(const FieldInfo &fi, const std::string &name);
+    /* D2: lazily-created dummy i32 global returned (with a diagnostic) when
+     * codegen attempts to store into a read-only numeric DS subfield, so the
+     * generated IR stays valid even though the store is meaningless. */
+    llvm::GlobalVariable *ds_write_guard();
+    llvm::GlobalVariable *ds_write_guard_gv_ = nullptr;
 };
 
 } // namespace rpgc

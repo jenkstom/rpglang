@@ -1,0 +1,5 @@
+     C* D2 negative: a numeric DS subfield has no i32<->zoned encoder,
+     C* so it cannot be used as a calc result field -- must be a hard error.
+     I            DS
+     I                                        1   40NUM
+     C                     Z-ADD5         NUM

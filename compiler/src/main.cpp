@@ -17,9 +17,11 @@
 #include "source.h"
 #include "cspec.h"
 #include "fspec.h"
+#include "hspec.h"
 #include "ispec.h"
 #include "ospec.h"
 #include "espec.h"
+#include "uspec.h"
 #include "program.h"
 #include "codegen.h"
 #include "driver.h"
@@ -218,14 +220,33 @@ int main(int argc, char **argv) {
         rpgc::fatal("cannot read source: " + opts.input_file);
         return 1;
     }
+    // D3: expand /COPY directives before any spec parser sees the source --
+    // each parser just filters a flat line list by form_type, so splicing in
+    // copied members here (rather than teaching every parser about /COPY)
+    // keeps every downstream pass unchanged.
+    {
+        auto slash = opts.input_file.find_last_of('/');
+        std::string base_dir = (slash == std::string::npos)
+            ? std::string(".") : opts.input_file.substr(0, slash);
+        if (!rpgc::expand_copy_statements(src, base_dir)) {
+            return 1;
+        }
+    }
+    // D3: Auto Report Option Specifications ('U' form type) aren't expanded
+    // by this compiler; fail loudly now rather than silently compiling a
+    // program with no real output specs (see uspec.h).
+    rpgc::reject_uspecs(src);
 
     rpgc::Program prog;
+    prog.hspec      = rpgc::parse_hspec(src);
     prog.files      = rpgc::parse_fspecs(src);
     prog.line_counters = rpgc::parse_lspecs(src);
     rpgc::ISpecs is = rpgc::parse_ispecs(src);
     prog.in_records = std::move(is.records);
     prog.in_fields  = std::move(is.fields);
     prog.lookahead_fields = std::move(is.lookahead_fields);
+    prog.data_structures = std::move(is.data_structures);
+    prog.ds_subfields    = std::move(is.ds_subfields);
     prog.calcs      = rpgc::parse_cspecs(src);
     prog.outputs    = rpgc::parse_ospecs(src);
     prog.arrays     = rpgc::parse_especs(src);

@@ -1,0 +1,10 @@
+     C* D2: data-structure redefinition of an existing alphameric field.
+     C* REC1 (EDATA position 1, value '0') is redefined by DS REC1; its
+     C* subfield X (position 1) must read the SAME physical byte.
+     FEDATA   IP  F    80              DISK
+     IEDATA       AA
+     I                                        1   1 REC1
+     IREC1        DS
+     I                                        1   1 X
+     C           X         COMP '0'                      10
+     C  10                 Z-ADD1         RPGRET

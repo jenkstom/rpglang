@@ -40,6 +40,12 @@ std::vector<ESpecArray> parse_especs(const std::vector<SourceLine> &src) {
         std::string el = col_trim(sl.text, 40, 42);
         if (!el.empty()) { try { a.entry_len = std::stoi(el); } catch (...) {} }
 
+        // E7: col 43, packed/binary prerun-time array/table data (manual
+        // 80373-80378). Blank/other = zoned ASCII (the only format handled
+        // before this).
+        std::string fmt43 = upper(col_trim(sl.text, 43, 43));
+        if (fmt43 == "P" || fmt43 == "B") a.data_format = fmt43[0];
+
         std::string dec = col_trim(sl.text, 44, 44);
         if (!dec.empty() && std::isdigit((unsigned char)dec[0]))
             a.decimals = dec[0] - '0';
@@ -62,6 +68,9 @@ std::vector<ESpecArray> parse_especs(const std::vector<SourceLine> &src) {
             std::string ael = col_trim(sl.text, 52, 54);
             if (!ael.empty()) { try { a.alt_entry_len = std::stoi(ael); }
                                  catch (...) {} }
+            // E7: col 55 mirrors col 43 for the alternating partner.
+            std::string afmt = upper(col_trim(sl.text, 55, 55));
+            if (afmt == "P" || afmt == "B") a.alt_data_format = afmt[0];
             std::string adec = col_trim(sl.text, 56, 56);
             if (!adec.empty() && std::isdigit((unsigned char)adec[0]))
                 a.alt_decimals = adec[0] - '0';

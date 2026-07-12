@@ -35,15 +35,58 @@ ISpecs parse_ispecs(const std::vector<SourceLine> &src) {
     ISpecs out;
     std::string current_file;   // last seen record-id file name
     bool lookahead_mode = false; // set by a '**' record-id line (E19)
+    // D2: once a DS statement line is seen, every subsequent field-shaped
+    // line is a subfield of that DS rather than an ordinary input field --
+    // data structures "must be the last entries on the input specifications"
+    // (manual 61069-61071), so this is sticky for the rest of the program.
+    bool ds_mode = false;
+    int  current_ds_index = -1;
 
     for (const auto &sl : src) {
         if (sl.comment) continue;
         if (form_type(sl) != 'I') continue;
 
+        // D2: a data-structure statement line (cols 19-20 == "DS") must be
+        // recognized before the field/record-id heuristic below, since it
+        // has blank cols 44-51 like a record-id line but means something
+        // entirely different (ispec.h used to only treat cols 19-20 as a
+        // numeric record-id indicator, silently misinterpreting a real DS
+        // line -- D2).
+        std::string ri20 = upper(col_trim(sl.text, 19, 20));
+        if (ri20 == "DS") {
+            ISpecDS ds;
+            ds.lineno = sl.lineno;
+            ds.name   = col_trim(sl.text, 7, 12);
+            ds.is_lda = (upper(col_trim(sl.text, 18, 18)) == "U");
+            current_ds_index = (int)out.data_structures.size();
+            out.data_structures.push_back(std::move(ds));
+            ds_mode = true;
+            continue;
+        }
+
         std::string fromtxt = col_trim(sl.text, 44, 47);
         std::string nametxt = col_trim(sl.text, 53, 58);
 
-        if (!fromtxt.empty() && is_digits(fromtxt) && !nametxt.empty()) {
+        if (ds_mode && !fromtxt.empty() && is_digits(fromtxt) && !nametxt.empty()) {
+            // ---- data-structure subfield line (D2) ----
+            ISpecSubfield sub;
+            sub.lineno = sl.lineno;
+            sub.ds_index = current_ds_index;
+            try { sub.from = std::stoi(fromtxt); } catch (...) {}
+            std::string totxt = col_trim(sl.text, 48, 51);
+            if (!totxt.empty()) {
+                try { sub.to = std::stoi(totxt); } catch (...) {}
+            }
+            if (sub.to == 0) sub.to = sub.from;
+            std::string dec = col_trim(sl.text, 52, 52);
+            if (!dec.empty() && std::isdigit((unsigned char)dec[0]))
+                sub.decimals = dec[0] - '0';
+            sub.name = nametxt;
+            out.ds_subfields.push_back(std::move(sub));
+            continue;
+        }
+
+        if (!ds_mode && !fromtxt.empty() && is_digits(fromtxt) && !nametxt.empty()) {
             // ---- field-description line ----
             ISpecField fld;
             fld.lineno = sl.lineno;

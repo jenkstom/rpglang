@@ -425,6 +425,91 @@ run_test time_op      1  time_op.rpg
 # nibble already in the destination.
 run_test movezone     1  movezone.rpg
 
+# --- Section K: TODO Group D missing spec types (H-spec, Data Structures, ---
+# --- Auto Report) --------------------------------------------------------
+hr; echo "Section K: H-spec, Data Structures, Auto Report (/COPY, U-spec, *AUTO)"; hr
+# D1: H-spec col 18 currency symbol feeds the floating-currency detection in
+# edit words (previously hardcoded to '$'): '#0000' on VAL=1234 -> "#1234".
+run_out_test hspec_currency hspec_currency.rpg QOUT 'grep -q "#1234" "$ROOT/tests/QOUT"'
+# D2: an anonymous DS's alphameric subfields alias shared storage -- writing
+# A (bytes 1-3) and B (bytes 4-6) via MOVEL must be visible through the
+# overlapping subfield WHOLE (bytes 1-6).
+run_test ds_alpha       1  ds_alpha.rpg
+# D2: a DS named after an existing alphameric input field REUSES that
+# field's storage (true redefinition) instead of allocating a fresh buffer.
+run_cycle_test ds_redefine 1  ds_redefine.rpg
+# D2: a numeric DS subfield decode-reads its bytes on every access, the same
+# way an ordinary zoned I-spec field is decoded.
+run_test ds_numeric     1  ds_numeric.rpg
+# D2: a numeric DS subfield has no i32<->zoned-decimal encoder in this
+# compiler and must be a hard compile error as a calc result field, not
+# silently-wrong storage.
+expect_compile_fail neg_ds_numeric_write neg_ds_numeric_write.rpg
+# D3: /COPY splices a member's specs into the source before any spec parser
+# runs (copymem.cpy's lone C-spec becomes this program's only C-spec).
+run_test copytest       1  copytest.rpg
+# D3: 'U' (Auto Report Option Specification) lines aren't expanded by this
+# compiler and must fail loudly rather than silently compiling an auto
+# report program with no real output specs.
+expect_compile_fail neg_uspec neg_uspec.rpg
+# D3: *AUTO in the O-spec field-name column must be a hard error instead of
+# silently printing nothing.
+expect_compile_fail neg_auto neg_auto.rpg
+
+# --- Section L: TODO Group E F-spec/E-spec gaps ------------------------------
+hr; echo "Section L: F-spec external conditioning, sequence, EOF, packed prerun"; hr
+# E1: F-spec cols 71-72 (U1-U8 external file conditioning), input side. A
+# secondary file conditioned on U1 (default off) contributes NO records even
+# though its data file has some.
+run_cycle_test cond_input   6  cond_input.rpg
+# E1: output side. A printer file conditioned on U2 (default off) writes NO
+# lines at all, even for an unconditioned O-spec record.
+run_out_test cond_output cond_output.rpg CONDOUT \
+    'grep -q "YES" "$ROOT/tests/CONDOUT" && { [[ ! -s "$ROOT/tests/CONDOUT2" ]] || ! grep -q "ALSO" "$ROOT/tests/CONDOUT2"; }'
+# E2: F-spec col 18 sequence ('D' = descending). Same shape as mr.rpg but
+# both files declared descending and fed data in descending key order; the
+# multifile selection loop must take the running MAXIMUM key each cycle
+# (not the minimum) to still detect the key=2 match (MR) between files.
+run_cycle_test mrdesc 66  mrdesc.rpg
+# E3: F-spec col 17 (end-of-file requirement). Primary EOPRIM is marked E
+# (2 records, 1+2=3); secondary EOSEC is blank/optional (3 records,
+# 100+200+300=600). The program must end as soon as EOPRIM is exhausted
+# without ever touching EOSEC -- RPGRET=3, not 603.
+run_cycle_test eoreq  3  eoreq.rpg
+# E5: F-spec designation R (record-address file) has no codegen support --
+# a hard compile error instead of a silently-inert F-spec entry.
+expect_compile_fail neg_recaddr neg_recaddr.rpg
+# E6: F-spec col 31 = 'I' (RRN access) must stay RRN-based even when cols
+# 29-30 declare a key length -- previously that combination triggered a
+# byte-key binary search instead of relative-record-number access.
+run_cycle_test rrn_i 33  rrn_i.rpg
+# E7: E-spec col 43 = 'P' (packed-decimal prerun-time array data). PPDATA
+# holds 10,20,30 packed-decimal (not zoned ASCII); XFOOT must decode it
+# correctly to sum to 60, not garbage from a zoned-ASCII misread.
+run_cycle_test packed_prerun 60  packed_prerun.rpg
+# E8: F-spec device WORKSTN/SPECIAL/CONSOLE has no codegen support -- a hard
+# compile error instead of silently treating the device name as a flat file.
+expect_compile_fail neg_workstn neg_workstn.rpg
+
+# --- Section M: TODO Group F O-spec gaps --------------------------------------
+hr; echo "Section M: O-spec AND/OR continuation, fetch overflow/release"; hr
+# F1: AND/OR continuation lines (cols 14-16) extending O-spec line
+# conditioning past 3 indicators. Ind 30 and 32 are ON, 31 stays OFF.
+# AND group (base line on 30, AND-line on 31) must NOT fire (31 is off);
+# OR group (base line on 31 off, OR-line on 32 on) must fire.
+run_out_test oand_or oand_or.rpg ANDOR \
+    '! grep -q "AYES" "$ROOT/tests/ANDOR" && grep -q "OYES" "$ROOT/tests/ANDOR"'
+# F2: O-spec col 16 = F (fetch overflow). FETOUT's overflow line is 2 (the
+# runtime clamps below that to lines_per_page); D1 (FIRSTLINE, col 16 = F)
+# crosses it on its own print, so the OA-conditioned heading OVERFLOWHDR
+# must appear immediately after FIRSTLINE and before SECONDLINE in the same
+# (single) cycle -- not just deferred to the LR-time overflow poll.
+run_out_test fetch_overflow fetch_overflow.rpg FETOUT \
+    'awk "/FIRSTLINE/{f=NR} /OVERFLOWHDR/{if(!h)h=NR} /SECONDLINE/{s=NR} END{exit !(f && h && s && f<h && h<s)}" "$ROOT/tests/FETOUT"'
+# F2: O-spec col 16 = R (release device) requires a WORKSTN/ICF file, which
+# this compiler does not support -- hard compile error, same E8 precedent.
+expect_compile_fail neg_orelease neg_orelease.rpg
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

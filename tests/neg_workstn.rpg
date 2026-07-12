@@ -1,0 +1,4 @@
+     C* E8: F-spec device WORKSTN has no codegen support and must
+     C* be a hard compile error, not a silent flat-file miscompile.
+     FWSDATA  IP  F    80              WORKSTN
+     CLR                   SETOF
