@@ -276,16 +276,6 @@ img { max-width: 100%; }
 .card p { margin: 0; color: var(--gh-fg-muted); font-size: .88rem; }
 .card .card-icon { font-size: 1.1rem; line-height: 1; margin-right: .3rem; }
 
-.gh-manuals { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .6rem; }
-.gh-manuals li { margin: 0; }
-.gh-manuals a {
-  display: flex; align-items: center; gap: .5rem; font-size: .9rem;
-  padding: .6rem .9rem; background: var(--gh-subtle); border: 1px solid var(--gh-border-muted);
-  border-radius: 8px;
-}
-.gh-manuals a:hover { border-color: var(--gh-accent); }
-.gh-manuals .gh-manual-size { margin-left: auto; color: var(--gh-fg-subtle); font-size: .8rem; }
-
 footer.gh-footer {
   border-top: 1px solid var(--gh-border-muted); color: var(--gh-fg-muted); font-size: .82rem;
   padding: 1.2rem 1.5rem; max-width: 1180px; margin: 0 auto;
@@ -637,12 +627,6 @@ def build_landing() -> str:
   </div>
 </aside>"""
 
-    manuals = f"""<div class="section-title">IBM RPG II reference manuals (raw) <span class="section-count">2</span></div>
-<ul class="gh-manuals">
-  <li><a href="ref/manual_text.html">{BOOK_SVG} <strong>manual_text.txt</strong> — full IBM RPG II reference text <span class="gh-manual-size">~1.9&nbsp;MB</span></a></li>
-  <li><a href="ref/manual_layout.txt">{BOOK_SVG} <strong>manual_layout.txt</strong> — column layout dump (raw) <span class="gh-manual-size">~5&nbsp;MB</span></a></li>
-</ul>"""
-
     body = f"""
 <div class="gh-layout">
 <main class="gh-main">
@@ -666,18 +650,11 @@ def build_landing() -> str:
   Pick a card below, or use the tab bar at the top of any page.</p>
 
 {chr(10).join(sections)}
-
-{manuals}
 </main>
 {sidebar}
 </div>
 """
     return page("rpglang — Documentation", body, current_slug="index.html")
-
-
-def render_text_file(path: Path, title: str) -> str:
-    raw = html.escape(path.read_text(encoding="utf-8", errors="replace"))
-    return page(title, f'<pre style="white-space:pre-wrap; font-size:.82em">{raw}</pre>')
 
 
 def main() -> int:
@@ -693,19 +670,7 @@ def main() -> int:
         shutil.copy2(f, OUT / "tutorial" / f.name)
         log(f"tutorial/{f.name}")
 
-    # 2. Make IBM reference text browsable.
-    refdir = OUT / "ref"
-    refdir.mkdir(exist_ok=True)
-    mtext = REPO / "docs" / "ref" / "manual_text.txt"
-    if mtext.exists():
-        (refdir / "manual_text.html").write_text(render_text_file(mtext, "IBM RPG II Reference (text)"), encoding="utf-8")
-        log("ref/manual_text.html")
-    mlayout = REPO / "docs" / "ref" / "manual_layout.txt"
-    if mlayout.exists():
-        shutil.copy2(mlayout, refdir / "manual_layout.txt")
-        log("ref/manual_layout.txt (raw)")
-
-    # 3. Convert each doc source into a themed, navigable page.
+    # 2. Convert each doc source into a themed, navigable page.
     for d in DOCS:
         src = REPO / d["src"]
         if d.get("raw"):
@@ -724,7 +689,7 @@ def main() -> int:
         out.write_text(full, encoding="utf-8")
         log(f"{out.relative_to(OUT)}")
 
-    # 4. Landing page last so it wins the index.html slot.
+    # 3. Landing page last so it wins the index.html slot.
     (OUT / "index.html").write_text(build_landing(), encoding="utf-8")
     log("index.html (landing page)")
 

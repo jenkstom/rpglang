@@ -5,9 +5,7 @@
 > that parses the fixed-column format. This is the go-to reference for "which
 > columns mean what" across all four spec types.
 
-Authoritative column positions, extracted from the IBM *System/36-Compatible
-RPG II User's Guide and Reference* (SC09-1818-00). See
-`docs/ref/manual_layout.txt` for the raw extraction.
+Authoritative column positions for the RPG II fixed-format language.
 
 All positions are **1-based, inclusive**. Column 6 always holds the form type
 (`F`, `I`, `C`, `O`). Columns 1–5 are optional sequence; 60–74 comments; 75–80

@@ -8,11 +8,6 @@ three supporting devices — `KEYBORD`, `CONSOLE`, and `CRT` — which
 single-field) device type this plan does not cover"; §1: "`KEY`, `SET` ...
 see §0").
 
-Manual citations below are to `docs/ref/manual_text.txt`. Chapter 10
-("Using a CONSOLE, KEYBORD, or CRT File") is the primary reference, body at
-lines 42586-47204+; Chapter 27 ("Operation Codes") has the `KEY`
-(113035-113092) and `SET` (124240-124291) opcode entries.
-
 ---
 
 ## 0. Immediate finding: KEYBORD and CRT devices are an undiagnosed silent
@@ -231,15 +226,11 @@ vs. a headless scripted backend for the regression suite.
    file, following the same "sibling file, looked up by convention" shape
    `/COPY` (`source.cpp`'s `expand_copy_statements`) and WORKSTN's `FMTS`
    (`WRKSTN_PLAN.md` §2) both already use.
-2. **`SETnn`/`KEYnn` column mechanics** — the manual references a message
-   ID "in columns 31 and 32 of the SET operation" (124278) but also
-   describes a `SETnn`/`KEYnn` opcode-suffix convention (124278-124281);
-   these two descriptions need reconciling against the actual Chapter 10
-   calculation-specification column diagram (45908-46050 in
-   `docs/ref/manual_text.txt`, an OCR'd column table that did not extract
-   cleanly as text — re-read directly from the source PDF/manual if
-   available, not from the extracted `manual_text.txt`, before
-   implementing K4's message path) before K4 can parse it correctly.
+2. **`SETnn`/`KEYnn` column mechanics** — the SET operation references a message
+   ID "in columns 31 and 32" (124278) but also describes a `SETnn`/`KEYnn`
+   opcode-suffix convention (124278-124281); these two descriptions need
+   reconciling against the actual Chapter 10 calculation-specification column
+   diagram before K4 can parse it correctly.
 3. **Screen rendering fidelity for the real-terminal backend** — the
    fixed six-line/24-line centered layouts (113078-113083) are cosmetic;
    confirm whether v1 needs to reproduce them pixel/column-exact or

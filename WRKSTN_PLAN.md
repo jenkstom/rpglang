@@ -17,13 +17,6 @@ compiler currently only knows how to read/write flat files), and five new
 operation codes with a device model (multiple attached terminals, device IDs,
 function keys) that doesn't resemble anything the codegen currently does.
 
-Manual citations below are to `docs/ref/manual_text.txt`. Chapter 7 ("Using a
-WORKSTN File") is the primary reference, body at lines 30841–39719; Chapter 27
-("Operation Codes") has the ACQ/REL/NEXT/POST/SHTDN entries; Chapter 19
-("File Description Specifications") has the F-spec continuation-line options
-(78538–78715); Chapter 25 ("Output Specifications") has the format-name O-spec
-entry (89007–89017).
-
 ---
 
 ## 0. Scope-defining finding: not everything in the old C9 grouping is actually WORKSTN

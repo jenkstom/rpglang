@@ -8,11 +8,6 @@ subroutine. Without this family, no RPG II source that calls an external
 subprogram can be compiled at all; it is the largest functional gap left
 after `docs/TODO.md` Groups A–F closed.
 
-Manual citations below are to `docs/ref/manual_text.txt`, Chapter 27
-("Operation Codes"): `CALL` 105441-105561, `PARM` 123455-123561, `PLIST`
-123562-123613, `RETRN` 123924-123943, `EXIT` 110996-111121, `RLABL`
-123972-124056.
-
 ---
 
 ## 0. Why this is one plan, not seven small opcodes

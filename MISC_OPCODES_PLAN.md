@@ -10,9 +10,6 @@ here only because each is small enough that a standalone document would be
 mostly boilerplate. Treat the two sections below as fully independent;
 implement in either order, or in parallel.
 
-Manual citations are to `docs/ref/manual_text.txt`, Chapter 27 ("Operation
-Codes"): `DEBUG` 106221-106340, `FORCE` 111276-111414.
-
 ---
 
 ## 1. `DEBUG` — correction to `docs/TODO.md`'s C7 note, then a real plan
