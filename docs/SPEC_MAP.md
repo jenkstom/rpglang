@@ -40,6 +40,8 @@ Col 9/12/15 = `N` (negation) or blank; 10–11/13–14/16–17 = 2-char indicato
 | Filename          | 7–14    | begins col 7 (alpha first)                       |
 | File Type         | 15      | I / O / U / C                                    |
 | File Designation  | 16      | P / S / F / C / R / T / D                        |
+| End of File       | 17      | E (must reach EOF before program can end) / blank|
+| Sequence          | 18      | A (ascending) / D (descending) / blank           |
 | File Format       | 19      | F (fixed) common; also V/S/M/D/E                 |
 | Record Length     | 24–27   | ends col 27                                      |
 | Mode of Processing| 28      | blank / L (within limits) / R (random)           |
@@ -50,6 +52,12 @@ Col 9/12/15 = `N` (negation) or blank; 10–11/13–14/16–17 = 2-char indicato
 | Key Start         | 35–38   | 1-based record position of the key field         |
 | Extension Code    | 39      | E / L                                            |
 | Device            | 40–46   | DISK / WORKSTN / PRINTER / SPECIAL / ...         |
+| File Condition    | 71–72   | blank / U1–U8 (external indicator)               |
+
+Only `DISK` and `PRINTER` devices are implemented; `WORKSTN`/`SPECIAL`/`CONSOLE`
+are a hard compile error (E8). Designation `R` (record-address files) is parsed
+into `FileDesign::RecordAddr` but has no codegen support and is also a hard
+compile error (E5) rather than a silently-inert F-spec entry.
 
 ## I-spec (Input) — form type `I` in col 6
 
@@ -73,12 +81,15 @@ Two line types per file: a **record line** followed by **field lines**.
 | Field                    | Cols    | Notes                                              |
 |--------------------------|---------|----------------------------------------------------|
 | Filename                 | 7–14    | first record line per file; may be omitted later   |
+| AND/OR continuation      | 14–16   | `AND`/`OR` on a separate line, no Type of its own; extends/adds an OR-of-AND conditioning group (F1) |
 | Type                     | 15      | **H** / **D** / **T** / **E** (Heading/Detail/Total/Exception) |
+| Fetch Overflow / Release | 16      | `F` = poll this file's overflow latch immediately after this line (F2); `R` = release a WORKSTN/ICF device (hard error, unsupported); mutually exclusive with the ADD/DEL/UPDATE mnemonic below |
+| Record Op (disk)         | 16–18   | `ADD`/`DEL`/`UPDATE` (G25); takes precedence over col 16 F/R when it matches |
 | Space Before             | 17      | 0–3 lines                                          |
 | Space After              | 18      | 0–3; all-blank 17–22 ⇒ single-space after          |
 | Skip Before              | 19–20   | line number 01–99 / A0–B2                          |
 | Skip After               | 21–22   | line number                                        |
-| Record Conditioning Inds | 23–31   | 3 groups `[N]II` (23–25 / 26–28 / 29–31)           |
+| Record Conditioning Inds | 23–31   | 3 groups `[N]II` (23–25 / 26–28 / 29–31); AND/OR continuation lines add more groups/indicators (F1) |
 | EXCPT name               | 32–37   | type E only                                        |
 
 **Field line** (cols 7–31 blank):
@@ -89,7 +100,7 @@ Two line types per file: a **record line** followed by **field lines**.
 | Edit Code            | 38      | leading-zero / sign / punctuation control        |
 | Blank After          | 39      | `B` resets field to blanks/zeros after output    |
 | End Position         | 40–43   | rightmost output position (right-justified); blank = pack after previous |
-| Packed/Binary        | 44      | P / B (DISK output only)                         |
+| Packed/Binary        | 44      | Not implemented (P/B disk-output encoding, manual 88929-88950); not parsed at all, left as an explicit gap (see the "Section C additions" note below) |
 | Constant/Edit Word   | 45–70   | quoted `'...'` constant (field name cols blank)  |
 
 Type timing: **H** prints at heading time (headings with 1P print once at
@@ -136,6 +147,13 @@ start); **D** prints once per record at detail time; **T** prints at total time
 | `READE` | required| required(file)| blank | cols 58-59 EOF/unequal; read next if key == F1 |
 | `READ`  | blank   | required(file)| blank | cols 58-59 EOF; read next (full-procedural/demand) |
 
+Numeric comparisons (`COMP`, `IFxx`, `DOWxx`, `DOUxx`, `CASxx`) align factor 1
+and factor 2 at their implied decimal point before comparing: if the two
+operands have different decimal-position counts, the one with fewer decimals
+is scaled up to match the other before the `icmp`, so e.g. a 2-decimal field
+holding 1.50 correctly compares less than a 0-decimal field holding 2 (rather
+than a raw-storage compare of 150 vs. 2).
+
 **Phase 9 additions.** Alphanumeric fields (I-spec col 52 blank) compile to
 `[N x i8]` globals; `MOVE`/`MOVEL` do right/left-justified byte copies; quoted
 literals `'...'` work as character operands. E-spec numeric arrays (cols 27-32
@@ -149,8 +167,18 @@ sums an array; `SQRT` computes a half-adjusted square root.
 a numeric array for factor1, setting HI/LO/EQ indicators and updating a
 variable index on a match. `MOVEA` does a left-justified byte move between
 character operands (field↔field, array↔field). O-spec numeric fields accept an
-**edit code** (col 38: `1`–`4` for comma/decimal formatting, `J`–`M` with a
-trailing minus, `N`–`Q` with a leading sign) applied via the runtime formatter.
+**edit code** (col 38) applied via the runtime formatter, per Table 8 of the
+manual (62103-62330): the code is one of four letter groups differing only in
+sign style — `1`-`4` print no sign, `A`-`D` print a trailing `CR`, `J`-`M`
+print a trailing minus, `N`-`Q` print a leading sign — and within each group
+of four, the four codes vary independently by comma/decimal-point punctuation
+(the first two of each four get commas and a forced decimal point; the last
+two get neither unless the field has decimal positions) and by zero-balance
+behavior (the 2nd and 4th code of each four blank out an exactly-zero value
+instead of printing `.00`/`0`). So `1`/`A`/`J`/`N` and `2`/`B`/`K`/`O` are
+comma+decimal, with the second of each pair also zero-blanking; `3`/`C`/`L`/`P`
+and `4`/`D`/`M`/`Q` are plain digits, with the second of each pair also
+zero-blanking.
 
 Subroutines sit after all detail/total calcs. Each compiles to a separate
 LLVM function sharing the program's globals (fields, indicators). `EXSR`
@@ -167,10 +195,13 @@ current). A bare table name in any factor/result field resolves to the
 shadow-selected element; the explicit `TABLE,INDEX` form still works as an
 ordinary array ref. **Prerun-time** arrays/tables (cols 11–18 filename) are
 loaded once at the top of `main` via the `rpg_rt_load_arrays` runtime helper,
-before the cycle or calc chain runs. **Alternating** arrays/tables (cols 46–57:
-46–51 partner name, 52–54 entry length, 56 decimals, 57 sequence) are parsed
-and emitted as their own global; their compile-time and prerun-time data
-interleave on each record (A1 B1 A2 B2 …).
+before the cycle or calc chain runs. Prerun-time numeric data defaults to
+zoned-decimal ASCII; col 43 (blank/`P`/`B`) selects packed-decimal or binary
+instead, decoded via `rpg_rt_get_packed`/`rpg_rt_get_binary` the same as an
+ordinary I-spec field. **Alternating** arrays/tables (cols 46–57: 46–51
+partner name, 52–54 entry length, 55 packed/binary format (mirrors col 43),
+56 decimals, 57 sequence) are parsed and emitted as their own global; their
+compile-time and prerun-time data interleave on each record (A1 B1 A2 B2 …).
 
 **Section C additions — the numeric data model.** Every numeric field is stored
 as a single signed `i32` that is a *scaled integer*: the stored value equals the
@@ -188,7 +219,9 @@ I-spec **col 43** selects the input field's byte encoding: blank = zoned
 nibble F=+/D=− in the low-order byte), `B` = binary (big-endian; 2-byte int16
 or 4-byte int32). Packed and binary fields are decoded at read time by
 `rpg_rt_get_packed` / `rpg_rt_get_binary` into the same scaled-integer
-representation. O-spec col 44 is parsed but treated as a no-op (DISK/ICF only).
+representation. O-spec col 44 (the output-side packed-decimal/binary
+equivalent, DISK/ICF only) is not parsed at all -- an explicit, documented
+gap rather than a parsed-but-inert column (see the O-spec table above).
 
 **Sign-overpunch** governs MOVE between alphameric and numeric operands
 (Section C, C10): the last digit of the character string carries the sign via

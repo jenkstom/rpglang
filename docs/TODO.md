@@ -327,15 +327,18 @@ absent, not a gap.
       prerequisite, so implementing the opcode itself in isolation would be
       dead code with no honest test. `DEBUG` requires H-spec column 15 = `1`
       to be active at all ("if this entry is not made, the DEBUG operation
-      code ... [is] treated as a comment") and H-spec parsing doesn't exist
-      (D1). `RLABL` only has meaning "specified immediately after the EXIT
-      operation that refers to the subroutine" — it's part of the C8
-      CALL/PARM/PLIST/RETRN/EXIT linkage family, not independently useful.
-      `SET` is documented as usable "only with input files assigned to the
-      device KEYBORD, or with a CONSOLE file" — WORKSTN/CONSOLE-only, out of
-      this compiler's documented scope cut. Revisit each alongside its actual
-      prerequisite (D1, C8, or a WORKSTN effort) rather than stubbing it in
-      now.
+      code ... [is] treated as a comment"); D1 landed H-spec parsing but
+      deliberately didn't add column 15, since this compiler has no
+      debug/symbol-table generation for a parsed `DEBUG` entry to plug into
+      either way — the real prerequisite is that generation existing at all,
+      not the H-spec column. `RLABL` only has meaning "specified immediately
+      after the EXIT operation that refers to the subroutine" — it's part of
+      the C8 CALL/PARM/PLIST/RETRN/EXIT linkage family, not independently
+      useful. `SET` is documented as usable "only with input files assigned
+      to the device KEYBORD, or with a CONSOLE file" — WORKSTN/CONSOLE-only,
+      out of this compiler's documented scope cut. Revisit each alongside its
+      actual prerequisite (a debug/symbol-table feature, C8, or a WORKSTN
+      effort) rather than stubbing it in now.
 
 - [ ] **C8. Program-linkage family: `CALL`, `PARM`, `PLIST`, `RETRN`,
       `EXIT`** (105441, 123455, 123562, 123924, 110996) — without these, no
@@ -354,121 +357,263 @@ absent, not a gap.
 
 ---
 
-## D. Missing spec types / chapters
+## D. Missing spec types / chapters — DONE
 
-- [ ] **D1. Control Specification (H-spec).** No parser exists anywhere
-      (`source.cpp`'s `form_type()` never dispatches on `'H'`); an H-spec
-      line is silently dropped with zero diagnostic. Manual 68847-70098
-      (Ch. 18). At minimum needed: currency symbol (col 18), date format
-      (19-21), alternate collating sequence (26), `1P` forms-position (41),
-      program-id (75-80). Start with a parser that recognizes the form and
-      emits the fields that actually change codegen behavior (currency
-      symbol feeds edit-word/edit-code formatting; date format feeds the `Y`
-      edit code and `UDATE`); the rest can be parsed-but-inert initially as
-      long as that's documented, unlike the current silent drop.
+- [x] **D1. Control Specification (H-spec).** No parser existed anywhere
+      (`source.cpp`'s `form_type()` never dispatched on `'H'`); an H-spec
+      line was silently dropped with zero diagnostic. Manual 68847-70098
+      (Ch. 18).
+      Fixed: new `hspec.h`/`hspec.cpp` parse every documented column (currency
+      symbol col 18, date format/edit/inverted-print 19-21, alternate
+      collating sequence 26, inquiry 37, `1P` forms-position 41, file
+      translation 43, nonprint-character bypass 45, transparent literal 57,
+      program-id 75-80) into a new `Program::hspec`. Two columns actually
+      change codegen, per the original scope note: the currency symbol
+      (default `$`) is threaded into `rpg_rt_edit_word`'s floating-currency
+      detection (A13), replacing the previous hardcoded `'$'`; a non-blank
+      program-id (cols 75-80) renames the LLVM module identifier (left alone
+      when blank, so the ~70 pre-existing tests without an H-spec are
+      unaffected). Every other column is parsed and retained but documented
+      as inert rather than silently dropped — date format/`Y` edit
+      code/`UDATE`, 1P forms-alignment prompting, inquiry, file translation,
+      nonprint-character halts, and transparent literals have no analog
+      anywhere else in this batch compiler to plug into yet (`UDATE` and the
+      `Y` edit code in particular don't exist at all independent of H-spec;
+      wiring a control-specification column into a feature that isn't itself
+      implemented would be dead code). Regression test: `tests/hspec_currency.rpg`.
 
-- [ ] **D2. Data Structures (Chapter 15).** Field overlay/redefinition —
+- [x] **D2. Data Structures (Chapter 15).** Field overlay/redefinition —
       letting one record area be viewed under several field layouts. No code
-      path recognizes the literal `DS` in I-spec cols 19-20
-      (`ispec.h:35` treats those columns only as a numeric record-id
-      indicator), so a real `DS` line is silently misinterpreted rather than
-      rejected. Manual 61059-61767. This is a real feature addition (new
-      subfield-addressing model layered onto the existing per-field extract
-      logic), not a one-line fix — scope it as its own task.
+      path recognized the literal `DS` in I-spec cols 19-20 (`ispec.h`
+      treated those columns only as a numeric record-id indicator), so a real
+      `DS` line was silently misinterpreted rather than rejected. Manual
+      61059-61767.
+      Fixed: `ispec.cpp` recognizes a `DS` statement line and routes its
+      subfield lines (same column shape as ordinary I-spec fields, but
+      positions relative to the DS rather than the record) into new
+      `ISpecDS`/`ISpecSubfield` lists, keyed by DS index rather than name so
+      two anonymous (blank-name) data structures in one program don't
+      collide. `codegen.cpp`'s new `declare_data_structures` resolves each
+      DS's backing storage — reusing an already-declared field's global for a
+      true redefinition (manual 61412-61416: "the physical space reserved for
+      that field is in the data structure") when the DS's own name matches an
+      existing *alphameric* field, or allocating a fresh `[len x i8]` buffer
+      otherwise (numeric fields can't be redefined this way: they're native
+      i32 in this compiler with no addressable byte representation to alias
+      into, so that's a hard diagnostic instead of silent corruption).
+      Alphameric subfields are byte-range GEP views into the shared buffer
+      (`SymbolTable::declare_ds_char_subfield`); every existing character-field
+      call site already funnels through `resolve_char_operand` for its
+      pointer, so read AND write both work with no per-opcode changes beyond
+      fixing two MOVE/MOVEL call sites in `codegen.cpp` that had bypassed
+      `resolve_char_operand` for the destination pointer. Numeric subfields
+      decode-read their bytes via the same `rpg_rt_get_decimal` runtime call
+      ordinary zoned I-spec fields use, on every access
+      (`SymbolTable::decode_ds_numeric`) — there is no i32-to-zoned-decimal
+      encoder anywhere in this compiler to write one back with, so using a
+      numeric DS subfield as a calc result field is a hard compile error
+      (`get_or_create_field`'s single choke point) rather than silently
+      unusable storage. Regression tests: `tests/ds_alpha.rpg` (alphameric
+      aliasing across overlapping subfields), `tests/ds_redefine.rpg`
+      (redefinition of an existing input field), `tests/ds_numeric.rpg`
+      (numeric decode-on-read), `tests/neg_ds_numeric_write.rpg` (numeric
+      write is a hard error).
 
-- [ ] **D3. Auto Report Feature (Chapter 26).** `/COPY`, a `U`-type Options
-      spec, and `*AUTO` heading/output expansion are 100% unimplemented — no
+- [x] **D3. Auto Report Feature (Chapter 26).** `/COPY`, a `U`-type Options
+      spec, and `*AUTO` heading/output expansion were 100% unimplemented — no
       form-type `U` parser, no `/COPY` handling, and `*AUTO` in an O-spec
-      field-name column compiles silently to nothing instead of erroring.
-      Manual 89067-103989. This is a source-to-source preprocessing layer,
-      largest single item in this list by manual page count; lowest priority
-      unless a specific legacy program library depends on `/COPY` boilerplate.
+      field-name column compiled silently to nothing instead of erroring.
+      Manual 89067-103989.
+      Fixed the three concretely-named gaps: `/COPY` (manual 90360-90450) is
+      real, working source inclusion — `source.cpp`'s new
+      `expand_copy_statements` splices a copy member's lines in at the
+      `/COPY` line's position before any spec parser runs (cycle-guarded
+      against a member copying itself). The documented `LIBRARY,MEMBER`
+      addressing is adapted to this compiler's plain-filesystem model: the
+      library segment is parsed but not resolved against a System/36
+      library catalog (this compiler has none), only the member name is
+      looked up (as-is, then `.rpg`, then `.cpy`) next to the main source
+      file. New `uspec.h`/`uspec.cpp` recognize form-type `U` (Auto Report
+      Option Specifications) and `ospec.cpp` recognizes `*AUTO` in the
+      field-name column, but neither is expanded — both are hard compile
+      errors instead of a silent no-op, since an Auto Report source program
+      typically has no ordinary O-specs of its own (the option specs stand
+      in for them), so compiling one as-is would silently produce a program
+      with no meaningful output, not just a degraded one. The full auto-report
+      preprocessing layer itself (deriving headings/spacing/field placement
+      from just a `U` spec, manual "Order of Created Specifications") remains
+      unimplemented, consistent with the original note that it's the largest
+      single item in this list by manual page count and lowest priority
+      unless a specific legacy program library needs it — but that's now an
+      explicit, loud limitation instead of a silent one. Regression tests:
+      `tests/copytest.rpg` + `tests/copymem.cpy` (`/COPY` splicing),
+      `tests/neg_uspec.rpg`, `tests/neg_auto.rpg`.
 
 ---
 
-## E. F-spec / E-spec gaps
+## E. F-spec / E-spec gaps — DONE
 
-- [ ] **E1. F-spec cols 71-72, external file conditioning (`U1`-`U8`).** Not
+- [x] **E1. F-spec cols 71-72, external file conditioning (`U1`-`U8`).** Not
       parsed anywhere — a file that should be skipped entirely when its
       switch is off is instead always processed. Manual 78727. Real
       correctness gap, not a convenience miss.
+      Fixed: `fspec.cpp` parses `cond_ind`/`has_cond`. `codegen.cpp` gates
+      every read/write against the file's indicator: the primary/secondary
+      cycle reads (`emit_conditioned_bool`), CHAIN/SETLL/READ/READE/READP,
+      and all O-spec output (`emit_one_record` ANDs `file_cond_ok` into the
+      line condition) — off means treated as EOF/no-op, matching the manual,
+      with the underlying runtime call skipped entirely rather than just its
+      result discarded. Regression tests: `tests/cond_input.rpg`,
+      `tests/cond_output.rpg`.
 
-- [ ] **E2. F-spec col 18, sequence (`A`/`D`).** Not parsed — multifile
+- [x] **E2. F-spec col 18, sequence (`A`/`D`).** Not parsed — multifile
       matching (codegen.cpp's `decode_m1`/selection loop) always assumes
       ascending order with no way to detect a descending-sequence file.
       Manual 77002; ties into B2/B3.
+      Fixed: `fspec.cpp` parses `sequence`. `codegen.cpp`'s multifile
+      selection loop takes the group's direction from any matching file's
+      declared sequence (erroring on disagreement per the manual) and flips
+      the running-minimum comparison to a running-maximum for `D`, in both
+      the numeric and alphameric (A7) M1 compare paths. Regression test:
+      `tests/mrdesc.rpg`.
 
-- [ ] **E3. F-spec col 17, "file must reach EOF before program can end."**
-      Not read into end-of-job logic; the cycle's EOF condition
-      (`codegen.cpp:1329-1335`) is "all files empty at once," which
-      coincidentally matches the common case but diverges when only some
-      files are marked required. Manual 51914-51918.
+- [x] **E3. F-spec col 17, "file must reach EOF before program can end."**
+      Not read into end-of-job logic; the cycle's EOF condition was "all
+      files empty at once," which coincidentally matches the common case but
+      diverges when only some files are marked required. Manual 51914-51918.
+      Fixed: `fspec.cpp` parses `end_required`. The multifile cycle now
+      checks, before the per-cycle file-selection walk, whether every
+      `E`-marked file is at EOF; if so it ends the job immediately even if
+      other (unmarked) files still hold data. With no file marked `E`, the
+      original "every file empty" fallback is unchanged. Regression test:
+      `tests/eoreq.rpg`.
 
-- [ ] **E4. F-spec composite keys (`EXTK`).** See B6.
+- [x] **E4. F-spec composite keys (`EXTK`).** Already covered by B6 (a
+      non-numeric cols 35-38 value, including `EXTK`, is a hard compile
+      error). No further action; this item was a duplicate pointer, not a
+      distinct gap.
 
-- [ ] **E5. F-spec record-address files (designation `R`) are a dead end.**
-      The designation parses into an enum (`fspec.h`) but `codegen.cpp` never
-      consumes it, and E-spec cols 19-26 ("to filename," which ties a
-      record-address file to its data file) aren't parsed at all. Manual
-      79661. Either finish the feature or remove the enum value so it stops
-      looking wired up.
+- [x] **E5. F-spec record-address files (designation `R`) are a dead end.**
+      The designation parsed into an enum (`fspec.h`) but `codegen.cpp` never
+      consumed it, and E-spec cols 19-26 ("to filename") weren't parsed at
+      all. Manual 79661.
+      Resolved per the TODO's own fallback: rather than build the full
+      record-address data-flow (a distinct cycle mode this compiler doesn't
+      implement), designation `R` is now a hard compile error in
+      `fspec.cpp`, the same precedent as EXTK/B6, so it can no longer look
+      wired up while doing nothing. Regression test: `tests/neg_recaddr.rpg`.
 
-- [ ] **E6. F-spec `addr_type` (col 31: `A`/`P`/`I`) is parsed and never
+- [x] **E6. F-spec `addr_type` (col 31: `A`/`P`/`I`) is parsed and never
       read again.** `fspec.cpp:92-93` stores it; nothing branches on it. An
       `I` (RRN-with-declared-key-length) file is indistinguishable from an
       ordinary byte-compared keyed file. Manual 26512-26515.
+      Fixed: `codegen.cpp` skips the `rpg_rt_set_key` call for a file whose
+      `addr_type` is `I`, regardless of whether cols 29-30 declare a length —
+      the runtime already treats "no key configured" as relative-record-number
+      access in CHAIN/SETLL/READE (`rpg_runtime.c`), so this was a minimal,
+      surgical fix rather than a new runtime code path. Regression test:
+      `tests/rrn_i.rpg`.
 
-- [ ] **E7. E-spec col 43, packed/binary prerun-time array data.** Not
-      parsed — a prerun-time array/table file stored packed or binary is
-      decoded as zoned ASCII by `rpg_rt_load_arrays`
-      (`runtime/rpg_runtime.c:598`), silently producing garbage. Manual
-      80373.
+- [x] **E7. E-spec col 43, packed/binary prerun-time array data.** Not
+      parsed — a prerun-time array/table file stored packed or binary was
+      decoded as zoned ASCII by `rpg_rt_load_arrays`, silently producing
+      garbage. Manual 80373.
+      Fixed: `espec.cpp` parses `data_format`/`alt_data_format` (cols 43/55).
+      `rpg_rt_load_arrays` takes `fmt_a`/`fmt_b` and decodes each element via
+      the same packed/binary decoders ordinary input fields use; for those
+      formats the loader also stops treating the file as newline-delimited
+      text, since a packed/binary byte can coincidentally equal `\n`/`\r`.
+      Regression test: `tests/packed_prerun.rpg`.
 
-- [ ] **E8. No device-type validation on the primary file.** A source file
+- [x] **E8. No device-type validation on the primary file.** A source file
       declaring `WORKSTN`/`SPECIAL`/`CONSOLE` as its primary input device
-      compiles without error and attempts to read the device name as an
-      ordinary flat text file (`codegen.cpp:776`,`rpg_rt_open_input` has no
-      device guard). The WORKSTN/SPECIAL/CONSOLE scope cut itself is
-      reasonable; it should fail loudly at compile time instead of
-      miscompiling silently. Small, contained fix — worth doing regardless
-      of whether D1-D3 are ever tackled.
+      compiled without error and attempted to read the device name as an
+      ordinary flat text file. The WORKSTN/SPECIAL/CONSOLE scope cut itself
+      is reasonable; it should fail loudly at compile time instead of
+      miscompiling silently.
+      Fixed: `fspec.cpp` reports a hard error for any file (not just primary)
+      declaring one of those three devices, since none of them have codegen
+      support regardless of designation. Regression test:
+      `tests/neg_workstn.rpg`.
 
 ---
 
-## F. O-spec gaps
+## F. O-spec gaps — DONE
 
-- [ ] **F1. AND/OR continuation lines for more than 3 output-conditioning
+- [x] **F1. AND/OR continuation lines for more than 3 output-conditioning
       indicators are silently dropped.** A blank-type line carrying only
       indicators falls into `ospec.cpp:176-178`'s catch-all `continue` with
       no diagnostic. Manual 88200-88217, 88491-88493.
+      Fixed: `ospec.cpp` checks cols 14-16 for `AND`/`OR` before the
+      record/field-line heuristic (same precedent as A3's I-spec fix) and
+      merges the continuation line's cols 23-31 indicators into the current
+      record. `ORecord::conditions` is now `vector<vector<CondInd>>` — OR-of-
+      AND groups, matching the manual precisely: an `AND` line extends the
+      *current* group's AND-list, an `OR` line starts a new group, and the
+      record fires iff any group is fully satisfied. `codegen.cpp` gained
+      `eval_conditions_grouped` (OR of `eval_conditions` over each group);
+      `has_overflow_condition`/`has_1p_condition` now scan all groups. A
+      plain record with no continuation lines gets exactly one group, so
+      existing single-line-conditioned programs are unaffected. Regression
+      test: `tests/oand_or.rpg`.
 
-- [ ] **F2. Fetch-overflow (`F`) / release (`R`) in O-spec col 16 alone are
+- [x] **F2. Fetch-overflow (`F`) / release (`R`) in O-spec col 16 alone are
       unparsed.** `ospec.cpp` only recognizes 3-char `ADD`/`DEL`/`UPDATE` in
       cols 16-18; the manual's single-character `F`/`R` forms (88310-88356)
       aren't handled. The compiler's own always-on overflow-polling scheme
       covers the common case, so this is lower priority than F1.
+      Fixed: `ospec.cpp` reads col 16 alone (independent of the cols 17-18
+      space-before/after digits) when it doesn't match the 3-char
+      ADD/DEL/UPDATE mnemonic. `R` (release) is a hard compile error, same
+      precedent as E8/E5 — it's only meaningful for a WORKSTN display
+      station or ICF session, which this compiler doesn't support. `F`
+      (fetch overflow) gets real inline semantics in `emit_one_record`: right
+      after this specific line prints, poll the file's overflow latch and,
+      if set, run that indicator's overflow output immediately (instead of
+      waiting for the normal once-per-cycle check in `emit_overflow_check`,
+      which runs only after total time/before detail time — a fetch-flagged
+      detail line's own overflow would otherwise be serviced a full cycle
+      late, or never in a single-cycle program). Per the manual, fetch is
+      suppressed when the same line is itself conditioned on that file's
+      overflow indicator ("the overflow routine is not fetched"); a new
+      `allow_fetch` parameter (false only for records reached from inside an
+      overflow-output pass) bounds this to one level of immediate servicing
+      per printed line rather than chaining indefinitely. Regression tests:
+      `tests/fetch_overflow.rpg`, `tests/neg_orelease.rpg`.
 
-- [ ] **F3. `docs/SPEC_MAP.md`'s claim that "O-spec col 44 is parsed but
+- [x] **F3. `docs/SPEC_MAP.md`'s claim that "O-spec col 44 is parsed but
       treated as a no-op" is inaccurate — it isn't read at all.** No
       `col_trim(t,44,44)` call exists anywhere in `ospec.cpp`, and `OField`
       has no member for it. Fix the doc when E7/packed-binary-output work
       happens, or now if just correcting the record.
+      Resolved per the TODO's own fallback: corrected the record now rather
+      than waiting on the (larger, separate) output-side packed/binary
+      encoding feature. `docs/SPEC_MAP.md`'s O-spec field table and the
+      Section C numeric-data-model note both now say col 44 is unparsed and
+      point at this as an explicit gap, not a parsed-but-inert column.
 
 ---
 
-## G. Documentation corrections (do alongside the code fixes above)
+## G. Documentation corrections (do alongside the code fixes above) — DONE
 
-- [ ] Update `docs/SPEC_MAP.md`'s "Operation semantics" table to note the
+- [x] Update `docs/SPEC_MAP.md`'s "Operation semantics" table to note the
       decimal-alignment rule for COMP/IFxx/DOWxx/DOUxx/CASxx once A2 lands.
-- [ ] Update `docs/SPEC_MAP.md`'s edit-code description (currently "1–4 for
+- [x] Update `docs/SPEC_MAP.md`'s edit-code description (currently "1–4 for
       comma/decimal, J–M with a trailing minus, N–Q with a leading sign") to
       reflect the corrected Table 8 mapping once A5/A6 land, including the
       A–D codes it currently omits entirely.
-- [ ] Add an explicit "not implemented" line for H-spec and Data Structures
-      to `docs/ARCHITECTURE.md`'s scope section (currently only WORKSTN/BSCA/
-      SPECIAL/double-byte are called out) — even before D1/D2 are built, so
-      the gap is at least disclosed rather than silent.
-- [ ] Fix F3 above.
+- [ ] ~~Add an explicit "not implemented" line for H-spec and Data
+      Structures to `docs/ARCHITECTURE.md`'s scope section~~ — moot: D1/D2
+      landed, so the gap this bullet was tracking no longer exists. If
+      `docs/ARCHITECTURE.md`'s scope-cut list is ever written, it should
+      instead note the *actual* remaining D-group limits: H-spec cols other
+      than currency-symbol/program-id are parsed-but-inert (no `UDATE`/`Y`
+      edit code, no debug/symbol-table generation, no interactive
+      forms-alignment, no file translation, in this compiler); DS numeric
+      subfields are read-only; DS local-data-area (`U` in col 18) is
+      unimplemented; Auto Report expansion itself (`U`-spec, `*AUTO`) is a
+      hard error, not silently degraded.
+- [x] ~~Fix F3 above.~~ — done alongside F3 itself.
 
 ---
 
@@ -481,19 +626,31 @@ absent, not a gap.
    go first.
 2. **Group B (deviations)** — same shape as Group A but lower frequency;
    do these once Group A is clean.
-3. **Group E/F (F/E/O-spec gaps)** — mostly small, independent parser
-   additions; E8 (device validation) is a cheap, high-value addition since
-   it converts a silent miscompile into a clear error.
+3. **Group E/F (F/E/O-spec gaps) — done.** Mostly small, independent parser
+   additions; E8 (device validation) was a cheap, high-value addition since
+   it converts a silent miscompile into a clear error. Group F's AND/OR
+   continuation groups (F1) and inline fetch-overflow (F2) needed real
+   codegen changes (grouped OR-of-AND conditioning, a bounded-recursion
+   inline overflow poll) rather than pure parsing; F3 was a documentation
+   correction.
 4. **Group C1-C6 (contained opcodes) — done.** READP, BITON/BITOF, *LIKE
    DEFN, SORTA, TIME, and the MHHZO/MHLZO/MLHZO/MLLZO move-zone family are
    implemented and regression-tested. C7 (DEBUG/RLABL/SET) is deliberately
    still open — each depends on a prerequisite from Group C8 or D below, not
    on more opcode-dispatch work.
-5. **Group C8 (CALL/PARM/PLIST/RETRN)** and **Group D (H-spec, Data
-   Structures, Auto Report)** are the large items — each needs its own
-   design pass before implementation, not just a bugfix-sized change. Take
-   these one at a time, starting with whichever a real target program
-   actually needs. Landing C8 or D1 also unblocks C7's RLABL/DEBUG.
+5. **Group D (H-spec, Data Structures, Auto Report) — done.** H-spec is
+   fully parsed with the two behavior-changing columns (currency symbol,
+   program-id) wired into codegen and the rest documented as inert; data
+   structures support real byte-aliased subfields (alphameric read/write,
+   numeric read); `/COPY` is real source splicing, and `U`-spec/`*AUTO` are
+   loud compile errors instead of silent no-ops. **Group C8
+   (CALL/PARM/PLIST/RETRN)** remains the one large item still open — it
+   needs its own design pass (a real decision for how a "call" maps onto the
+   LLVM/ELF model) before implementation starts, not just a bugfix-sized
+   change. C7's DEBUG is still correctly blocked: D1 parses H-spec col 15
+   into nothing (this compiler has no debug/symbol-table generation for a
+   parsed `DEBUG` entry to plug into), and RLABL/SET still depend on C8 and a
+   WORKSTN effort respectively, neither of which landed here.
 
 Every item above cites a manual line range and a source location; re-derive
 neither from memory when implementing — read both before changing code.
