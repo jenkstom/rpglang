@@ -1,0 +1,4 @@
+     C* KEY with no KEYBORD file declared: caught at codegen (emit_key),
+     C* since KEY has no explicit factor naming its file (only one KEYBORD
+     C* file can ever exist per program, manual Chapter 10).
+     C                     KEY            NUMF  5  0

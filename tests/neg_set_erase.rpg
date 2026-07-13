@@ -1,0 +1,8 @@
+     C* SET ... ERASE parses (cspec.cpp accepts the CONSOLE-file-plus-ERASE
+     C* shape) but has no codegen support, since CONSOLE itself is still a
+     C* hard compile error (fspec.cpp's E8) -- this file never gets past the
+     C* KBFILE's own KEYBORD requirement without a CONSOLE file to name, so
+     C* the error instead comes from codegen's own explicit "not implemented"
+     C* report for the ERASE form (emit_set, codegen.cpp).
+     FKBFILE   D  F      20            KEYBORD
+     C                     SET  CONFILE   ERASE

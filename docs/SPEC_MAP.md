@@ -54,13 +54,18 @@ Col 9/12/15 = `N` (negation) or blank; 10–11/13–14/16–17 = 2-char indicato
 | Overflow Indicator| 33–34   | OA–OG, OV                                        |
 | Key Start         | 35–38   | 1-based record position of the key field         |
 | Extension Code    | 39      | E / L                                            |
-| Device            | 40–46   | DISK / WORKSTN / PRINTER / SPECIAL / ...         |
+| Device            | 40–46   | DISK / WORKSTN / PRINTER / KEYBORD / CRT / ...   |
 | File Condition    | 71–72   | blank / U1–U8 (external indicator)               |
 
-`DISK`, `PRINTER`, and `WORKSTN` devices are implemented; `SPECIAL`/`CONSOLE`
-are a hard compile error (E8). Designation `R` (record-address files) is parsed
-into `FileDesign::RecordAddr` but has no codegen support and is also a hard
-compile error (E5) rather than a silently-inert F-spec entry.
+`DISK`, `PRINTER`, `WORKSTN`, `KEYBORD`, and `CRT` devices are implemented;
+`SPECIAL`/`CONSOLE` are a hard compile error (E8) — see the "Chapter 10:
+KEYBORD/CRT" section below for what's out of scope about `CONSOLE`
+specifically. Designation `R` (record-address files) is parsed into
+`FileDesign::RecordAddr` but has no codegen support and is also a hard
+compile error (E5) rather than a silently-inert F-spec entry. Chapter 10's
+mutual-exclusion rule (a program may declare at most one each of `WORKSTN`,
+`KEYBORD`, `CRT`, `CONSOLE`, and a `WORKSTN` file rules out the other three
+entirely) is enforced once per program after all F-specs are parsed.
 
 **WORKSTN continuation options** (manual "Continuation-Line Options for
 WORKSTN File"): a second physical F-spec line, blank filename, keyword in
@@ -191,6 +196,8 @@ start); **D** prints once per record at detail time; **T** prints at total time
 | `NEXT`  | required(device)| required(WORKSTN file)| blank | cols 56-57 error (always off — no failure mode) |
 | `POST`  | required(device)| blank   | required(INFDS DS)| cols 56-57 error; cols 33-42/49-55/58-59 must be blank |
 | `SHTDN` | blank   | blank   | blank         | cols 54-55 required; on when shutdown is requested |
+| `KEYnn` | optional(prompt)| blank   | required| numeric: +/−/Z on entered value; alpha: EQ (58-59) only, blank test |
+| `SETnn` | optional(display)| opt(CONSOLE file, ERASE only)| blank/`ERASE`| up to 3 function keys (KA-KN/KP-KY) armed in 54-59 |
 
 Numeric comparisons (`COMP`, `IFxx`, `DOWxx`, `DOUxx`, `CASxx`) align factor 1
 and factor 2 at their implied decimal point before comparing: if the two
@@ -446,6 +453,57 @@ the manual's "program halts"); DBCS; a variable start line (`SLN`); and a
 real 5250 protocol (the terminal backend is a Linux tty standing in for the
 display station, same porting-decision category as the DISK "record format"
 note in `docs/ARCHITECTURE.md`).
+
+**Chapter 10: KEYBORD/CRT (the legacy System/36 single-field devices).**
+`KEYBORD` (input+output, via `KEY`/`SET`) and `CRT` (output-only) are the
+pre-WORKSTN device names Chapter 10 documents. Both opcodes take a
+`KEYnn`/`SETnn` suffix: cols 31–32 are simply absorbed into the 5-wide
+opcode field, exactly like `IFxx`/`DOWxx`'s comparison suffix — `KEY13`/
+`SET26` are legal opcodes whose trailing two digits are a message-ID number
+(01–99). This project has no
+message-member (`$MGBLD`) equivalent, so every `KEYnn`/`SETnn` deterministically
+takes the manual's own documented "no message file" fallback text
+(`nn-Message indicator` / `nn-MESSAGE INDICATOR`) rather than a real lookup
+— not a gap, since that fallback is what the manual itself specifies for a
+missing message member.
+
+`KEY` pauses and reads one response from the program's (at most one)
+`KEYBORD` file: factor 1 (or the message-ID fallback) is the prompt; the
+result field receives what was typed, right-justified/zero-padded (numeric)
+or left-justified/blank-padded (alphameric), with an empty response
+zero/blank-filling and the Dup key (typed as `*DUP`) leaving the field
+unchanged. Cols 54–59 test the result: plus/minus/zero for numeric (the
+same resulting-indicator convention arithmetic ops use), blank-or-not
+(58–59 only) for alphameric. `SET` displays factor 1 (or the message-ID
+fallback) and/or arms up to three function keys named in cols 54–59 (the
+manual's own layout puts them exactly in the ordinary resulting-indicator
+columns, no separate column range needed) — pressing one turns its
+indicator on; a response matching none of them turns none of the three on
+rather than implementing the manual's "the program stops" as a hard halt
+(same documented precedent as WORKSTN's own unsurfaced INFSR exception,
+above). `SET`'s `ERASE` form (`CONSOLE` file + `ERASE` in the result field)
+parses but has no codegen — `CONSOLE` itself is still unimplemented (E8
+above), so this shape can never actually reach codegen from a file that
+compiled.
+
+Backend selection reuses `RPG_WORKSTN_MODE`/`RPG_WORKSTN_SCRIPT`/
+`RPG_WORKSTN_DUMP` unchanged (a program can never have both a `WORKSTN` and
+a `KEYBORD` file, the mutual-exclusion rule above, so there's no ambiguity
+sharing them) — headless mode reads a `RESP <text>` line (or `RESP *DUP`)
+for `KEY`, and a `KEY <name>` line (the same KA-KY/PRINT/ROLLUP/... names
+the WORKSTN script uses) for `SET`'s function-key form; terminal mode is a
+plain "print the prompt, read a line" prompt (the manual's six-line/
+twenty-four-line centered screen layout is cosmetic and not reproduced).
+`CRT` output reuses the ordinary O-spec/printer line-buffer machinery
+(`rpg_rt_line_begin`/`rpg_rt_line_put_*`/`rpg_rt_emit_line`) completely
+unchanged — the only difference from a `PRINTER` file is the open call
+(`rpg_rt_open_crt`), which writes to stdout (terminal mode) or the headless
+dump file (headless mode) instead of a flat file on disk.
+
+Explicitly out of scope: `CONSOLE`'s own input-file/record-address-file
+behavior (still a hard compile error, E8) — a genuinely larger, distinct
+feature from `KEYBORD`/`CRT` that Chapter 10 also covers but this project
+does not implement.
 
 ## Indicators
 

@@ -209,10 +209,11 @@ Man pages are installed to `<prefix>/share/man/man1/` and are also available in
 - WORKSTN (interactive display-file) support: `.dspf` display formats, the
   five WORKSTN operation codes, INFDS, and both a real-terminal and a
   headless (scripted) backend — see `docs/SPEC_MAP.md`'s WORKSTN section
+- KEYBORD/CRT device support: the `KEY`/`SET` operation codes and CRT
+  output — see `docs/SPEC_MAP.md`'s "Chapter 10: KEYBORD/CRT" section
 
-**Not yet implemented:** the `KEY`/`SET` operations (KEYBORD device), DEBUG
-operation, externally-described files. See the plan documents
-(`KEYBORD_PLAN.md`, `MISC_OPCODES_PLAN.md`) for design status.
+**Not yet implemented:** the DEBUG operation, externally-described files.
+See the plan document (`MISC_OPCODES_PLAN.md`) for design status.
 
 ## Project layout
 

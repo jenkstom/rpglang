@@ -1,0 +1,5 @@
+     C* Chapter 10 mutual exclusion: a program with a WORKSTN file
+     C* cannot also declare KEYBORD, CRT, or CONSOLE.
+     FWSFILE   D  F      10            WORKSTN
+     FKBFILE   D  F      20            KEYBORD
+     C                     SETOF

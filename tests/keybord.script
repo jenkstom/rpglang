@@ -1,0 +1,6 @@
+# KEY #1 (numeric, width 5): typed "123" -> right-justified/zero-padded
+# "00123" -> decoded 123 (positive -> HI/01 on).
+RESP 123
+# KEY #2 (alpha, width 5): typed "hello" -> left-justified/blank-padded,
+# exactly fills the field -> not blank -> EQ/04 stays off.
+RESP hello

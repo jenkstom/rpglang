@@ -1,13 +1,14 @@
 # DEBUG and FORCE — Implementation Plan
 
 **Status: planning only. No implementation has started.** This document
-covers the two remaining `docs/TODO.md` opcode items that don't belong in
-`KEYBORD_PLAN.md` or program linkage: `DEBUG` (from the former C7 group) and
-`FORCE` (from the former C9 group). Unlike the KEYBORD/CONSOLE/CRT device
-family, these two share no mechanism with each other or with that plan —
-they're grouped here only because each is small enough that a standalone
-document would be mostly boilerplate. Treat the two sections below as fully
-independent; implement in either order, or in parallel.
+covers the two remaining `docs/TODO.md` opcode items that don't belong with
+KEYBORD/CRT device support (now implemented — see `docs/SPEC_MAP.md`'s
+"Chapter 10: KEYBORD/CRT" section) or program linkage: `DEBUG` (from the
+former C7 group) and `FORCE` (from the former C9 group). These two share no
+mechanism with each other or with KEYBORD/CRT support — they're grouped
+here only because each is small enough that a standalone document would be
+mostly boilerplate. Treat the two sections below as fully independent;
+implement in either order, or in parallel.
 
 ---
 
@@ -104,8 +105,8 @@ multifile record-selection algorithm for exactly one cycle. "The FORCE
 operation can be used for primary or secondary input and update files;
 however, it cannot be used to read from files assigned to a KEYBORD or
 WORKSTN device" — a static, checkable restriction (cross-reference against
-each named file's `Device`, including the new `Device::Keybord` this
-project's `KEYBORD_PLAN.md` K1 adds). "If more than one FORCE operation is
+each named file's `Device`, including `Device::Keybord`, both real
+recognized device values). "If more than one FORCE operation is
 processed during the same program cycle, all but the last are ignored" —
 last-write-wins within a cycle. "FORCE should not be specified at total
 time" is phrased as a recommendation, not a hard rule, in the manual text
@@ -142,23 +143,15 @@ cycle's already-in-flight record, only the next one.
   here, unusually convenient among the project's opcode additions.
   `tests/neg_force_workstn.rpg` for the device restriction.
 
-### 2.2 Dependency note
-
-`FORCE`'s device-restriction check benefits from (but does not strictly
-require) `KEYBORD_PLAN.md` K1 landing first, since today a `KEYBORD` file
-would be silently misdetected as `Device::Other` rather than a real,
-checkable device value (`KEYBORD_PLAN.md` §0's finding). If `FORCE` is
-implemented before `KEYBORD_PLAN.md` K1, only the `WORKSTN` half of the
-restriction is checkable in the interim; add the `KEYBORD` half once K1
-lands rather than blocking on it.
-
 ---
 
 ## 3. Sequencing
 
 Both sections are ready to implement now, in either order — neither has an
-open design question blocking it, unlike `KEYBORD_PLAN.md` (needs the
-message-member format and column mechanics settled). `FORCE` is the smaller
-of the two (one opcode, one new global, reuses the existing multifile
-selection loop); `DEBUG` is slightly larger (one new H-spec column plus a
-fixed-format dual-record writer) but still fully self-contained.
+open design question blocking it. `Device::Keybord` already exists (KEYBORD/
+CRT support is implemented, see `docs/SPEC_MAP.md`), so `FORCE`'s KEYBORD/
+WORKSTN device-restriction check is fully checkable from the start, no
+staged rollout needed. `FORCE` is the smaller of the two (one opcode, one
+new global, reuses the existing multifile selection loop); `DEBUG` is
+slightly larger (one new H-spec column plus a fixed-format dual-record
+writer) but still fully self-contained.

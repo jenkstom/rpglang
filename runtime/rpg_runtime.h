@@ -418,6 +418,65 @@ void rpg_rt_ws_infds(char *status_ptr, char *opcode_ptr, char *record_ptr,
  * would not fit). Returns the trimmed length actually copied. */
 int rpg_rt_field_to_cstr(const char *field, int len, char *out, int out_cap);
 
+/* ----- KEYBORD/CRT (Chapter 10, "Using a CONSOLE, KEYBORD, or CRT File") --- */
+/*
+ * KEYBORD's interaction shape (one field prompted/entered at a time via KEY/
+ * SET, never a laid-out screen format) is much smaller than WORKSTN's, so it
+ * gets its own small backend rather than reusing ws_file_t -- but backend
+ * selection still follows the exact same RPG_WORKSTN_MODE/RPG_WORKSTN_SCRIPT/
+ * RPG_WORKSTN_DUMP environment-variable convention (a program can never have
+ * both a WORKSTN and a KEYBORD file, see fspec.cpp's mutual exclusion, so
+ * there's no ambiguity in sharing them). The headless script reuses the same
+ * line-oriented file, with two of its own keywords: `RESP <text>` supplies a
+ * KEY operation's typed response (or `RESP *DUP` for the Dup key), and `KEY
+ * <name>` (the same KA-KY/PRINT/ROLLUP/... vocabulary WORKSTN's script uses)
+ * supplies which function key SET's function-key form was answered with.
+ */
+
+/* Open the program's (at most one, fspec.cpp enforced) KEYBORD file.
+ * `reclen` is the F-spec record length, used only by the terminal backend to
+ * pick the manual's cosmetic six-line-of-40 vs twenty-four-line-of-79 layout
+ * threshold. Returns a kb_id, or -1 on failure (headless mode with no usable
+ * script). */
+int rpg_rt_kb_open(int reclen);
+
+/* KEY: prompt with `prompt` (prompt_len bytes) and read one response,
+ * applying the manual's response rule directly against the caller-owned
+ * `out` buffer (`width` bytes -- for a numeric result, the caller's own
+ * current value pre-formatted as plain zero-padded ASCII digits via
+ * rpg_rt_num_to_digits, decoded back out via rpg_rt_get_decimal afterward;
+ * for alphameric, the field's own storage): typed text is right-justified/
+ * zero-padded (`is_numeric` true) or left-justified/blank-padded (false); no
+ * text (Enter alone) zero/blank-fills the same way; the Dup key leaves `out`
+ * untouched. */
+void rpg_rt_kb_key(int kb_id, const char *prompt, int prompt_len,
+                   char *out, int width, int is_numeric);
+
+/* SET: display `text` (text_len bytes; may be empty for no display change)
+ * and, if `nallowed` > 0, pause for one of the function keys named in
+ * `allowed` (1-based KA=1..KY=25 numbering, matching cspec.cpp's ind_token)
+ * to be pressed. Returns the 1-based index into `allowed` of the key
+ * pressed, or 0 if it matched none of them (the manual's "the program
+ * stops" isn't implemented as a hard halt, matching WORKSTN's own
+ * unsurfaced-INFSR-exception precedent) or if `nallowed` is 0 (pure
+ * display, no pause). */
+int rpg_rt_kb_set(int kb_id, const char *text, int text_len,
+                  const int *allowed, int nallowed);
+
+/* Format `value`'s digits, zero-padded/truncated to exactly `width` bytes
+ * (no sign, no punctuation), into `out`. The inverse of rpg_rt_get_decimal
+ * for the same plain-ASCII-digit convention. */
+void rpg_rt_num_to_digits(long value, char *out, int width);
+
+/* Open the program's CRT output file. CRT reuses the ordinary O-spec/
+ * printer line-buffer machinery unchanged (rpg_rt_line_begin, the
+ * rpg_rt_line_put_* functions, rpg_rt_emit_line -- all file-id generic
+ * already) -- only the open differs, writing
+ * to stdout (terminal mode) or the headless RPG_WORKSTN_DUMP convention
+ * (headless mode) instead of a flat file. Returns a file id (registered in
+ * the same g_files[] table ordinary output files use), or -1 on failure. */
+int rpg_rt_open_crt(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

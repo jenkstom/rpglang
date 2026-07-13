@@ -1,0 +1,5 @@
+     FCRTFILE O   F      40            CRT
+     C                     EXCPTCRTLIN
+     C                     Z-ADD1         RPGRET
+     OCRTFILE E  1             CRTLIN
+     O                                 10   'CRT OUTPUT'

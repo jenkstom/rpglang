@@ -648,6 +648,64 @@ rm -f /tmp/rpgc_neg_workstn
 expect_compile_fail neg_special neg_special.rpg   # E8: SPECIAL still hard-errors
 expect_compile_fail neg_console neg_console.rpg   # E8: CONSOLE still hard-errors
 
+# --- Chapter 10: KEYBORD (KEY/SET) and CRT --------------------------------------
+hr; echo "Chapter 10: KEYBORD (KEY/SET) and CRT"; hr
+# KEY: two KEY ops against a KEYBORD file -- a numeric field (width 5, 0
+# decimals) and an alphameric field (width 5). The headless script types
+# "123" for the first (right-justified/zero-padded -> 00123 -> decoded 123,
+# positive -> HI/01 turns on) and "hello" for the second (left-justified/
+# blank-padded, exactly fills the field -> not blank -> EQ/04 stays off).
+# RPGRET = NUMF, +100 if indicator 01 is on: 123 + 100 = 223.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_keybord "$ROOT/tests/keybord.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_keybord ]]; then
+    ( cd "$ROOT" && RPG_WORKSTN_MODE=headless \
+        RPG_WORKSTN_SCRIPT="$ROOT/tests/keybord.script" \
+        RPG_WORKSTN_DUMP=/tmp/rpgc_keybord_dump.txt /tmp/rpgc_keybord ); got=$?
+    if [[ "$got" -eq 223 ]]; then ok "keybord: KEY numeric+alpha, exit $got (expected 223)"
+    else bad "keybord: exit $got (expected 223)"; fi
+    rm -f /tmp/rpgc_keybord /tmp/rpgc_keybord_dump.txt
+else
+    bad "keybord: did not compile"
+fi
+# SET: arms KA/KB/KC (cols 54-59, reusing the resulting-indicator columns)
+# and displays factor 1 ('PICK'). The headless script answers with KB, so
+# only the KB indicator turns on; RPGRET is 222 (conditioned on KB) rather
+# than 111 (conditioned on NKB).
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_setkeys "$ROOT/tests/set_keys.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_setkeys ]]; then
+    ( cd "$ROOT" && RPG_WORKSTN_MODE=headless \
+        RPG_WORKSTN_SCRIPT="$ROOT/tests/set_keys.script" \
+        RPG_WORKSTN_DUMP=/tmp/rpgc_setkeys_dump.txt /tmp/rpgc_setkeys ); got=$?
+    if [[ "$got" -eq 222 ]]; then ok "set_keys: SET function-key arm, exit $got (expected 222)"
+    else bad "set_keys: exit $got (expected 222)"; fi
+    rm -f /tmp/rpgc_setkeys /tmp/rpgc_setkeys_dump.txt
+else
+    bad "set_keys: did not compile"
+fi
+# CRT: reuses the ordinary O-spec/printer line-buffer machinery unchanged,
+# writing to stdout instead of a flat file (rpg_rt_open_crt). EXCPT triggers
+# the named (CRTLIN) E-record that prints "CRT OUTPUT".
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_crt "$ROOT/tests/crt.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_crt ]]; then
+    out="$(/tmp/rpgc_crt)"; got=$?
+    if [[ "$got" -eq 1 && "$out" == *"CRT OUTPUT"* ]]; then
+        ok "crt: EXCPT output to CRT device, exit $got, output contains 'CRT OUTPUT'"
+    else
+        bad "crt: exit $got (expected 1), output='$out'"
+    fi
+    rm -f /tmp/rpgc_crt
+else
+    bad "crt: did not compile"
+fi
+# K1: mutual exclusion (Chapter 10) -- a program with a WORKSTN file cannot
+# also declare KEYBORD, CRT, or CONSOLE.
+expect_compile_fail neg_multi_device neg_multi_device.rpg
+# SET ... ERASE parses (the CONSOLE-file-plus-ERASE shape) but has no
+# codegen support, since CONSOLE itself is still unimplemented (E8).
+expect_compile_fail neg_set_erase neg_set_erase.rpg
+# KEY with no KEYBORD file declared in the program.
+expect_compile_fail neg_key_no_keybord neg_key_no_keybord.rpg
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

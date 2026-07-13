@@ -1,0 +1,5 @@
+     FKBFILE   D  F      20            KEYBORD
+     C           'NUM'     KEY            NUMF  5  0 010203
+     C                     KEY            ALPF  5        04
+     C                     Z-ADDNUMF      RPGRET
+     C   01                ADD  100       RPGRET

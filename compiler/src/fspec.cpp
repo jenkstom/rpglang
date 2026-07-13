@@ -153,6 +153,8 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         else if (f.device_text == "WORKSTN")  f.device = Device::Workstn;
         else if (f.device_text == "SPECIAL")  f.device = Device::Special;
         else if (f.device_text == "CONSOLE")  f.device = Device::Console;
+        else if (f.device_text == "KEYBORD")  f.device = Device::Keybord;
+        else if (f.device_text == "CRT")      f.device = Device::Crt;
         else                                  f.device = Device::Other;
 
         // E8: SPECIAL/CONSOLE devices have no codegen support -- every file
@@ -165,12 +167,17 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         // instead (manual scope cut, same precedent as EXTK/B6 and
         // record-address files/E5). WORKSTN has real codegen support (see
         // WORKSTN support in docs/SPEC_MAP.md / docs/ARCHITECTURE.md) and is
-        // exempted below.
+        // exempted below. KEYBORD/CRT also have real codegen support (the
+        // KEY/SET operations and CRT's O-spec output, see KEYBORD/CRT
+        // support in docs/SPEC_MAP.md) and are exempted too -- CONSOLE
+        // remains a hard error: unlike KEYBORD/CRT, its "ad hoc input file
+        // with auto-generated prompts" and record-address behaviors are a
+        // distinct, larger feature this compiler does not implement.
         if (f.device == Device::Special || f.device == Device::Console) {
             report("input", sl.lineno, 40, DiagKind::Error,
                    "F-spec file '" + f.name + "': device '" + f.device_text +
-                   "' is not implemented (only DISK, PRINTER, and WORKSTN "
-                   "are supported)");
+                   "' is not implemented (only DISK, PRINTER, WORKSTN, "
+                   "KEYBORD, and CRT are supported)");
         }
 
         // Keyed/random access fields (Section G, G24):
@@ -228,6 +235,39 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         out.push_back(std::move(f));
         current = &out.back();
     }
+
+    // Mutual exclusion (Chapter 10): "You can specify only one of each of
+    // the following files: KEYBORD, CRT, CONSOLE, and WORKSTN. If you have
+    // specified a WORKSTN file, you cannot specify a KEYBORD, a CRT, or a
+    // CONSOLE file." A program may still combine KEYBORD+CRT+CONSOLE
+    // (each at most once) so long as none of them is paired with WORKSTN.
+    {
+        const FSpec *ws = nullptr, *kb = nullptr, *crt = nullptr, *con = nullptr;
+        for (const auto &f : out) {
+            const FSpec **slot = f.device == Device::Workstn ? &ws
+                                : f.device == Device::Keybord ? &kb
+                                : f.device == Device::Crt     ? &crt
+                                : f.device == Device::Console ? &con
+                                : nullptr;
+            if (!slot) continue;
+            if (*slot) {
+                report("input", f.lineno, 40, DiagKind::Error,
+                       "F-spec file '" + f.name + "': only one " +
+                       f.device_text + " file is allowed per program "
+                       "(already declared by '" + (*slot)->name + "')");
+            } else {
+                *slot = &f;
+            }
+        }
+        if (ws && (kb || crt || con)) {
+            const FSpec *other = kb ? kb : (crt ? crt : con);
+            report("input", other->lineno, 40, DiagKind::Error,
+                   "F-spec file '" + other->name + "': a program with a "
+                   "WORKSTN file ('" + ws->name + "') cannot also declare "
+                   "KEYBORD, CRT, or CONSOLE");
+        }
+    }
+
     return out;
 }
 

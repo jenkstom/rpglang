@@ -355,14 +355,6 @@ DOCS = [
         "icon": "⚙",
     },
     {
-        "title": "Plan: Keyboard / WORKSTN Keys",
-        "src": "KEYBORD_PLAN.md",
-        "slug": "plan-keyboard",
-        "blurb": "Design status for keyboard/attention-key handling (not yet implemented).",
-        "category": "Unimplemented-feature plans",
-        "icon": "☐",
-    },
-    {
         "title": "Plan: Miscellaneous Opcodes",
         "src": "MISC_OPCODES_PLAN.md",
         "slug": "plan-misc-opcodes",
@@ -384,7 +376,6 @@ LINK_REWRITES = {
     "docs/man/rpgc.1": "man/rpgc.html",
     "docs/man/rpg-analyze.1": "man/rpg-analyze.html",
     "TOOLS_IDEAS.md": "analyzer-design.html",
-    "KEYBORD_PLAN.md": "plan-keyboard.html",
     "MISC_OPCODES_PLAN.md": "plan-misc-opcodes.html",
     # groff emits ".1.html" cross-reference links; normalise them.
     "rpgc.1.html": "rpgc.html",

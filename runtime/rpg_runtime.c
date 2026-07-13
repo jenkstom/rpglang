@@ -71,6 +71,8 @@ static struct {
     long  *idx_offs;     /* matching byte offsets */
     int    idx_count;
     int    idx_built;    /* 1 once the index has been built */
+    int    no_close;     /* 1 = rpg_rt_close_all must not fclose this (CRT
+                             on stdout, Chapter 10) */
 } g_files[RPG_RT_MAX_FILES];
 
 int rpg_rt_open_input(const char *path) {
@@ -1066,6 +1068,7 @@ int rpg_rt_open_output(const char *path) {
             g_files[id].idx_offs  = NULL;
             g_files[id].idx_count = 0;
             g_files[id].idx_built = 0;
+            g_files[id].no_close  = 0;
             return id;
         }
     }
@@ -1099,6 +1102,7 @@ int rpg_rt_open_update(const char *path) {
             g_files[id].idx_offs  = NULL;
             g_files[id].idx_count = 0;
             g_files[id].idx_built = 0;
+            g_files[id].no_close  = 0;
             return id;
         }
     }
@@ -1327,7 +1331,7 @@ int rpg_rt_page(int file_id, int which) {
 void rpg_rt_close_all(void) {
     for (int id = 0; id < RPG_RT_MAX_FILES; ++id) {
         if (g_files[id].fp) {
-            fclose(g_files[id].fp);
+            if (!g_files[id].no_close) fclose(g_files[id].fp);
             g_files[id].fp = NULL;
         }
         /* Free the keyed index (Section G). */
@@ -2055,4 +2059,252 @@ void rpg_rt_ws_infds(char *status_ptr, char *opcode_ptr, char *record_ptr,
     if (mode_ptr) { rpg_rt_fmt_key(mode_val, 2, tmp); memcpy(mode_ptr, tmp, 2); }
     if (inp_ptr)  { rpg_rt_fmt_key(inp_val, 2, tmp); memcpy(inp_ptr, tmp, 2); }
     if (out_ptr)  { rpg_rt_fmt_key(out_val, 2, tmp); memcpy(out_ptr, tmp, 2); }
+}
+
+/* -------------------------------------------------------------------------- */
+/* KEYBORD/CRT (Chapter 10, "Using a CONSOLE, KEYBORD, or CRT File").          */
+/*                                                                            */
+/* KEYBORD's interaction shape -- one field prompted/entered at a time via    */
+/* KEY/SET, never a laid-out screen format -- is much smaller than WORKSTN's, */
+/* so it gets its own small backend rather than reusing ws_file_t. Backend    */
+/* selection still follows the same RPG_WORKSTN_MODE/RPG_WORKSTN_SCRIPT/      */
+/* RPG_WORKSTN_DUMP convention (a program can never have both a WORKSTN and   */
+/* a KEYBORD file, fspec.cpp's mutual exclusion, so there's no ambiguity in   */
+/* sharing them). The headless script reuses the same line-oriented file,     */
+/* with two of its own keywords: `RESP <text>` supplies a KEY operation's     */
+/* typed response (or `RESP *DUP`), and `KEY <name>` (the same KA-KY/PRINT/   */
+/* ROLLUP/... vocabulary ws_parse_key already understands) supplies which     */
+/* function key SET's function-key form was answered with.                   */
+/* -------------------------------------------------------------------------- */
+#define KB_MAX_FILES 4
+
+typedef struct {
+    int in_use;
+    int mode;                  /* 0=terminal 1=headless */
+    int reclen;
+    FILE *headless_script;
+    FILE *headless_dump;
+} kb_file_t;
+
+static kb_file_t g_kb[KB_MAX_FILES];
+
+static kb_file_t *kb_get(int kb_id) {
+    if (kb_id < 0 || kb_id >= KB_MAX_FILES || !g_kb[kb_id].in_use) return NULL;
+    return &g_kb[kb_id];
+}
+
+int rpg_rt_kb_open(int reclen) {
+    int id = -1;
+    for (int i = 0; i < KB_MAX_FILES; ++i) if (!g_kb[i].in_use) { id = i; break; }
+    if (id < 0) {
+        fprintf(stderr, "rpg_rt: too many open KEYBORD files (max %d)\n", KB_MAX_FILES);
+        return -1;
+    }
+    kb_file_t *kf = &g_kb[id];
+    memset(kf, 0, sizeof *kf);
+    kf->reclen = reclen;
+    const char *modeenv = getenv("RPG_WORKSTN_MODE");
+    kf->mode = (modeenv && strcmp(modeenv, "headless") == 0) ? 1 : 0;
+    if (kf->mode == 1) {
+        const char *script = getenv("RPG_WORKSTN_SCRIPT");
+        if (!script) {
+            fprintf(stderr, "rpg_rt: RPG_WORKSTN_MODE=headless requires "
+                            "RPG_WORKSTN_SCRIPT\n");
+            return -1;
+        }
+        kf->headless_script = fopen(script, "r");
+        if (!kf->headless_script) {
+            fprintf(stderr, "rpg_rt: cannot open RPG_WORKSTN_SCRIPT '%s'\n", script);
+            return -1;
+        }
+        const char *dump = getenv("RPG_WORKSTN_DUMP");
+        kf->headless_dump = dump ? fopen(dump, "w") : stdout;
+        if (!kf->headless_dump) kf->headless_dump = stdout;
+    } else {
+        ws_install_shtdn_handler();
+    }
+    kf->in_use = 1;
+    return id;
+}
+
+/* Read one RESP line from the headless script (skipping blank/comment/other
+ * lines). `*out_dup` is set if the response was `*DUP`. Leaves `resp` empty
+ * if the script is exhausted before a RESP line -- callers then apply the
+ * ordinary "no text entered" rule rather than crashing. */
+static void kb_headless_resp(kb_file_t *kf, char *resp, int resp_cap, int *out_dup) {
+    resp[0] = '\0';
+    *out_dup = 0;
+    if (!kf->headless_script) return;
+    char line[256];
+    while (fgets(line, sizeof line, kf->headless_script)) {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0' || *p == '#') continue;
+        char kw[16]; int i = 0;
+        while (p[i] && p[i] != ' ' && p[i] != '\t' && i < 15) { kw[i] = (char)toupper((unsigned char)p[i]); i++; }
+        kw[i] = '\0';
+        char *rest = p + i;
+        while (*rest == ' ' || *rest == '\t') rest++;
+        if (strcmp(kw, "RESP") == 0) {
+            strncpy(resp, rest, (size_t)resp_cap - 1);
+            resp[resp_cap - 1] = '\0';
+            if (strcasecmp(resp, "*DUP") == 0) *out_dup = 1;
+            return;
+        }
+        /* any other keyword on a stray line is ignored */
+    }
+}
+
+/* Read one KEY line from the headless script, returning its function-key
+ * number (1-25 for KA-KY, matching ws_parse_key/cspec.cpp's numbering), or
+ * 0 if the script is exhausted or the line named a command key / ENTER. */
+static int kb_headless_key(kb_file_t *kf) {
+    if (!kf->headless_script) return 0;
+    char line[256];
+    while (fgets(line, sizeof line, kf->headless_script)) {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0' || *p == '#') continue;
+        char kw[16]; int i = 0;
+        while (p[i] && p[i] != ' ' && p[i] != '\t' && i < 15) { kw[i] = (char)toupper((unsigned char)p[i]); i++; }
+        kw[i] = '\0';
+        char *rest = p + i;
+        while (*rest == ' ' || *rest == '\t') rest++;
+        if (strcmp(kw, "KEY") == 0) {
+            char keyname[16]; strncpy(keyname, rest, 15); keyname[15] = '\0';
+            ws_upper(keyname);
+            int funckey = 0, cmdkey = 0;
+            ws_parse_key(keyname[0] ? keyname : "ENTER", &funckey, &cmdkey);
+            return funckey;
+        }
+    }
+    return 0;
+}
+
+static void kb_dump_prompt(kb_file_t *kf, const char *prompt, int prompt_len) {
+    if (kf->mode != 1 || prompt_len <= 0) return;
+    FILE *out = kf->headless_dump ? kf->headless_dump : stdout;
+    fprintf(out, "PROMPT %.*s\n", prompt_len, prompt);
+    fflush(out);
+}
+
+void rpg_rt_kb_key(int kb_id, const char *prompt, int prompt_len,
+                   char *out, int width, int is_numeric) {
+    kb_file_t *kf = kb_get(kb_id);
+    if (!kf || width < 1) return;
+    char resp[256];
+    int dup = 0;
+
+    if (kf->mode == 1) {
+        kb_dump_prompt(kf, prompt, prompt_len);
+        kb_headless_resp(kf, resp, sizeof resp, &dup);
+    } else {
+        if (prompt_len > 0) printf("%.*s\n", prompt_len, prompt);
+        printf("%s (%d) -- Enter for blank/zero, *DUP to leave unchanged: ",
+              is_numeric ? "number" : "text", width);
+        fflush(stdout);
+        if (!fgets(resp, sizeof resp, stdin)) resp[0] = '\0';
+        int n = (int)strlen(resp);
+        while (n > 0 && (resp[n-1] == '\n' || resp[n-1] == '\r')) resp[--n] = '\0';
+        if (strcasecmp(resp, "*DUP") == 0) dup = 1;
+    }
+
+    if (dup) return;   /* Dup key: leave `out` unchanged */
+
+    int rlen = (int)strlen(resp);
+    if (is_numeric) {
+        /* right-justified, zero-padded to the left (manual 113078-113083) */
+        int copy = rlen < width ? rlen : width;
+        int srcoff = rlen - copy;
+        int dstoff = width - copy;
+        for (int i = 0; i < dstoff; ++i) out[i] = '0';
+        memcpy(out + dstoff, resp + srcoff, (size_t)copy);
+    } else {
+        /* left-justified, blank-padded to the right */
+        int copy = rlen < width ? rlen : width;
+        memcpy(out, resp, (size_t)copy);
+        for (int i = copy; i < width; ++i) out[i] = ' ';
+    }
+}
+
+int rpg_rt_kb_set(int kb_id, const char *text, int text_len,
+                  const int *allowed, int nallowed) {
+    kb_file_t *kf = kb_get(kb_id);
+    if (!kf) return 0;
+
+    if (kf->mode == 1) {
+        kb_dump_prompt(kf, text, text_len);
+    } else if (text_len > 0) {
+        printf("%.*s\n", text_len, text);
+        fflush(stdout);
+    }
+
+    if (nallowed <= 0) return 0;   /* pure display: no pause */
+
+    int funckey;
+    if (kf->mode == 1) {
+        funckey = kb_headless_key(kf);
+    } else {
+        printf("key (Enter, KA-KY, PRINT, ROLLUP, ROLLDOWN, CLEAR, HELP, HOME): ");
+        fflush(stdout);
+        char keyline[32] = "";
+        if (!fgets(keyline, sizeof keyline, stdin)) keyline[0] = '\0';
+        int n = (int)strlen(keyline);
+        while (n > 0 && (keyline[n-1] == '\n' || keyline[n-1] == '\r')) keyline[--n] = '\0';
+        ws_upper(keyline);
+        int cmdkey = 0;
+        funckey = 0;
+        ws_parse_key(keyline[0] ? keyline : "ENTER", &funckey, &cmdkey);
+    }
+    for (int i = 0; i < nallowed; ++i)
+        if (allowed[i] == funckey) return i + 1;
+    return 0;   /* matched none -- manual: "the program stops" (not implemented
+                   as a hard halt, see rpg_runtime.h) */
+}
+
+void rpg_rt_num_to_digits(long value, char *out, int width) {
+    if (width < 1) width = 1;
+    unsigned long v = value < 0 ? (unsigned long)(-value) : (unsigned long)value;
+    for (int i = width - 1; i >= 0; --i) { out[i] = (char)('0' + (int)(v % 10)); v /= 10; }
+}
+
+int rpg_rt_open_crt(void) {
+    for (int id = 0; id < RPG_RT_MAX_FILES; ++id) {
+        if (g_files[id].fp == NULL) {
+            FILE *fp = stdout;
+            const char *modeenv = getenv("RPG_WORKSTN_MODE");
+            if (modeenv && strcmp(modeenv, "headless") == 0) {
+                const char *dump = getenv("RPG_WORKSTN_DUMP");
+                if (dump) {
+                    FILE *d = fopen(dump, "a");
+                    if (d) fp = d;
+                }
+            }
+            g_files[id].fp       = fp;
+            g_files[id].is_input = 0;
+            g_files[id].is_update = 0;
+            g_files[id].reclen   = 0;
+            g_files[id].line     = 0;
+            g_files[id].page     = 1;
+            g_files[id].lines_per_page = 66;
+            g_files[id].overflow_line   = 60;
+            g_files[id].overflow_latched = 0;
+            g_files[id].key_start = 0;
+            g_files[id].key_len   = 0;
+            g_files[id].last_rec_off = 0;
+            g_files[id].cur_off   = 0;
+            g_files[id].idx_keys  = NULL;
+            g_files[id].idx_offs  = NULL;
+            g_files[id].idx_count = 0;
+            g_files[id].idx_built = 0;
+            g_files[id].no_close  = (fp == stdout);
+            return id;
+        }
+    }
+    fprintf(stderr, "rpg_rt: too many open files\n");
+    return -1;
 }

@@ -20,7 +20,8 @@ namespace rpgc {
 enum class FileType     { Input, Output, Update, Combined };
 enum class FileDesign   { Primary, Secondary, FullProc, Chained, RecordAddr,
                           Table, Demand, None };
-enum class Device       { Disk, Printer, Workstn, Special, Console, Other };
+enum class Device       { Disk, Printer, Workstn, Special, Console, Keybord,
+                          Crt, Other };
 
 struct FSpec {
     int         lineno = 0;

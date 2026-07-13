@@ -1015,6 +1015,243 @@ public:
         inds_.store_resolved(c.hi.indicator, on);
     }
 
+    /* ----- KEYBORD/CRT (Chapter 10) ------------------------------------------ */
+
+    /* The program's (at most one, fspec.cpp enforced) KEYBORD file, or
+     * nullptr if none is declared. */
+    const FSpec *find_keybord_file() {
+        if (!files_) return nullptr;
+        for (const auto &f : *files_)
+            if (f.device == Device::Keybord) return &f;
+        return nullptr;
+    }
+
+    /* KEY/SET factor 1 (Chapter 10): "the constant, literal, field name, or
+     * table or array element displayed" -- resolve to (ptr, length) bytes
+     * for the runtime call. Alphameric operands resolve directly (same
+     * resolve_char_operand/resolve_char_array_element path MOVE/O-spec
+     * constant output already use); a numeric operand is formatted to plain
+     * decimal digits via rpg_rt_edit_dec (the same formatter O-spec numeric
+     * output uses, edit code '3' = no comma/forced decimal point) into a
+     * small stack buffer -- reusing that existing formatter rather than
+     * inventing a second numeric-to-text path. */
+    llvm::Value *resolve_display_text(const std::string &token, llvm::Value *&lenOut) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i64 = Type::getInt64Ty(ctx);
+        auto *i8  = Type::getInt8Ty(ctx);
+
+        Value *ptr; int len;
+        if (syms_.resolve_char_operand(token, ptr, len) ||
+            syms_.resolve_char_array_element(token, ptr, len)) {
+            lenOut = ConstantInt::get(i32, len, true);
+            return ptr;
+        }
+        Value *v = syms_.resolve_operand(token);
+        if (!v) { lenOut = ConstantInt::get(i32, 0); return nullptr; }
+        int dec = syms_.has_field(token) ? syms_.field_decimals(token) : 0;
+        Value *v64 = builder_.CreateSExt(v, i64, "disp_v64");
+        Value *buf = builder_.CreateAlloca(i8, ConstantInt::get(i32, 40), "disp_buf");
+        Value *n = builder_.CreateCall(edit_dec_fn_, {
+            v64, ConstantInt::get(i32, (int)'3', true),
+            ConstantInt::get(i32, 0, true), ConstantInt::get(i32, dec, true),
+            ConstantInt::get(i32, 0, true), buf, ConstantInt::get(i32, 40, true)},
+            "disp_n");
+        lenOut = n;
+        return buf;
+    }
+
+    /* KEY/SET shared prompt-text resolution. Factor 1, if present, wins
+     * (manual: an explicit factor 1 makes the KEYnn/SETnn message ID
+     * "ignored"). Otherwise, if the opcode carries a message number, this
+     * compiler has no message-member ($MGBLD) equivalent -- it always takes
+     * the manual's own documented fallback for that case ("the prompt
+     * nn-MESSAGE INDICATOR is displayed ... if ... columns 31 and 32
+     * contain a message identification code that does not correspond to a
+     * message in your message member"), so every KEYnn/SETnn deterministically
+     * renders that fallback text rather than needing an unimplemented
+     * message-file lookup. Otherwise, no prompt text at all. */
+    llvm::Value *resolve_key_set_prompt(const CSpec &c, llvm::Value *&lenOut,
+                                        const char *msg_suffix) {
+        using namespace llvm;
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        if (!c.factor1.empty())
+            return resolve_display_text(c.factor1, lenOut);
+        if (c.msg_num >= 1) {
+            char nbuf[16];
+            snprintf(nbuf, sizeof nbuf, "%02d", c.msg_num % 100);
+            std::string txt = std::string(nbuf) + "-" + msg_suffix;
+            lenOut = ConstantInt::get(i32, (int)txt.size(), true);
+            return builder_.CreateGlobalStringPtr(txt, "msgind");
+        }
+        lenOut = ConstantInt::get(i32, 0, true);
+        return builder_.CreateGlobalStringPtr("", "kb_blank_prompt");
+    }
+
+    /* KEY (Chapter 10): pause and read one response from the KEYBORD
+     * device. The result field receives what the user typed: numeric
+     * fields are right-justified/zero-padded, alphameric fields are
+     * left-justified/blank-padded (manual 113078-113089) -- rpg_rt_kb_key
+     * applies that rule directly against a caller-owned buffer (the
+     * alphameric field's own storage, or a scratch ASCII-digit buffer for
+     * numeric that's then decoded via the same rpg_rt_get_decimal ordinary
+     * I-spec fields use), so pressing Dup (leaving the buffer untouched)
+     * costs no extra branching here. Cols 54-59 test the result: plus/
+     * minus/zero for numeric (emit_arith_result_indicators, same as any
+     * arithmetic op), blank-or-not (58-59 only) for alphameric. */
+    void emit_key(const CSpec &c) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i8  = Type::getInt8Ty(ctx);
+        if (c.result.empty()) return;   // reported in cspec.cpp
+
+        const FSpec *kb = find_keybord_file();
+        if (!kb) {
+            report("input", c.lineno, 28, DiagKind::Error,
+                   "KEY requires a KEYBORD file to be declared");
+            return;
+        }
+        Value *kbId = builder_.CreateLoad(i32, kb_id_slot_, "kb_id");
+
+        Value *promptLen;
+        Value *promptPtr = resolve_key_set_prompt(c, promptLen, "Message indicator");
+
+        // Same "blank decimal-position column => alphameric" convention
+        // ordinary I-spec field declaration uses (symbols.h) -- a new
+        // KEY-result field with no decimals column is alphameric even if
+        // a length is given; an already-declared field just keeps its kind.
+        bool result_numeric = syms_.has_field(c.result)
+            ? !syms_.is_char_field(c.result)
+            : c.result_dec >= 0;
+
+        if (result_numeric) {
+            int width = c.result_len > 0 ? c.result_len : 15;   // manual: numeric max 15
+            if (c.result_dec >= 0) syms_.set_numeric_attrs(c.result, c.result_dec);
+            Value *rptr = syms_.get_or_create_field(c.result);
+            Value *cur = builder_.CreateLoad(i32, rptr, c.result + "_cur");
+            Value *cur64 = builder_.CreateSExt(cur, Type::getInt64Ty(ctx), "cur64");
+            Value *digbuf = builder_.CreateAlloca(i8,
+                ConstantInt::get(i32, width, true), c.result + "_digbuf");
+            builder_.CreateCall(num_to_digits_fn_,
+                {cur64, digbuf, ConstantInt::get(i32, width, true)});
+            builder_.CreateCall(kb_key_fn_, {
+                kbId, promptPtr, promptLen, digbuf,
+                ConstantInt::get(i32, width, true),
+                ConstantInt::get(i32, 1, true)});
+            Value *decoded = builder_.CreateCall(get_decimal_, {
+                digbuf, ConstantInt::get(i32, width, true),
+                ConstantInt::get(i32, 1, true),
+                ConstantInt::get(i32, width, true)}, c.result + "_dec");
+            Value *v32 = builder_.CreateTrunc(decoded, i32, c.result + "_v32");
+            builder_.CreateStore(v32, rptr);
+            emit_arith_result_indicators(inds_, builder_, c, v32);
+        } else {
+            int len = c.result_len > 0 ? c.result_len
+                    : (kb->reclen > 40 ? 79 : 40);
+            if (!syms_.has_field(c.result)) syms_.get_or_create_char_field(c.result, len);
+            Value *dptr; int dlen;
+            if (!syms_.resolve_char_operand(c.result, dptr, dlen)) {
+                report("input", c.lineno, 43, DiagKind::Error,
+                       "KEY result field must be numeric or alphameric");
+                return;
+            }
+            builder_.CreateCall(kb_key_fn_, {
+                kbId, promptPtr, promptLen, dptr,
+                ConstantInt::get(i32, dlen, true),
+                ConstantInt::get(i32, 0, true)});
+            if (c.eq.indicator) {
+                if (!cmp_str_) {
+                    auto *ptr = PointerType::get(ctx, 0);
+                    cmp_str_ = Function::Create(
+                        FunctionType::get(i32, {ptr, i32, ptr, i32}, false),
+                        Function::ExternalLinkage, "rpg_rt_cmp_str", mod_.get());
+                }
+                Value *emptyStr = builder_.CreateGlobalStringPtr("", "kb_blank_cmp");
+                Value *cmp = builder_.CreateCall(cmp_str_, {
+                    dptr, ConstantInt::get(i32, dlen, true),
+                    emptyStr, ConstantInt::get(i32, 0, true)}, "kb_blank_cmp_v");
+                Value *isblank = builder_.CreateICmpEQ(
+                    cmp, ConstantInt::get(i32, 0), "kb_isblank");
+                inds_.store_resolved(c.eq.indicator, isblank);
+            }
+            if (c.hi.indicator || c.lo.indicator) {
+                report("input", c.lineno, 54, DiagKind::Warning,
+                       "KEY columns 54-57 test a numeric field's sign; ignored "
+                       "for an alphameric result (only columns 58-59 test blank)");
+            }
+        }
+    }
+
+    /* SET (Chapter 10): display factor 1 (or the SETnn fallback text, see
+     * resolve_key_set_prompt) and, if columns 54-59 name any function-key
+     * indicators, pause for one of them to be pressed -- the matched
+     * indicator turns on, same "resulting indicator" overwrite convention
+     * arithmetic ops use for HI/LO/EQ. A response that matches none of them
+     * turns none of the three on (the manual's "the program stops" isn't
+     * implemented as a hard halt, matching the documented precedent for
+     * WORKSTN's own unsurfaced INFSR exception, see docs/SPEC_MAP.md). The
+     * ERASE (CONSOLE) form is parsed (cspec.cpp) but not implemented here,
+     * since CONSOLE itself is unsupported (fspec.cpp's E8) and so this
+     * shape can never actually reach codegen from a file that compiled. */
+    void emit_set(const CSpec &c) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+
+        if (upper_trim(c.result) == "ERASE") {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "SET ... ERASE requires CONSOLE file support, which is "
+                   "not implemented");
+            return;
+        }
+
+        const FSpec *kb = find_keybord_file();
+        if (!kb) {
+            report("input", c.lineno, 28, DiagKind::Error,
+                   "SET requires a KEYBORD file to be declared");
+            return;
+        }
+        Value *kbId = builder_.CreateLoad(i32, kb_id_slot_, "kb_id");
+
+        Value *promptLen;
+        Value *promptPtr = resolve_key_set_prompt(c, promptLen, "MESSAGE INDICATOR");
+
+        struct Slot { int indicator; int funckey; };
+        std::vector<Slot> slots;
+        for (ResultInd ri : {c.hi, c.lo, c.eq}) {
+            if (ri.indicator == 0) continue;
+            slots.push_back({ri.indicator, -ri.indicator - 37});
+        }
+
+        if (slots.empty()) {
+            auto *ptr = PointerType::get(ctx, 0);
+            builder_.CreateCall(kb_set_fn_, {
+                kbId, promptPtr, promptLen,
+                ConstantPointerNull::get(ptr),
+                ConstantInt::get(i32, 0, true)});
+            return;
+        }
+
+        auto *allowArrTy = ArrayType::get(i32, (unsigned)slots.size());
+        std::vector<Constant *> allowInit;
+        for (auto &s : slots)
+            allowInit.push_back(ConstantInt::get(i32, (uint32_t)s.funckey, true));
+        auto *allowGV = new GlobalVariable(*mod_, allowArrTy, /*isConstant=*/true,
+            GlobalValue::PrivateLinkage, ConstantArray::get(allowArrTy, allowInit),
+            "set_allowed_keys");
+        Value *allowPtr = builder_.CreateConstInBoundsGEP2_32(allowArrTy, allowGV, 0, 0);
+        Value *pressed = builder_.CreateCall(kb_set_fn_, {
+            kbId, promptPtr, promptLen, allowPtr,
+            ConstantInt::get(i32, (int)slots.size(), true)}, "set_pressed");
+        for (size_t i = 0; i < slots.size(); ++i) {
+            Value *match = builder_.CreateICmpEQ(
+                pressed, ConstantInt::get(i32, (int)(i + 1), true), "set_match");
+            inds_.store_resolved(slots[i].indicator, match);
+        }
+    }
+
     /* Emit prerun-time array/table loads at the current insert point. Each
      * PreRunTime numeric array opens its `from_file` and reads `entries`
      * fixed-width fields into its global; an alternating partner (cols 46-51)
@@ -1336,6 +1573,23 @@ private:
                 {ptr, ptr, ptr, ptr, ptr, ptr, ptr, i32, ptr, ptr, i32, i32, i32, i32},
                 false),
             Function::ExternalLinkage, "rpg_rt_ws_infds", mod_.get());
+
+        // Chapter 10: KEYBORD (KEY/SET) and CRT devices.
+        kb_open_fn_ = Function::Create(
+            FunctionType::get(i32, {i32}, false),
+            Function::ExternalLinkage, "rpg_rt_kb_open", mod_.get());
+        kb_key_fn_ = Function::Create(
+            FunctionType::get(voidTy, {i32, ptr, i32, ptr, i32, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_kb_key", mod_.get());
+        kb_set_fn_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr, i32, ptr, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_kb_set", mod_.get());
+        num_to_digits_fn_ = Function::Create(
+            FunctionType::get(voidTy, {i64, ptr, i32}, false),
+            Function::ExternalLinkage, "rpg_rt_num_to_digits", mod_.get());
+        crt_open_fn_ = Function::Create(
+            FunctionType::get(i32, {}, false),
+            Function::ExternalLinkage, "rpg_rt_open_crt", mod_.get());
     }
 
     /* D2: pre-declare every ordinary I-spec field's storage up front (see the
@@ -1677,6 +1931,16 @@ private:
                             "(release device) requires a WORKSTN file");
             }
             if (ofs->device == Device::Workstn) continue;   // opened by open_input_files (W6)
+            // Chapter 10: CRT output reuses the ordinary O-spec/printer
+            // line-buffer machinery (line_begin_/emit_one_field/emit_line_)
+            // unchanged -- only the open call differs, writing to the CRT
+            // backend (stdout, or the headless RPG_WORKSTN_DUMP convention)
+            // instead of a flat file on disk.
+            if (ofs->device == Device::Crt) {
+                Value *fid = builder_.CreateCall(crt_open_fn_, {}, o.file + "_id");
+                out_ids[o.file] = fid;
+                continue;
+            }
             Value *onm = builder_.CreateGlobalStringPtr(o.file, "oname");
             // Update files (type U) open r+ for in-place rewrite; output files
             // (type O) open w (truncate). (Section G, G25.)
@@ -1781,6 +2045,21 @@ private:
                 Value *wsId = builder_.CreateCall(ws_open_fn_,
                     {fmtsPath, progId}, f.name + "_wsid");
                 ws_ids_[f.name] = wsId;
+                continue;
+            }
+            // Chapter 10: the program's (at most one, see fspec.cpp's
+            // mutual-exclusion check) KEYBORD file. Opened once into the
+            // kb_id_slot_ global so KEY/SET can reach it from any function,
+            // including a subroutine (see kb_id_slot_'s comment).
+            if (f.device == Device::Keybord) {
+                if (kb_id_slot_) continue;
+                kb_id_slot_ = new GlobalVariable(*mod_, i32, /*isConstant=*/false,
+                    GlobalValue::InternalLinkage,
+                    ConstantInt::get(i32, (uint32_t)-1, true), "kb_id");
+                Value *kbId = builder_.CreateCall(kb_open_fn_,
+                    {ConstantInt::get(i32, f.reclen > 0 ? f.reclen : 40, true)},
+                    f.name + "_kbid");
+                builder_.CreateStore(kbId, kb_id_slot_);
                 continue;
             }
             // Only DISK input/update files make sense for keyed/random access.
@@ -3917,6 +4196,8 @@ private:
             case Op::NEXT:  emit_next(c);   return false;
             case Op::POST:  emit_post(c);   return false;
             case Op::SHTDN: emit_shtdn(c);  return false;
+            case Op::KEY:   emit_key(c);    return false;
+            case Op::SET:   emit_set(c);    return false;
             case Op::RETRN: {
                 if (in_subroutine_) {
                     report("input", c.lineno, 28, DiagKind::Error,
@@ -5739,6 +6020,19 @@ private:
     // generate_cycle's primary-file open). ACQ/REL/NEXT/POST/READ/EXCPT all
     // resolve their target file through this, same shape as in_ids_.
     std::unordered_map<std::string, llvm::Value *> ws_ids_;
+    // Chapter 10: KEYBORD (KEY/SET) and CRT devices.
+    llvm::Function *kb_open_fn_        = nullptr;
+    llvm::Function *kb_key_fn_         = nullptr;
+    llvm::Function *kb_set_fn_         = nullptr;
+    llvm::Function *num_to_digits_fn_  = nullptr;
+    llvm::Function *crt_open_fn_       = nullptr;
+    // The program's (at most one) open KEYBORD device id, stored in a global
+    // rather than a local SSA value: KEY/SET may run inside a subroutine
+    // (the manual's own Figure 107 worked example does exactly this),
+    // which compiles to a separate llvm::Function -- a plain CreateCall
+    // result from open_input_files (main's entry block) isn't a valid
+    // cross-function operand, but a load from a global is.
+    llvm::GlobalVariable *kb_id_slot_ = nullptr;
     // Stashed for INFDS keyword-subfield resolution (W3's ISpecSubfield::
     // infds_kw); set in generate() alongside files_/in_fields_.
     const std::vector<ISpecDS>       *data_structures_ = nullptr;

@@ -102,6 +102,14 @@ enum class Op {
             // the INFDS DS named in the result field
     SHTDN,  // turn on the resulting indicator (cols 54-55) if system
             // shutdown has been requested
+    // Chapter 10: KEYBORD/CRT device operations.
+    KEY,    // pause and read one response from the program's KEYBORD file
+            // into the result field; factor 1 (or the KEYnn opcode suffix)
+            // supplies the prompt
+    SET,    // display factor 1 (or the SETnn opcode suffix) and/or arm up
+            // to three function keys (cols 54-59) on the KEYBORD file; the
+            // ERASE form (CONSOLE) is parsed but not implemented (CONSOLE
+            // itself is unsupported, see fspec.cpp's E8)
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks
@@ -136,6 +144,8 @@ struct CSpec {
     int         result_len = 0;         // cols 49-51
     int         result_dec = -1;        // col 52 (-1 = unspecified)
     bool        half_adjust = false;    // col 53 == 'H'
+    int         msg_num = -1;           // KEYnn/SETnn opcode suffix, cols
+                                         // 31-32 (message ID 01-99; -1 = none)
 
     // "how to test the result"
     ResultInd hi, lo, eq;               // cols 54-55 / 56-57 / 58-59

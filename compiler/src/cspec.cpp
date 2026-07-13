@@ -187,6 +187,17 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "NEXT")   return Op::NEXT;
     if (u == "POST")   return Op::POST;
     if (u == "SHTDN")  return Op::SHTDN;
+    // Chapter 10: KEY/SET, optionally suffixed with a 2-digit message
+    // number (cols 31-32, absorbed into the 5-wide opcode field the same
+    // way IFxx/DOWxx carry their comparison suffix): "KEY13", "SET26".
+    if (u == "KEY" || (u.size() == 5 && u.rfind("KEY", 0) == 0 &&
+                        std::isdigit((unsigned char)u[3]) &&
+                        std::isdigit((unsigned char)u[4])))
+        return Op::KEY;
+    if (u == "SET" || (u.size() == 5 && u.rfind("SET", 0) == 0 &&
+                        std::isdigit((unsigned char)u[3]) &&
+                        std::isdigit((unsigned char)u[4])))
+        return Op::SET;
     return Op::Unknown;
 }
 
@@ -234,6 +245,19 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
         c.hi.indicator = ind_token(col(sl.text, 54, 55));
         c.lo.indicator = ind_token(col(sl.text, 56, 57));
         c.eq.indicator = ind_token(col(sl.text, 58, 59));
+
+        // KEYnn/SETnn: the trailing two digits of the opcode text are a
+        // message-ID number (01-99), not part of the mnemonic.
+        if (c.op == Op::KEY || c.op == Op::SET) {
+            std::string uop = upper(optext);
+            std::string base = (c.op == Op::KEY) ? "KEY" : "SET";
+            if (uop.size() > base.size()) {
+                int n = (uop[3] - '0') * 10 + (uop[4] - '0');
+                if (n >= 1 && n <= 99) c.msg_num = n;
+                // else: unreachable -- parse_op only returns KEY/SET for a
+                // suffix that already passed the isdigit/isdigit check.
+            }
+        }
 
         if (c.op == Op::Unknown) {
             // Report only if there actually is an op token -- blanks are fine.
@@ -440,6 +464,46 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
             if (c.hi.indicator == 0) {
                 report("input", sl.lineno, 54, DiagKind::Error,
                        "SHTDN requires a resulting indicator in columns 54-55");
+            }
+        }
+
+        // Chapter 10: KEY/SET (KEYBORD device).
+        if (c.op == Op::KEY) {
+            if (!c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "KEY factor 2 must be blank");
+            }
+            if (c.result.empty()) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "KEY requires a result field to receive the entered data");
+            }
+        }
+        if (c.op == Op::SET) {
+            std::string resultU = upper(c.result);
+            // Trim (upper() doesn't trim; col_trim already did).
+            bool is_erase = (resultU == "ERASE");
+            if (is_erase && c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "SET ... ERASE requires the CONSOLE file name in factor 2");
+            }
+            if (!c.factor2.empty() && !is_erase) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "SET factor 2 must be blank unless the result field is ERASE");
+            }
+            if (!c.result.empty() && !is_erase) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "SET result field must be blank or ERASE");
+            }
+            if (c.result_len != 0 || c.result_dec != -1 || c.half_adjust) {
+                report("input", sl.lineno, 49, DiagKind::Error,
+                       "SET columns 49-53 (length/decimals/half-adjust) must be blank");
+            }
+            for (ResultInd ri : {c.hi, c.lo, c.eq}) {
+                if (ri.indicator != 0 && (ri.indicator < -62 || ri.indicator > -38)) {
+                    report("input", sl.lineno, 54, DiagKind::Error,
+                           "SET columns 54-59 must name function-key "
+                           "indicators (KA-KN, KP-KY)");
+                }
             }
         }
 
