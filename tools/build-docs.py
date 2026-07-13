@@ -355,22 +355,6 @@ DOCS = [
         "icon": "⚙",
     },
     {
-        "title": "Plan: CALL / External Linkage",
-        "src": "CALL_LINKAGE_PLAN.md",
-        "slug": "plan-call-linkage",
-        "blurb": "Design status for CALL to external programs (not yet implemented).",
-        "category": "Unimplemented-feature plans",
-        "icon": "☐",
-    },
-    {
-        "title": "Plan: WORKSTN / Display Files",
-        "src": "WRKSTN_PLAN.md",
-        "slug": "plan-workstation",
-        "blurb": "Design status for WORKSTN/display-file support (not yet implemented).",
-        "category": "Unimplemented-feature plans",
-        "icon": "☐",
-    },
-    {
         "title": "Plan: Keyboard / WORKSTN Keys",
         "src": "KEYBORD_PLAN.md",
         "slug": "plan-keyboard",
@@ -400,8 +384,6 @@ LINK_REWRITES = {
     "docs/man/rpgc.1": "man/rpgc.html",
     "docs/man/rpg-analyze.1": "man/rpg-analyze.html",
     "TOOLS_IDEAS.md": "analyzer-design.html",
-    "CALL_LINKAGE_PLAN.md": "plan-call-linkage.html",
-    "WRKSTN_PLAN.md": "plan-workstation.html",
     "KEYBORD_PLAN.md": "plan-keyboard.html",
     "MISC_OPCODES_PLAN.md": "plan-misc-opcodes.html",
     # groff emits ".1.html" cross-reference links; normalise them.
