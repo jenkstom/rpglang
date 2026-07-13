@@ -1,0 +1,6 @@
+     C* FORCE cannot target a WORKSTN (or KEYBORD) file (manual 111276-
+     C* 111414). WSFILE below is a plain demand WORKSTN file; FORCEing it
+     C* must be a hard compile error.
+     FWSFILE  ID  F    10              WORKSTN
+     F                                               FMTS  WSFORM
+     C                     FORCEWSFILE

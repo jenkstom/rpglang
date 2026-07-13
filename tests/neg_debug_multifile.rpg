@@ -1,0 +1,8 @@
+     C* Two DEBUG lines naming different factor-2 output files must be a
+     C* hard parse error (manual: "the same output file name must appear
+     C* in factor 2 for all DEBUG statements in a program").
+     H        1
+     FDBGOUT  O   F    80              DISK
+     FDBGOUT3 O   F    80              DISK
+     C                     DEBUGDBGOUT
+     C                     DEBUGDBGOUT3

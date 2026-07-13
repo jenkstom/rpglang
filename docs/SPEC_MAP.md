@@ -505,6 +505,56 @@ behavior (still a hard compile error, E8) — a genuinely larger, distinct
 feature from `KEYBORD`/`CRT` that Chapter 10 also covers but this project
 does not implement.
 
+**Chapter 27: DEBUG and FORCE.** Two small, otherwise-unrelated opcodes
+grouped here only because each is too small to warrant its own section.
+
+`DEBUG` is gated by H-spec col 15 (`1` = active; blank = the opcode line
+and its conditioning indicators are treated as an ordinary comment, per the
+manual). When active, it writes one fixed-format record to factor 2's
+output file — cols 1–8 `DEBUG = `, cols 9–18 the C-spec's source line
+number (this compiler's own statement-number stand-in), cols 19–26 factor
+1's contents if present (a literal or field, truncated to 8 chars), cols
+29–44 `INDICATORS ON = `, then the 2-digit names of every on general
+indicator (`01`–`99`) starting at col 45, wrapping to further records when
+a name doesn't fit — plus a second record (`FIELD VALUE = ` at cols 1–14,
+then the bytes) when the result field is present, also wrapping across
+records for a long/array value. Both records are built in the runtime
+(`rpg_rt_debug_write`, `runtime/rpg_runtime.c`) by calling the same
+`rpg_rt_line_begin`/`rpg_rt_line_put_str`/`rpg_rt_emit_line` primitives
+ordinary O-spec output uses; the compiler resolves factor 1/the result
+field to `(ptr, length)` bytes via the same helper `KEY`/`SET`'s prompt
+text already uses (`resolve_display_text`, `codegen.cpp`), so a whole
+character array (contiguous bytes) works for free. Scope cut: dumping a
+*numeric* array (as opposed to a plain field or a character array) is a
+hard compile error — the manual allows it, but no per-element numeric
+array formatter exists to reuse for it, and it's a documented-but-obscure
+corner even by the manual's own account. Every `DEBUG` in a program must
+name the same factor-2 file (manual requirement, checked at parse time);
+factor 2 cannot be a `CRT` file (checked once F-specs are available, in
+`main.cpp`). Externally-described files are vacuously exempt from `DEBUG`'s
+own restriction against them, since this compiler has no
+externally-described-file concept at all (`docs/ARCHITECTURE.md`).
+
+`FORCE` overrides which primary/secondary input file the *next* multifile
+cycle reads from, superseding the normal (M1-matching or priority-order)
+selection for exactly one cycle — "the first record processed is always
+selected by the normal method" (manual), so a `FORCE` only ever affects
+the cycle *after* the one it's processed in. Implemented as a single
+per-program "forced file index" global (`forced_file_idx_`,
+`codegen.cpp`): `emit_force` overwrites it unconditionally (so "if more
+than one `FORCE` is processed in the same cycle, all but the last are
+ignored" falls out for free), and the multifile cycle's selection step
+(`generate_multifile_cycle`'s `cycle.head`) checks it first, ahead of the
+normal E3/selection walk — if set *and* that file's hold buffer still has
+a record, it's selected outright and the latch is consumed; otherwise
+(including "no `FORCE` pending") normal selection runs unchanged. `FORCE`
+requires an actual multifile cycle (a primary plus at least one secondary
+input file) — meaningless without one, hence a hard error outside that
+shape — and cannot target a `KEYBORD` or `WORKSTN` file (checked in
+`main.cpp` once F-specs are available). "`FORCE` should not be specified
+at total time" is the manual's own recommendation, not a hard rule, so
+it's a parse-time warning, not an error.
+
 ## Indicators
 
 - General: `01`–`99`

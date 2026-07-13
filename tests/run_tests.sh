@@ -706,6 +706,40 @@ expect_compile_fail neg_set_erase neg_set_erase.rpg
 # KEY with no KEYBORD file declared in the program.
 expect_compile_fail neg_key_no_keybord neg_key_no_keybord.rpg
 
+# --- Chapter 27: DEBUG and FORCE -------------------------------------------
+hr; echo "Chapter 27: DEBUG and FORCE"; hr
+# FORCE: a primary NBR field controls how many secondary reads FORCE routes
+# to the next cycle. If FORCE works, the forced secondary read lands
+# strictly between the two primary records and RPGRET is set to 1; if FORCE
+# is a no-op, normal no-match-field selection drains both primary records
+# back-to-back first and RPGRET stays 0.
+run_cycle_test force_basic 1 force_basic.rpg
+# FORCE cannot target a KEYBORD or WORKSTN file.
+expect_compile_fail neg_force_workstn neg_force_workstn.rpg
+# DEBUG: H-spec col 15 = '1' enables DEBUG; one DEBUG with a factor 1 label
+# and a result field writes both records (indicator list + field value) to
+# the named output file.
+run_out_test debug_basic debug_basic.rpg DBGOUT \
+    'grep -q "DEBUG = " "$ROOT/tests/DBGOUT" && grep -q "INDICATORS ON = " "$ROOT/tests/DBGOUT" && grep -q "FIELD VALUE = " "$ROOT/tests/DBGOUT"'
+# DEBUG: H-spec col 15 blank -- the DEBUG line (and its conditioning
+# indicators) is silently inert, same output as if the line didn't exist --
+# DBGOUT2 is never even opened (no truncated/empty file left behind).
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_debug_disabled "$ROOT/tests/debug_disabled.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_debug_disabled ]]; then
+    ( cd "$ROOT/tests" && rm -f DBGOUT2 && /tmp/rpgc_debug_disabled >/dev/null 2>&1 )
+    if [[ ! -f "$ROOT/tests/DBGOUT2" ]]; then
+        ok "debug_disabled: DBGOUT2 never opened (DEBUG treated as a comment)"
+    else
+        bad "debug_disabled: DBGOUT2 should not have been created"; cat "$ROOT/tests/DBGOUT2"
+    fi
+    rm -f "$ROOT/tests/DBGOUT2" /tmp/rpgc_debug_disabled
+else
+    bad "debug_disabled: did not compile"
+fi
+# DEBUG: every DEBUG statement in a program must name the same factor-2
+# output file.
+expect_compile_fail neg_debug_multifile neg_debug_multifile.rpg
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

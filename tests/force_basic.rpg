@@ -1,0 +1,27 @@
+     C* FORCE (Chapter 27): self-authored equivalent of the manual's own
+     C* Figure 298 (a primary NBR field controls how many secondary records
+     C* FORCE routes to the next cycle; the manual's own worked example is
+     C* garbled beyond reliable reconstruction in this project's OCR'd copy
+     C* of the source, docs/ref/manual_text.txt). Primary FPRIM has 2 records:
+     C* NBR=1 then NBR=0. Secondary FSEC has 2 records (values unused).
+     C*
+     C* If FORCE works, the single secondary read it forces lands strictly
+     C* between the two primary records (PCNT==1 at that moment) -- ind60
+     C* fires and sets RPGRET=1. Without FORCE, normal no-match-field
+     C* selection always re-picks the still-available primary (priority 0)
+     C* first, so both primary records are read back-to-back before any
+     C* secondary record is ever touched; PCNT is already 2 by the time a
+     C* secondary record is seen, ind60 never fires, and RPGRET stays 0.
+     FFPRIM   IP  F    80              DISK
+     FFSEC    IS  F    80              DISK
+     IFPRIM       01
+     I                                     1   2   0NBR
+     IFSEC        02
+     I                                     1   2   0SVAL
+     C  01                 ADD  1         PCNT
+     C  01                 Z-ADDNBR       CNT
+     C  02       PCNT      COMP 1                        60
+     C  60                 Z-ADD1         RPGRET
+     C           CNT       COMP 0                    81
+     C  81                 FORCEFSEC
+     C  N81                FORCEFPRIM

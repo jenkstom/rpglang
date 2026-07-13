@@ -110,6 +110,11 @@ enum class Op {
             // to three function keys (cols 54-59) on the KEYBORD file; the
             // ERASE form (CONSOLE) is parsed but not implemented (CONSOLE
             // itself is unsupported, see fspec.cpp's E8)
+    // Chapter 27: DEBUG and FORCE.
+    DEBUG,  // write indicator-state/field-value diagnostic records to
+            // factor 2's output file; gated on H-spec col 15 (debug_enabled)
+    FORCE,  // override which primary/secondary/update input file (factor 2)
+            // the *next* program cycle reads from
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks

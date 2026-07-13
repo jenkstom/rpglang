@@ -354,14 +354,6 @@ DOCS = [
         "category": "Internals & design",
         "icon": "⚙",
     },
-    {
-        "title": "Plan: Miscellaneous Opcodes",
-        "src": "MISC_OPCODES_PLAN.md",
-        "slug": "plan-misc-opcodes",
-        "blurb": "Design status for the remaining miscellaneous C-spec opcodes (not yet implemented).",
-        "category": "Unimplemented-feature plans",
-        "icon": "☐",
-    },
 ]
 
 # Map of source-relative link targets -> site-relative URLs, applied to every
@@ -376,7 +368,6 @@ LINK_REWRITES = {
     "docs/man/rpgc.1": "man/rpgc.html",
     "docs/man/rpg-analyze.1": "man/rpg-analyze.html",
     "TOOLS_IDEAS.md": "analyzer-design.html",
-    "MISC_OPCODES_PLAN.md": "plan-misc-opcodes.html",
     # groff emits ".1.html" cross-reference links; normalise them.
     "rpgc.1.html": "rpgc.html",
     "rpg-analyze.1.html": "rpg-analyze.html",

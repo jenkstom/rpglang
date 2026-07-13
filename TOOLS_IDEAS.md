@@ -267,8 +267,8 @@ unreachable blocks, and files opened-but-unused.
 
 **Answers:** "Will this program compile under *this* compiler?"
 **Inputs:** IR (built via the **lenient parse path**, §7.1) + a features descriptor
-derived from `docs/SPEC_MAP.md` and the root-level `*_PLAN.md` documents
-(`MISC_OPCODES_PLAN.md`) covering the remaining unimplemented features.
+derived from `docs/SPEC_MAP.md` covering the remaining unimplemented features
+(externally-described files).
 **Outputs:** list of unsupported opcodes, devices, designations, spec types, and
 features the program uses (e.g. WORKSTN, record-address, recursion,
 combined M-keys). Each item cites the spec/line. Because parsing is lenient,

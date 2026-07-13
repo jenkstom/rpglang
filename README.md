@@ -211,9 +211,10 @@ Man pages are installed to `<prefix>/share/man/man1/` and are also available in
   headless (scripted) backend — see `docs/SPEC_MAP.md`'s WORKSTN section
 - KEYBORD/CRT device support: the `KEY`/`SET` operation codes and CRT
   output — see `docs/SPEC_MAP.md`'s "Chapter 10: KEYBORD/CRT" section
+- `DEBUG` (H-spec col 15 gated) and `FORCE` (multifile cycle override) —
+  see `docs/SPEC_MAP.md`'s "Chapter 27: DEBUG and FORCE" section
 
-**Not yet implemented:** the DEBUG operation, externally-described files.
-See the plan document (`MISC_OPCODES_PLAN.md`) for design status.
+**Not yet implemented:** externally-described files.
 
 ## Project layout
 

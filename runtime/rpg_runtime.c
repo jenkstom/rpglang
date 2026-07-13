@@ -1255,6 +1255,68 @@ void rpg_rt_emit_line(int file_id, int space_after) {
     }
 }
 
+/* DEBUG (Chapter 27): see rpg_runtime.h for the record layout. Reuses
+ * line_begin/line_put_str/line_put_num/emit_line so record building goes
+ * through the same byte-placement path as ordinary O-spec output. */
+void rpg_rt_debug_write(int file_id, int reclen, long stmtno,
+                        const char *label, int label_len,
+                        const unsigned char *ind_on, int nind,
+                        const char *field_val, int field_len) {
+    if (file_id < 0) return;
+    if (reclen < 80) reclen = 80;
+
+    /* Record 1: always written. */
+    rpg_rt_line_begin(reclen);
+    rpg_rt_line_put_str("DEBUG = ", 8, 8);
+    rpg_rt_line_put_num(stmtno, 18);
+    if (label && label_len > 0) {
+        int l = label_len > 8 ? 8 : label_len;
+        rpg_rt_line_put_str(label, l, 26);
+    }
+    rpg_rt_line_put_str("INDICATORS ON = ", 16, 44);
+
+    int col = 45;          /* next free 1-based column */
+    int wrote_any = 0;     /* any indicator name placed in the current record */
+    for (int i = 1; i <= nind; ++i) {
+        if (!ind_on[i - 1]) continue;
+        char tok[4];
+        int tn = snprintf(tok, sizeof tok, "%02d", i);
+        int sep = wrote_any ? 1 : 0;
+        if (col + sep + tn - 1 > reclen) {
+            /* Doesn't fit: flush this record and continue the list on a new
+             * one (manual: "more than one record may be needed"). */
+            rpg_rt_emit_line(file_id, 1);
+            rpg_rt_line_begin(reclen);
+            col = 45;
+            sep = 0;
+        }
+        if (sep) { rpg_rt_line_put_str(" ", 1, col + 1); col += 1; }
+        rpg_rt_line_put_str(tok, tn, col + tn);
+        col += tn;
+        wrote_any = 1;
+    }
+    rpg_rt_emit_line(file_id, 1);
+
+    /* Record 2: only when the result field was specified. Wraps across
+     * further records for a value longer than one line's worth of room. */
+    if (field_val && field_len > 0) {
+        int pos = 0, first = 1;
+        while (pos < field_len) {
+            rpg_rt_line_begin(reclen);
+            int lit = first ? 14 : 0;
+            if (first) rpg_rt_line_put_str("FIELD VALUE = ", 14, 14);
+            int avail = reclen - lit;
+            if (avail < 1) avail = 1;
+            int chunk = field_len - pos;
+            if (chunk > avail) chunk = avail;
+            rpg_rt_line_put_str(field_val + pos, chunk, lit + chunk);
+            pos += chunk;
+            rpg_rt_emit_line(file_id, 1);
+            first = 0;
+        }
+    }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Skip and page support (Section D, D13/D14).                                 */
 /*                                                                            */

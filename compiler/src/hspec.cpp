@@ -35,6 +35,8 @@ HSpec parse_hspec(const std::vector<SourceLine> &src) {
         cur.present = true;
         cur.lineno  = sl.lineno;
 
+        cur.debug_enabled = (col_trim(sl.text, 15, 15) == "1");
+
         std::string cs = col(sl.text, 18, 18);
         if (!cs.empty() && cs[0] != ' ') {
             if (is_reserved_currency_char(cs[0])) {

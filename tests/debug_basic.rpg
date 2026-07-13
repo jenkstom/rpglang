@@ -1,0 +1,7 @@
+     C* DEBUG basic test. H-spec col 15 = '1' enables DEBUG. Turns on
+     C* indicator 05, sets VALFLD=123, then DEBUG dumps both to DBGOUT.
+     H        1
+     FDBGOUT  O   F    80              DISK
+     C                     SETON                     05
+     C                     Z-ADD123       VALFLD
+     C           'LBL1'    DEBUGDBGOUT    VALFLD

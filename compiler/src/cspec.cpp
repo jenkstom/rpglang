@@ -198,6 +198,9 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
                         std::isdigit((unsigned char)u[3]) &&
                         std::isdigit((unsigned char)u[4])))
         return Op::SET;
+    // Chapter 27: DEBUG and FORCE.
+    if (u == "DEBUG") return Op::DEBUG;
+    if (u == "FORCE") return Op::FORCE;
     return Op::Unknown;
 }
 
@@ -507,6 +510,65 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
             }
         }
 
+        // Chapter 27: DEBUG. Factor 1 optional (literal/field, <=8 chars, an
+        // identifying label); factor 2 required (the output file); result
+        // optional (a field/array to dump); columns 49-59 must be blank
+        // (manual 106221-106340). The KEYBORD/WORKSTN-style "factor 2 must
+        // name a real, non-CRT output file" cross-check needs the F-specs,
+        // which aren't available here -- done in main.cpp once both are
+        // parsed. "Externally described files are not allowed with DEBUG" is
+        // vacuously satisfied: this compiler has no externally-described-file
+        // concept at all (docs/ARCHITECTURE.md).
+        if (c.op == Op::DEBUG) {
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "DEBUG requires an output file name in factor 2");
+            }
+            if (c.result_len != 0 || c.result_dec != -1 || c.half_adjust ||
+                c.hi.indicator || c.lo.indicator || c.eq.indicator) {
+                report("input", sl.lineno, 49, DiagKind::Error,
+                       "DEBUG columns 49-59 (length/decimals/half-adjust/"
+                       "resulting indicators) must be blank");
+            }
+            if (!c.factor1.empty() && c.factor1.front() == '\'') {
+                std::string lit = c.factor1.substr(1);
+                if (!lit.empty() && lit.back() == '\'') lit.pop_back();
+                if (lit.size() > 8) {
+                    report("input", sl.lineno, 18, DiagKind::Warning,
+                           "DEBUG factor 1 literal is longer than 8 "
+                           "characters; truncated in the output record");
+                }
+            }
+        }
+
+        // Chapter 27: FORCE. Factor 1 and the result field (plus columns
+        // 49-59) must be blank; factor 2 names the file. The "cannot target
+        // a KEYBORD or WORKSTN file" restriction also needs the F-specs --
+        // done in main.cpp alongside DEBUG's cross-check.
+        if (c.op == Op::FORCE) {
+            if (!c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "FORCE factor 1 must be blank");
+            }
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "FORCE requires a file name in factor 2");
+            }
+            if (!c.result.empty() || c.result_len != 0 || c.result_dec != -1 ||
+                c.half_adjust || c.hi.indicator || c.lo.indicator || c.eq.indicator) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "FORCE result field and columns 49-59 must be blank");
+            }
+            // "FORCE should not be specified at total time" is phrased as a
+            // recommendation in the manual, not a hard rule -- a warning,
+            // matching this project's DiagKind severity conventions.
+            if (!c.control_level.empty() && c.control_level != "L0") {
+                report("input", sl.lineno, 7, DiagKind::Warning,
+                       "FORCE should not be specified at total time (manual "
+                       "recommendation)");
+            }
+        }
+
         out.push_back(std::move(c));
     }
 
@@ -566,6 +628,27 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
             report("input", c.lineno, 33, DiagKind::Error,
                    std::string("GOTO may not cross a control-level boundary (")
                    + std::string(1, gk) + " -> " + std::string(1, tk) + ")");
+        }
+    }
+
+    // DEBUG: "The same output file name must appear in factor 2 for all
+    // DEBUG statements in a program" (106221-106340).
+    {
+        std::string dbg_file;
+        int dbg_file_lineno = 0;
+        for (const auto &c : out) {
+            if (c.op != Op::DEBUG || c.factor2.empty()) continue;
+            std::string u2 = upper(c.factor2);
+            if (dbg_file.empty()) {
+                dbg_file = u2;
+                dbg_file_lineno = c.lineno;
+            } else if (dbg_file != u2) {
+                report("input", c.lineno, 33, DiagKind::Error,
+                       "DEBUG factor 2 must name the same output file as "
+                       "every other DEBUG statement in the program (first "
+                       "seen: '" + dbg_file + "' at line " +
+                       std::to_string(dbg_file_lineno) + ")");
+            }
         }
     }
 

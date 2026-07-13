@@ -353,6 +353,7 @@ public:
         // -- left alone when blank so the ~70 existing tests without an
         // H-spec see no behavior change.
         currency_symbol_ = prog.hspec.currency_symbol;
+        debug_enabled_ = prog.hspec.debug_enabled;
         if (!prog.hspec.program_id.empty())
             mod_->setModuleIdentifier(prog.hspec.program_id);
         // Program linkage: the registry key / entry symbol name is the
@@ -1252,6 +1253,129 @@ public:
         }
     }
 
+    /* DEBUG (Chapter 27): write one or two fixed-format diagnostic records to
+     * factor 2's output file -- a no-op unless the H-spec col 15 gate is on
+     * (manual: otherwise the line "and its conditioning indicators are
+     * treated as a comment"; its own conditioning indicators are still
+     * evaluated by the shared emit_spec wrapper, but harmlessly, since
+     * nothing here runs). Factor 1 (optional label) and the result field
+     * (optional field/array dump) both resolve through resolve_display_text,
+     * the same literal/field/whole-char-array text resolution KEY/SET's
+     * prompt text already uses; a bare numeric-array result is the one
+     * documented shape that falls outside what that helper can format (no
+     * per-element decimal formatter reused across a whole array), so it's a
+     * hard error rather than a silently missing record 2. */
+    void emit_debug(const CSpec &c) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i64 = Type::getInt64Ty(ctx);
+        auto *i8  = Type::getInt8Ty(ctx);
+        auto *ptrTy = PointerType::get(ctx, 0);
+
+        if (!debug_enabled_) return;   // H-spec col 15 blank
+        if (c.factor2.empty()) return; // reported in cspec.cpp
+
+        auto it = out_ids_->find(c.factor2);
+        if (it == out_ids_->end()) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "DEBUG factor 2 '" + c.factor2 + "' is not an open output "
+                   "file");
+            return;
+        }
+        Value *fid = it->second;
+
+        int reclen = 80;
+        if (files_)
+            for (const auto &f : *files_)
+                if (f.name == c.factor2) { reclen = f.reclen > 0 ? f.reclen : 80; break; }
+
+        Value *labelPtr, *labelLen;
+        if (!c.factor1.empty()) {
+            labelPtr = resolve_display_text(c.factor1, labelLen);
+        } else {
+            labelPtr = nullptr; labelLen = nullptr;
+        }
+        if (!labelPtr) {
+            labelPtr = builder_.CreateGlobalStringPtr("", "dbg_no_label");
+            labelLen = ConstantInt::get(i32, 0, true);
+        }
+
+        Value *fieldPtr = ConstantPointerNull::get(cast<PointerType>(ptrTy));
+        Value *fieldLen = ConstantInt::get(i32, 0, true);
+        if (!c.result.empty()) {
+            const FieldInfo *fi = syms_.info(c.result);
+            bool bare_numeric_array = fi && fi->kind == FieldKind::Array &&
+                                      !fi->is_char_array && !syms_.is_table(c.result);
+            if (bare_numeric_array) {
+                report("input", c.lineno, 43, DiagKind::Error,
+                       "DEBUG result field '" + c.result + "': dumping a "
+                       "numeric array is not implemented (plain fields and "
+                       "character arrays are supported)");
+            } else {
+                Value *rp = resolve_display_text(c.result, fieldLen);
+                if (rp) fieldPtr = rp;
+                else    fieldLen = ConstantInt::get(i32, 0, true);
+            }
+        }
+
+        // Build a per-call [1..99] on/off byte buffer from the general
+        // indicator globals (an unrolled compile-time loop -- 99 load+store
+        // pairs -- rather than reinterpreting IndicatorEmitter's [100 x i1]
+        // global as raw bytes, which would depend on an ABI packing detail
+        // this compiler doesn't otherwise rely on).
+        Value *indBuf = builder_.CreateAlloca(i8, ConstantInt::get(i32, 99, true),
+                                              "dbg_ind_buf");
+        for (int i = 1; i <= 99; ++i) {
+            Value *on = inds_.load(i);
+            Value *onByte = builder_.CreateZExt(on, i8, "dbg_ind_b");
+            Value *slot = builder_.CreateInBoundsGEP(i8, indBuf,
+                ConstantInt::get(i32, i - 1, true), "dbg_ind_slot");
+            builder_.CreateStore(onByte, slot);
+        }
+
+        if (!debug_write_fn_) {
+            debug_write_fn_ = Function::Create(
+                FunctionType::get(Type::getVoidTy(ctx),
+                    {i32, i32, i64, ptrTy, i32, ptrTy, i32, ptrTy, i32}, false),
+                Function::ExternalLinkage, "rpg_rt_debug_write", mod_.get());
+        }
+        builder_.CreateCall(debug_write_fn_, {
+            fid, ConstantInt::get(i32, reclen, true),
+            ConstantInt::get(i64, (uint64_t)c.lineno, true),
+            labelPtr, labelLen,
+            indBuf, ConstantInt::get(i32, 99, true),
+            fieldPtr, fieldLen});
+    }
+
+    /* FORCE (Chapter 27): override which file the *next* program cycle reads
+     * from. force_file_index_/forced_file_idx_ only exist inside a multifile
+     * cycle (generate_multifile_cycle populates them); outside one, FORCE has
+     * no cycle to affect, hence the hard error. Storing unconditionally into
+     * forced_file_idx_ implements "if more than one FORCE operation is
+     * processed during the same program cycle, all but the last are ignored"
+     * for free -- each new FORCE just overwrites whatever an earlier one in
+     * the same cycle left behind. */
+    void emit_force(const CSpec &c) {
+        using namespace llvm;
+        if (!forced_file_idx_) {
+            report("input", c.lineno, 28, DiagKind::Error,
+                   "FORCE requires a multifile program cycle (a primary "
+                   "input file plus at least one secondary input file)");
+            return;
+        }
+        auto it = force_file_index_.find(c.factor2);
+        if (it == force_file_index_.end()) {
+            report("input", c.lineno, 33, DiagKind::Error,
+                   "FORCE factor 2 '" + c.factor2 + "' does not name the "
+                   "primary input file or one of its secondary input files");
+            return;
+        }
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        builder_.CreateStore(ConstantInt::get(i32, it->second, true),
+                             forced_file_idx_);
+    }
+
     /* Emit prerun-time array/table loads at the current insert point. Each
      * PreRunTime numeric array opens its `from_file` and reads `entries`
      * fixed-width fields into its global; an alternating partner (cols 46-51)
@@ -1963,6 +2087,30 @@ private:
                     ConstantInt::get(i32, oline, true)});
             }
         }
+        // Chapter 27: DEBUG's factor 2 file may have no O-spec lines of its
+        // own at all -- a program can dedicate a file purely to DEBUG
+        // output, with no other output activity -- so the loop above (which
+        // only opens files an O-spec record actually references) would
+        // otherwise never open it. Skipped entirely when H-spec col 15 is
+        // off: DEBUG "is treated as a comment" then, and opening (and thus
+        // truncating) the file would be an observable side effect a truly
+        // absent line would never have.
+        if (!debug_enabled_) return;
+        for (const auto &c : prog.calcs) {
+            if (c.op != Op::DEBUG || c.factor2.empty()) continue;
+            if (out_ids.count(c.factor2)) continue;
+            const FSpec *ofs = nullptr;
+            for (const auto &f : prog.files)
+                if (f.name == c.factor2) { ofs = &f; break; }
+            if (!ofs || ofs->type == FileType::Input) continue;
+            if (ofs->device != Device::Disk && ofs->device != Device::Printer)
+                continue;   // CRT is a parse-time error for DEBUG (main.cpp)
+            Value *onm = builder_.CreateGlobalStringPtr(c.factor2, "dbg_oname");
+            Value *fid = (ofs->type == FileType::Update)
+                ? builder_.CreateCall(open_update_, {onm}, c.factor2 + "_uid")
+                : builder_.CreateCall(open_output_, {onm}, c.factor2 + "_id");
+            out_ids[c.factor2] = fid;
+        }
     }
 
     /* E1: F-spec cols 71-72 external file conditioning (U1-U8). Returns an i1
@@ -2508,6 +2656,15 @@ private:
         for (const auto *s : secs) inputs.push_back(s);
         unsigned nfiles = inputs.size();
 
+        // FORCE (Chapter 27): -1 = no pending override. emit_force (run at
+        // calc time) overwrites this; the selection walk below (cycle.head)
+        // consumes it once per cycle.
+        for (unsigned i = 0; i < nfiles; ++i)
+            force_file_index_[inputs[i]->name] = (int)i;
+        forced_file_idx_ = new GlobalVariable(*mod_, i32, /*isConstant=*/false,
+            GlobalValue::InternalLinkage,
+            ConstantInt::get(i32, -1, true), "rpg_force_idx");
+
         int reclen = pf->reclen > 0 ? pf->reclen : 80;
 
         EntryInfo ei = create_entry_function();
@@ -2815,6 +2972,45 @@ private:
 
         BasicBlock *lrtotal = BasicBlock::Create(c, "lr.total", main);
         BasicBlock *extract = BasicBlock::Create(c, "extract", main);
+
+        // FORCE (Chapter 27): a FORCE processed during the previous cycle
+        // overrides selection outright for this cycle, ahead of both the E3
+        // check and the normal walk below -- but only when the forced
+        // file's hold buffer still has a record; otherwise fall back to
+        // normal selection (manual: "FORCE operations override the
+        // multifile processing method... however, the first record
+        // processed is always selected by the normal method", i.e. FORCE
+        // never invents a record a file doesn't have). This is additive:
+        // when no FORCE is pending, control falls straight through to
+        // `mf_normal_sel` and the rest of the function runs unchanged.
+        BasicBlock *mf_normal_sel = BasicBlock::Create(c, "mf_normal_sel", main);
+        {
+            Value *fidx = builder_.CreateLoad(i32, forced_file_idx_, "forced_idx");
+            Value *isForced = builder_.CreateICmpSGE(fidx,
+                ConstantInt::get(i32, 0, true), "is_forced");
+            BasicBlock *forcedSel = BasicBlock::Create(c, "mf_forced_sel", main);
+            builder_.CreateCondBr(isForced, forcedSel, mf_normal_sel);
+
+            builder_.SetInsertPoint(forcedSel);
+            // Consume the latch now; a FORCE affects exactly one cycle.
+            builder_.CreateStore(ConstantInt::get(i32, -1, true), forced_file_idx_);
+            auto *swf = builder_.CreateSwitch(fidx, mf_normal_sel, nfiles);
+            for (unsigned i = 0; i < nfiles; ++i) {
+                BasicBlock *chk = BasicBlock::Create(c,
+                    "mf_forced_chk_" + std::to_string(i), main);
+                swf->addCase(ConstantInt::get(i32, (int)i), chk);
+                builder_.SetInsertPoint(chk);
+                Value *have = builder_.CreateLoad(Type::getInt1Ty(c), mfs[i].got,
+                                                  mfs[i].spec->name + "_forced_got");
+                BasicBlock *pick = BasicBlock::Create(c,
+                    "mf_forced_pick_" + std::to_string(i), main);
+                builder_.CreateCondBr(have, pick, mf_normal_sel);
+                builder_.SetInsertPoint(pick);
+                builder_.CreateStore(ConstantInt::get(i32, (int)i, true), selAlloca);
+                builder_.CreateBr(extract);
+            }
+        }
+        builder_.SetInsertPoint(mf_normal_sel);
 
         // E3: F-spec col 17 (end-of-file requirement). If any file is marked
         // E ("must reach EOF before the program can end"), the program ends
@@ -4198,6 +4394,8 @@ private:
             case Op::SHTDN: emit_shtdn(c);  return false;
             case Op::KEY:   emit_key(c);    return false;
             case Op::SET:   emit_set(c);    return false;
+            case Op::DEBUG: emit_debug(c);  return false;
+            case Op::FORCE: emit_force(c);  return false;
             case Op::RETRN: {
                 if (in_subroutine_) {
                     report("input", c.lineno, 28, DiagKind::Error,
@@ -6069,6 +6267,20 @@ private:
     // D1: H-spec col 18 currency symbol (default '$'), consulted by
     // emit_edit_word_field for the floating-currency detection (A13).
     char currency_symbol_ = '$';
+    // H-spec col 15 (Chapter 18): true iff DEBUG operations should actually
+    // run; when false, emit_debug is a no-op and every DEBUG line (plus its
+    // conditioning indicators) behaves as a comment, per the manual.
+    bool debug_enabled_ = false;
+    llvm::Function *debug_write_fn_ = nullptr;   // rpg_rt_debug_write
+    // FORCE (Chapter 27): index (into the multifile cycle's `inputs`/`mfs`
+    // priority order, 0 = primary) of the file a FORCE op wants the *next*
+    // cycle to read from; -1 = no pending FORCE. Only created inside
+    // generate_multifile_cycle (FORCE is meaningless without a cycle).
+    llvm::GlobalVariable *forced_file_idx_ = nullptr;
+    // Maps a cycle input file's name to its `inputs`/`mfs` index, so
+    // emit_force can resolve factor 2 without re-deriving the cycle's file
+    // order. Populated once, in generate_multifile_cycle.
+    std::unordered_map<std::string, int> force_file_index_;
 };
 
 } // namespace

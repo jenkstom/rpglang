@@ -136,6 +136,28 @@ void rpg_rt_line_put_num_dec(long value, int end_pos, int decimals);
  * (default 1). Then clears the buffer. */
 void rpg_rt_emit_line(int file_id, int space_after);
 
+/* DEBUG (Chapter 27): build and write the fixed-format DEBUG record(s) to
+ * `file_id` (an already-open output file with record length `reclen`),
+ * reusing the line_begin/line_put_str/emit_line machinery above.
+ *
+ * Record 1 (always written): "DEBUG = " (cols 1-8), the statement number
+ * `stmtno` (cols 9-18), `label` (cols 19-26, factor 1's contents, truncated
+ * to 8 chars; label_len 0 = none), "INDICATORS ON = " (cols 29-44), then the
+ * 2-digit names of every on indicator in `ind_on` (an `nind`-element 0/1
+ * array, index i-1 = indicator i), space-separated starting at col 45,
+ * wrapping to additional records when a name doesn't fit.
+ *
+ * Record 2 (only when field_len > 0): "FIELD VALUE = " (cols 1-14) followed
+ * by `field_val`'s bytes, wrapping across further records (no leading
+ * literal on continuation records) when longer than one line -- this
+ * compiler's own interpretation of the manual's "more than one output
+ * record may be needed to contain the array", which gives no explicit
+ * continuation-record layout. */
+void rpg_rt_debug_write(int file_id, int reclen, long stmtno,
+                        const char *label, int label_len,
+                        const unsigned char *ind_on, int nind,
+                        const char *field_val, int field_len);
+
 /* Skip `file_id`'s output to absolute line `line_no` on the page (Section D,
  * D13). A skip to a line at or before the current position starts a new page
  * (form-feed, page counter incremented). */

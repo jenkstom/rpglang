@@ -1,0 +1,7 @@
+     C* DEBUG disabled test. H-spec col 15 is blank -- the DEBUG line (and
+     C* its conditioning indicators) must be silently inert: no DBGOUT2 file
+     C* is ever opened/written, same as if the line didn't exist.
+     FDBGOUT2 O   F    80              DISK
+     C                     SETON                     05
+     C                     Z-ADD123       VALFLD
+     C           'LBL1'    DEBUGDBGOUT2   VALFLD

@@ -325,6 +325,39 @@ int main(int argc, char **argv) {
         prog.data_structures = std::move(is.data_structures);
         prog.ds_subfields    = std::move(is.ds_subfields);
         prog.calcs      = rpgc::parse_cspecs(src);
+
+        // Chapter 27: FORCE/DEBUG factor-2 device cross-checks. These need
+        // both the C-specs and F-specs, which parse_cspecs() alone doesn't
+        // have access to (fspec.cpp's own device-restriction checks are
+        // done the same way, once both spec lists exist).
+        for (const auto &c : prog.calcs) {
+            if (c.op != rpgc::Op::FORCE || c.factor2.empty()) continue;
+            const rpgc::FSpec *tf = nullptr;
+            for (const auto &f : prog.files)
+                if (f.name == c.factor2) { tf = &f; break; }
+            if (!tf) {
+                rpgc::report("input", c.lineno, 33, rpgc::DiagKind::Error,
+                             "FORCE factor 2 '" + c.factor2 + "' does not "
+                             "name a declared file");
+            } else if (tf->device == rpgc::Device::Keybord ||
+                       tf->device == rpgc::Device::Workstn) {
+                rpgc::report("input", c.lineno, 33, rpgc::DiagKind::Error,
+                             "FORCE cannot target a " + tf->device_text +
+                             " file ('" + c.factor2 + "')");
+            }
+        }
+        for (const auto &c : prog.calcs) {
+            if (c.op != rpgc::Op::DEBUG || c.factor2.empty()) continue;
+            const rpgc::FSpec *tf = nullptr;
+            for (const auto &f : prog.files)
+                if (f.name == c.factor2) { tf = &f; break; }
+            if (tf && tf->device == rpgc::Device::Crt) {
+                rpgc::report("input", c.lineno, 33, rpgc::DiagKind::Error,
+                             "DEBUG factor 2 cannot name a CRT file ('" +
+                             c.factor2 + "')");
+            }
+        }
+
         prog.outputs    = rpgc::parse_ospecs(src);
         prog.arrays     = rpgc::parse_especs(src);
         rpgc::load_compile_time_data(src, prog.arrays);

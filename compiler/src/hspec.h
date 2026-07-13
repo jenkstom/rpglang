@@ -11,7 +11,8 @@
  * specification from the source program, the compiler creates a blank
  * control specification" (manual 68847-68849).
  *
- * Only two columns currently change generated code (see codegen.cpp):
+ * Three columns currently change generated code (see codegen.cpp):
+ *   - col 15 (debug) gates whether DEBUG C-spec lines actually run.
  *   - col 18 (currency symbol) feeds the floating-currency-symbol detection
  *     in rpg_rt_edit_word (previously hardcoded to '$').
  *   - cols 75-80 (program identification) feed the LLVM module identifier
@@ -36,6 +37,8 @@ struct HSpec {
     bool        present = false;        // an H-spec line was actually seen
     int         lineno = 0;
 
+    bool        debug_enabled = false;  // col 15 == '1' (manual 69625-69634);
+                                         // gates the DEBUG operation (codegen.cpp)
     char        currency_symbol = '$';  // col 18 (default '$', manual 69661-69686)
     char        date_format = 0;        // col 19: 'M'/'D'/'Y'/0=blank
     char        date_edit = 0;          // col 20: the date-field separator char, 0=blank(default per date_format)
