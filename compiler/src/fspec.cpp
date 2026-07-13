@@ -24,13 +24,58 @@ std::string upper(std::string s) {
 
 std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
     std::vector<FSpec> out;
+    FSpec *current = nullptr;   // most recently named F-spec line; continuation
+                                 // lines (blank filename, keyword in 54-59) apply here
     for (const auto &sl : src) {
         if (sl.comment) continue;
         if (form_type(sl) != 'F') continue;
 
+        std::string maybe_name = col_trim(sl.text, 7, 14);
+        std::string keyword = upper(col_trim(sl.text, 54, 59));
+
+        // WORKSTN continuation line (manual "Continuation-Line Options for
+        // WORKSTN File"): blank filename, a keyword in cols 54-59, value in
+        // cols 60-65 (60-67 for FMTS, which allows an 8-char name). Applies
+        // to the most recently named F-spec line, same "carries forward"
+        // shape as ospec.cpp's last_file / AND-OR continuation handling.
+        if (maybe_name.empty() && !keyword.empty()) {
+            if (!current) {
+                report("input", sl.lineno, 54, DiagKind::Warning,
+                       "F-spec continuation line with no preceding file "
+                       "(ignored)");
+                continue;
+            }
+            std::string value65 = col_trim(sl.text, 60, 65);
+            std::string value67 = col_trim(sl.text, 60, 67);
+            if (keyword == "NUM") {
+                try { current->num = std::stoi(value65); } catch (...) {}
+            } else if (keyword == "SAVDS") {
+                current->savds = value65;
+            } else if (keyword == "IND") {
+                try { current->ind_count = std::stoi(value65); } catch (...) {}
+            } else if (keyword == "SLN") {
+                current->sln = value65;
+            } else if (keyword == "FMTS") {
+                current->fmts = upper(value67);
+            } else if (keyword == "ID") {
+                current->id_field = value65;
+            } else if (keyword == "INFSR") {
+                current->infsr = value65;
+            } else if (keyword == "INFDS") {
+                current->infds = value65;
+            } else if (keyword == "CFILE") {
+                current->cfile = value65;
+            } else {
+                report("input", sl.lineno, 54, DiagKind::Warning,
+                       "F-spec continuation keyword '" + keyword +
+                       "' is not recognized (ignored)");
+            }
+            continue;
+        }
+
         FSpec f;
         f.lineno = sl.lineno;
-        f.name   = col_trim(sl.text, 7, 14);
+        f.name   = maybe_name;
         if (f.name.empty()) {
             report("input", sl.lineno, 7, DiagKind::Warning,
                    "F-spec with no filename (ignored)");
@@ -110,21 +155,22 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         else if (f.device_text == "CONSOLE")  f.device = Device::Console;
         else                                  f.device = Device::Other;
 
-        // E8: WORKSTN/SPECIAL/CONSOLE devices have no codegen support --
-        // every file open in this compiler (open_input/open_output/
-        // open_update, codegen.cpp) treats the F-spec filename as an
-        // ordinary flat DISK/PRINTER file on Linux, regardless of the
-        // declared device. A WORKSTN/SPECIAL/CONSOLE file compiled without
-        // error would silently try to read/write a plain file named after
-        // the device instead of driving an interactive terminal or a
-        // special device handler. Hard error instead (manual scope cut,
-        // same precedent as EXTK/B6 and record-address files/E5).
-        if (f.device == Device::Workstn || f.device == Device::Special ||
-            f.device == Device::Console) {
+        // E8: SPECIAL/CONSOLE devices have no codegen support -- every file
+        // open in this compiler (open_input/open_output/open_update,
+        // codegen.cpp) treats the F-spec filename as an ordinary flat
+        // DISK/PRINTER file on Linux, regardless of the declared device. A
+        // SPECIAL/CONSOLE file compiled without error would silently try to
+        // read/write a plain file named after the device instead of driving
+        // a special device handler or telecommunications line. Hard error
+        // instead (manual scope cut, same precedent as EXTK/B6 and
+        // record-address files/E5). WORKSTN has real codegen support (see
+        // WORKSTN support in docs/SPEC_MAP.md / docs/ARCHITECTURE.md) and is
+        // exempted below.
+        if (f.device == Device::Special || f.device == Device::Console) {
             report("input", sl.lineno, 40, DiagKind::Error,
                    "F-spec file '" + f.name + "': device '" + f.device_text +
-                   "' is not implemented (only DISK and PRINTER are "
-                   "supported)");
+                   "' is not implemented (only DISK, PRINTER, and WORKSTN "
+                   "are supported)");
         }
 
         // Keyed/random access fields (Section G, G24):
@@ -180,14 +226,21 @@ std::vector<FSpec> parse_fspecs(const std::vector<SourceLine> &src) {
         }
 
         out.push_back(std::move(f));
+        current = &out.back();
     }
     return out;
 }
 
 const FSpec *find_primary_input(const std::vector<FSpec> &fs) {
     for (const auto &f : fs) {
-        // An update file (type U) feeds the cycle like an input primary (G25).
-        if ((f.type == FileType::Input || f.type == FileType::Update)
+        // An update file (type U) feeds the cycle like an input primary
+        // (G25). A combined file (type C) does too -- readable and
+        // writable, same as update, and the manual's own canonical WORKSTN
+        // primary-file declaration uses type C (Figure 58's "CUSTNMBRCP").
+        // Type::Combined was parsed but otherwise unused before WORKSTN
+        // support; DISK combined-primary files benefit from this fix too.
+        if ((f.type == FileType::Input || f.type == FileType::Update ||
+             f.type == FileType::Combined)
             && f.design == FileDesign::Primary) {
             return &f;
         }

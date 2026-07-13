@@ -57,10 +57,21 @@ Col 9/12/15 = `N` (negation) or blank; 10–11/13–14/16–17 = 2-char indicato
 | Device            | 40–46   | DISK / WORKSTN / PRINTER / SPECIAL / ...         |
 | File Condition    | 71–72   | blank / U1–U8 (external indicator)               |
 
-Only `DISK` and `PRINTER` devices are implemented; `WORKSTN`/`SPECIAL`/`CONSOLE`
+`DISK`, `PRINTER`, and `WORKSTN` devices are implemented; `SPECIAL`/`CONSOLE`
 are a hard compile error (E8). Designation `R` (record-address files) is parsed
 into `FileDesign::RecordAddr` but has no codegen support and is also a hard
 compile error (E5) rather than a silently-inert F-spec entry.
+
+**WORKSTN continuation options** (manual "Continuation-Line Options for
+WORKSTN File"): a second physical F-spec line, blank filename, keyword in
+cols 54–59, value in cols 60–65 (60–67 for `FMTS`). `NUM` (max attachable
+devices, default 1), `SAVDS`/`IND` (parsed, not implemented — no MRT/data-area
+swapping, SRT only), `SLN` (parsed, not implemented — no variable start
+line), `FMTS` (the `.dspf` display-format file name, default program-id +
+`FM`), `ID` (2-char field that always holds the last-responding device),
+`INFSR` (parsed, not implemented — no exception/error subroutine dispatch),
+`INFDS` (the file-information DS name, see the I-spec section below),
+`CFILE` (parsed, inert — ICF/telecommunications is a non-goal).
 
 ## I-spec (Input) — form type `I` in col 6
 
@@ -75,6 +86,23 @@ Record-identification line and field-description line share col 6. Field line:
 | Control Level     | 59–60   | L1–L9                            |
 | Matching Fields   | 61–62   | M1–M9                            |
 | Field Indicators  | 65–70   | 65–66 plus, 67–68 minus, 69–70 zero |
+
+**WORKSTN record identification** reuses this same mechanism unchanged: the
+manual's own worked example (Figure 59) identifies a WORKSTN record's type by
+an ordinary record-identification code (cols 21–41) matched against a byte
+the *display format* embeds (a D-spec literal at a fixed buffer position) —
+not a separate "which format was read" lookup. No new I-spec matching code
+was needed for WORKSTN.
+
+**INFDS keyword subfields** (a DS whose name matches an F-spec `INFDS`
+value): a subfield line's cols 44–51 hold a keyword (`*STATUS` 5-digit
+numeric, `*OPCODE` 5-char alphameric, `*RECORD` 8-char alphameric — the
+format name, WRITE only, `*SIZE` 4-digit numeric, `*MODE`/`*INP`/`*OUT`
+2-digit numeric) instead of a numeric From position; cols 53–58 still hold
+the subfield name. Byte offsets are auto-assigned sequentially within the DS
+(there is no real predefined System/36 layout to match — INFDS storage here
+is entirely runtime-backed, not a byte-for-byte port). An ordinary DS may
+still mix in explicit numeric-position subfields alongside keyword ones.
 
 ## O-spec (Output) — form type `O` in col 6
 
@@ -105,6 +133,15 @@ Two line types per file: a **record line** followed by **field lines**.
 | End Position         | 40–43   | rightmost output position (right-justified); blank = pack after previous |
 | Packed/Binary        | 44      | Not implemented (P/B disk-output encoding, manual 88929-88950); not parsed at all, left as an explicit gap (see the "Section C additions" note below) |
 | Constant/Edit Word   | 45–70   | quoted `'...'` constant (field name cols blank)  |
+
+**WORKSTN format-name field line**: `Kn` (n = format-name length) in cols
+40–43 instead of a numeric end position, and the quoted display-format name
+in cols 45–54 (field name cols 32–37 blank). One is required per WORKSTN
+output record line and it cannot be conditioned by any indicators. Every
+other field line under the same record places its value by ordinary byte
+position (cols 40–43), same as PRINTER/DISK output — WORKSTN field
+placement is byte-offset based, not row/column (row/column belong to the
+*display format*, see "Section O additions" below).
 
 Type timing: **H** prints at heading time (headings with 1P print once at
 start); **D** prints once per record at detail time; **T** prints at total time
@@ -149,6 +186,11 @@ start); **D** prints once per record at detail time; **T** prints at total time
 | `SETLL` | required| required(file)| blank | none; position file at first key >= F1 |
 | `READE` | required| required(file)| blank | cols 58-59 EOF/unequal; read next if key == F1 |
 | `READ`  | blank   | required(file)| blank | cols 58-59 EOF; read next (full-procedural/demand) |
+| `ACQ`   | opt(device) | required(WORKSTN file)| blank | cols 56-57 error |
+| `REL`   | required(device)| required(WORKSTN file)| blank | cols 56-57 error |
+| `NEXT`  | required(device)| required(WORKSTN file)| blank | cols 56-57 error (always off — no failure mode) |
+| `POST`  | required(device)| blank   | required(INFDS DS)| cols 56-57 error; cols 33-42/49-55/58-59 must be blank |
+| `SHTDN` | blank   | blank   | blank         | cols 54-55 required; on when shutdown is requested |
 
 Numeric comparisons (`COMP`, `IFxx`, `DOWxx`, `DOUxx`, `CASxx`) align factor 1
 and factor 2 at their implied decimal point before comparing: if the two
@@ -351,6 +393,60 @@ j–r), and anything else is the zero zone. `TESTB` tests the bits named by fact
 bits of a 1-position character field) against the result field: HI if every
 tested bit is off, LO if mixed, EQ if every tested bit is on.
 
+**Section O additions — WORKSTN (display files).** The manual's own
+SDA/S-D-spec display-format tooling has no equivalent in this project, so
+display formats are authored as a separate `.dspf` text file (referenced by
+the F-spec's `FMTS` continuation option, looked up next to the main source
+the same way `/COPY` members are, D3), parsed by `compiler/src/sspec.cpp`
+(format header) and `dspec.cpp` (field lines). A format is an **S-spec**
+header line (col 6 `S`, name cols 7–14, function-key list cols 16–39,
+command-key list cols 41–70, comma-separated) followed by **D-spec** field
+lines (col 6 `D`): usage col 16 (`I`/`O`/`B`), screen row/column cols 18–19/
+21–22, protect col 31, color col 33 (`B`/`R`/`G`/`W`/`T`/`Y`/`P`), reverse
+col 35, blink col 37, buffer From/To cols 44–47/48–51 (same columns as an
+ordinary I-spec field line), decimals col 52, field name cols 53–58 (blank
+= a literal, quoted text from col 60). A field's buffer From/To is what the
+I-spec (reading) and O-spec (writing, via the `Kn` format-name line above)
+address — screen row/column only matters to the runtime backend's
+rendering.
+
+Two runtime backends implement the actual terminal, selected once via the
+`RPG_WORKSTN_MODE` environment variable (`terminal` default, or
+`headless`): **terminal** drives the real controlling tty with ANSI/VT100
+cursor positioning and SGR color/reverse/blink, collecting input fields via
+ordinary line-buffered prompts (not a raw single-keystroke editor — the part
+most likely to need revision after real use); **headless** reads a
+line-oriented script (`RPG_WORKSTN_SCRIPT`: `FORMAT`/`DEVICE`/`FIELD`/`KEY`
+lines per simulated read, `KEY` triggering the read) and dumps each written
+screen to `RPG_WORKSTN_DUMP` (default stdout) — what the regression suite
+(`tests/workstn.rpg`, `tests/workstn_ops.rpg`) drives, since it runs
+non-interactively. Both backends parse the same `.dspf` file independently
+(a small duplicate parser in `runtime/rpg_runtime.c`, since the C runtime
+doesn't link the compiler's C++ frontend).
+
+A WORKSTN primary file drives the implicit cycle exactly like a DISK primary
+(control levels, matching, total/detail ordering, LR handling are all
+unchanged) except for the open (`rpg_rt_ws_open`+`rpg_rt_ws_acquire` instead
+of `rpg_rt_open_input`) and the per-cycle read (`rpg_rt_ws_read` instead of
+`rpg_rt_read_next`), which additionally resets then sets the `KA`-`KY`
+function-key indicators, copies the responding device into the F-spec `ID`
+field if declared, and updates INFDS. `ACQ`/`REL`/`NEXT`/`POST`/`SHTDN` are
+ordinary calc-time operations against any opened WORKSTN file (primary,
+ACQ-acquired secondary devices, or a demand file); `READ` and `EXCPT`/O-spec
+output against a WORKSTN file share this same runtime path. Look-ahead
+(`**`, E19) is not supported for a WORKSTN primary (hard error): there is no
+"next record" to peek at ahead of an operator's input.
+
+Explicitly out of scope: MRT (multiple requester terminal) programs —
+only SRT (single requester terminal) is implemented, so `SAVDS`/`IND` data-
+area/indicator swapping and `SUBR20`/`SUBR21`/`MRTMAX` are parsed-but-inert;
+the INFSR exception/error-processing subroutine (an unhandled command-key
+exception with no resulting indicator is simply not surfaced, rather than
+the manual's "program halts"); DBCS; a variable start line (`SLN`); and a
+real 5250 protocol (the terminal backend is a Linux tty standing in for the
+display station, same porting-decision category as the DISK "record format"
+note in `docs/ARCHITECTURE.md`).
+
 ## Indicators
 
 - General: `01`–`99`
@@ -367,5 +463,8 @@ tested bit is off, LO if mixed, EQ if every tested bit is on.
 
 Internally each special is a dedicated `i1` global: `01`–`99` live in a single
 `[100 x i1]` array (`@rpg_in`), and `LR`, `L1`–`L9`, `1P`, `MR`, `OA`–`OG`, `OV`
-each get their own global. `H1`–`H9`, `U1`–`U8`, and the function-key indicators
-are accepted lexically but carry no behavior yet.
+each get their own global. `H1`–`H9` and `U1`–`U8` are real backing globals
+consulted by conditioning but have no producer that sets them (no HALT
+operation, no external-indicator source). The function-key indicators
+(`KA`–`KY`) are set by a WORKSTN read (Section O): reset to off, then the
+one the operator pressed (if any) turned on.

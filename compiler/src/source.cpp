@@ -75,17 +75,25 @@ std::string upper(std::string s) {
     return s;
 }
 
-/* Resolve a /COPY member name to a file under `base_dir`: the member itself,
- * then MEMBER.rpg, then MEMBER.cpy. Returns "" if none exist. */
-std::string resolve_copy_member(const std::string &base_dir,
-                                const std::string &member) {
+/* Resolve `name` to a file under `base_dir`, trying each suffix in order.
+ * Returns "" if none exist. Shared by /COPY member lookup and the FMTS
+ * display-file lookup (source.h's resolve_display_file). */
+std::string resolve_named_file(const std::string &base_dir, const std::string &name,
+                               std::initializer_list<const char *> suffixes) {
     namespace fs = std::filesystem;
-    for (const char *suffix : {"", ".rpg", ".cpy"}) {
-        fs::path p = fs::path(base_dir) / (member + suffix);
+    for (const char *suffix : suffixes) {
+        fs::path p = fs::path(base_dir) / (name + suffix);
         std::error_code ec;
         if (fs::is_regular_file(p, ec)) return p.string();
     }
     return "";
+}
+
+/* Resolve a /COPY member name to a file under `base_dir`: the member itself,
+ * then MEMBER.rpg, then MEMBER.cpy. Returns "" if none exist. */
+std::string resolve_copy_member(const std::string &base_dir,
+                                const std::string &member) {
+    return resolve_named_file(base_dir, member, {"", ".rpg", ".cpy"});
 }
 
 /* Recursively expand /COPY lines into `out`. `chain` guards against a member
@@ -167,6 +175,10 @@ bool expand_copy_statements(std::vector<SourceLine> &src,
     if (!expand_into(src, base_dir, chain, out)) return false;
     src = std::move(out);
     return true;
+}
+
+std::string resolve_display_file(const std::string &base_dir, const std::string &name) {
+    return resolve_named_file(base_dir, name, {"", ".dspf"});
 }
 
 } // namespace rpgc

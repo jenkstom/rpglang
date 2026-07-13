@@ -487,9 +487,11 @@ run_cycle_test rrn_i 33  rrn_i.rpg
 # holds 10,20,30 packed-decimal (not zoned ASCII); XFOOT must decode it
 # correctly to sum to 60, not garbage from a zoned-ASCII misread.
 run_cycle_test packed_prerun 60  packed_prerun.rpg
-# E8: F-spec device WORKSTN/SPECIAL/CONSOLE has no codegen support -- a hard
-# compile error instead of silently treating the device name as a flat file.
-expect_compile_fail neg_workstn neg_workstn.rpg
+# E8: F-spec device SPECIAL/CONSOLE has no codegen support -- a hard compile
+# error instead of silently treating the device name as a flat file. WORKSTN
+# now has real codegen support -- see Section O (neg_workstn.rpg is now a
+# positive compile check there; neg_special.rpg/neg_console.rpg cover the
+# still-unimplemented devices).
 
 # --- Section M: TODO Group F O-spec gaps --------------------------------------
 hr; echo "Section M: O-spec AND/OR continuation, fetch overflow/release"; hr
@@ -590,6 +592,61 @@ else
     bad "exit_rlabl: did not compile/link"
 fi
 rm -f /tmp/rpgc_exit.o /tmp/rpgc_exit_stub.o /tmp/rpgc_exit_bin
+
+
+# --- Section O: WORKSTN (display files) ---------------------------------------
+hr; echo "Section O: WORKSTN (display files)"; hr
+# W1-W6: WORKSTN primary-file cycle. FWSFILE (workstn.rpg) opens WSFORM.dspf
+# (W2), acquires the default device (implicit cycle open, W6), and reads two
+# headless-scripted records; record-ID selection (E17, reused unchanged --
+# WORKSTN identifies a record exactly like DISK does, via a byte pattern the
+# display format embeds, not a separate mechanism -- see
+# docs/ARCHITECTURE.md) and the I-spec field extract behave like any other
+# cycle. RPGRET accumulates 1 per cycle; the headless script runs out after
+# 2 records, so rpg_rt_ws_read returns EOF and the ordinary LR path fires,
+# exit 2. The O-spec format-name (Kn) output line (W4) echoes NAME back
+# through rpg_rt_ws_flush -- the headless dump must show both screens.
+# Not run via run_cycle_test: that helper cd's into tests/ before running,
+# which would break the FMTS path baked in relative to the compile-time cwd.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_workstn "$ROOT/tests/workstn.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_workstn ]]; then
+    ( cd "$ROOT" && RPG_WORKSTN_MODE=headless \
+        RPG_WORKSTN_SCRIPT="$ROOT/tests/workstn.script" \
+        RPG_WORKSTN_DUMP=/tmp/rpgc_workstn_dump.txt /tmp/rpgc_workstn ); got=$?
+    if [[ "$got" -eq 2 ]] && grep -q "FIELD NAME AAAAAAAAAA" /tmp/rpgc_workstn_dump.txt 2>/dev/null \
+                          && grep -q "FIELD NAME BBBBBBBBBB" /tmp/rpgc_workstn_dump.txt 2>/dev/null; then
+        ok "workstn: headless cycle, exit $got (expected 2), dump echoes both screens"
+    else
+        bad "workstn: exit $got (expected 2), or dump missing expected field echoes"
+    fi
+    rm -f /tmp/rpgc_workstn /tmp/rpgc_workstn_dump.txt
+else
+    bad "workstn: did not compile"
+fi
+# W5: ACQ/POST/REL/SHTDN opcodes and INFDS keyword subfields (workstn_ops.rpg
+# is a demand/linear WORKSTN program, F-spec design D). ACQ attaches device
+# T1; POST fills the WINFDS DS's *SIZE keyword subfield with 1920 (24x80);
+# ZADD copies that DS subfield into RPGRET (proves the INFDS byte layout
+# ispec.cpp assigns and codegen's raw-pointer write via rpg_rt_ws_infds
+# agree); REL and SHTDN run without error. Exit 1920 & 0xFF = 128.
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_workstn_ops "$ROOT/tests/workstn_ops.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_workstn_ops ]]; then
+    ( cd "$ROOT" && /tmp/rpgc_workstn_ops ); got=$?
+    if [[ "$got" -eq 128 ]]; then ok "workstn_ops: ACQ/POST/REL/SHTDN + INFDS, exit $got (expected 128)"
+    else bad "workstn_ops: exit $got (expected 128)"; fi
+    rm -f /tmp/rpgc_workstn_ops
+else
+    bad "workstn_ops: did not compile"
+fi
+# E8 (narrowed, W1): WORKSTN now has real codegen support and must compile,
+# unlike SPECIAL/CONSOLE (still hard compile errors -- neg_workstn.rpg used
+# to be the E8-rejects-WORKSTN negative test; now it's this positive check).
+"$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_neg_workstn "$ROOT/tests/neg_workstn.rpg" >/dev/null 2>&1
+if [[ -x /tmp/rpgc_neg_workstn ]]; then ok "neg_workstn: WORKSTN device compiles (E8 no longer applies to it)"
+else bad "neg_workstn: WORKSTN device should compile now"; fi
+rm -f /tmp/rpgc_neg_workstn
+expect_compile_fail neg_special neg_special.rpg   # E8: SPECIAL still hard-errors
+expect_compile_fail neg_console neg_console.rpg   # E8: CONSOLE still hard-errors
 
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0

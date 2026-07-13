@@ -392,6 +392,8 @@ public:
         // Stash F-specs and I-fields for calc-time file operations (Section G).
         files_ = &prog.files;
         in_fields_ = &prog.in_fields;
+        data_structures_ = &prog.data_structures;
+        ds_subfields_    = &prog.ds_subfields;
         // D2: pre-declare every ordinary I-spec field's storage (idempotent;
         // the extract loop's own get_or_create_field/get_or_create_char_field
         // calls just find these already made) so data-structure redefinition
@@ -708,7 +710,7 @@ public:
      *   2. a character array/table element holding the name (e.g.
      *      `CALL PGMARR,2`)
      *   3. a literal program name -- optionally `LIB/PGM` form, library
-     *      segment ignored, same precedent as WRKSTN_PLAN.md §2's
+     *      segment ignored, same precedent as source.cpp's /COPY
      *      LIBRARY,MEMBER handling
      * The two dynamic forms are resolved at runtime: their current bytes
      * are blank-trimmed, upper-cased, and NUL-terminated into a shared
@@ -906,6 +908,111 @@ public:
         Value *attrsArg = builder_.CreateConstInBoundsGEP2_32(attrArrTy, attrGV, 0, 0);
         builder_.CreateCall(subrFn,
             {parmsArg, attrsArg, ConstantInt::get(i32, (uint32_t)n, true)});
+    }
+
+    /* ACQ (Chapter 27): acquire factor1's device (optional; blank => let the
+     * backend assign one) on factor2's WORKSTN file. Resulting indicator
+     * 56-57 (c.lo) = error. */
+    void emit_acq(const CSpec &c) {
+        using namespace llvm;
+        if (c.factor2.empty()) return;   // reported in cspec.cpp
+        Value *wsId = resolve_ws_id(c.lineno, 33, "ACQ", c.factor2);
+        if (!wsId) return;
+        auto &cctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(cctx);
+        auto *i8  = Type::getInt8Ty(cctx);
+        Value *devArg = c.factor1.empty()
+            ? builder_.CreateGlobalStringPtr("", "acq_dev_blank")
+            : resolve_program_name_arg(c.factor1);
+        Value *outbuf = builder_.CreateAlloca(i8, ConstantInt::get(i32, 3), "acq_outdev");
+        Value *ok = builder_.CreateCall(ws_acquire_fn_, {wsId, devArg, outbuf}, "acq_ok");
+        Value *err = builder_.CreateICmpEQ(ok, ConstantInt::get(i32, 0), "acq_err");
+        if (c.lo.indicator) inds_.store_resolved(c.lo.indicator, err);
+        emit_infds_update(c.factor2, "ACQ", "", ConstantInt::get(i32, 0));
+    }
+
+    /* REL (Chapter 27): release factor1's device from factor2's WORKSTN
+     * file. Resulting indicator 56-57 (c.lo) = error. Releasing the last
+     * attached device on the *primary* file drives EOF+LR naturally (the
+     * next cycle read finds zero devices attached); see W6. */
+    void emit_rel(const CSpec &c) {
+        using namespace llvm;
+        if (c.factor1.empty() || c.factor2.empty()) return;  // reported in cspec.cpp
+        Value *wsId = resolve_ws_id(c.lineno, 33, "REL", c.factor2);
+        if (!wsId) return;
+        auto &cctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(cctx);
+        Value *devArg = resolve_program_name_arg(c.factor1);
+        Value *ok = builder_.CreateCall(ws_release_fn_, {wsId, devArg}, "rel_ok");
+        Value *err = builder_.CreateICmpEQ(ok, ConstantInt::get(i32, 0), "rel_err");
+        if (c.lo.indicator) inds_.store_resolved(c.lo.indicator, err);
+        emit_infds_update(c.factor2, "REL", "", ConstantInt::get(i32, 0));
+    }
+
+    /* NEXT (Chapter 27): force the next read on factor2's WORKSTN file to
+     * come from factor1's device. Resulting indicator 56-57 (c.lo) = error
+     * (this compiler's rpg_rt_ws_next has no failure mode -- an unattached
+     * device is simply ignored -- so c.lo, if given, is always off). */
+    void emit_next(const CSpec &c) {
+        using namespace llvm;
+        if (c.factor1.empty() || c.factor2.empty()) return;  // reported in cspec.cpp
+        Value *wsId = resolve_ws_id(c.lineno, 33, "NEXT", c.factor2);
+        if (!wsId) return;
+        Value *devArg = resolve_program_name_arg(c.factor1);
+        builder_.CreateCall(ws_next_fn_, {wsId, devArg});
+        if (c.lo.indicator)
+            inds_.store_resolved(c.lo.indicator, ConstantInt::getFalse(mod_->getContext()));
+        emit_infds_update(c.factor2, "NEXT", "", ConstantInt::get(Type::getInt32Ty(mod_->getContext()), 0));
+    }
+
+    /* POST (Chapter 27): post *SIZE/*MODE/*INP/*OUT status for factor1's
+     * device into the INFDS DS named in the result field. Resulting
+     * indicator 56-57 (c.lo) = error (device not attached). */
+    void emit_post(const CSpec &c) {
+        using namespace llvm;
+        if (c.factor1.empty() || c.result.empty()) return;   // reported in cspec.cpp
+        // POST's factor2 is always blank (cspec.cpp enforces this), so the
+        // WORKSTN file is identified by which file declares `c.result` as
+        // its INFDS -- scan files_ for the match.
+        const FSpec *fs = nullptr;
+        if (files_)
+            for (const auto &f : *files_)
+                if (upper_trim(f.infds) == upper_trim(c.result)) { fs = &f; break; }
+        if (!fs) {
+            report("input", c.lineno, 43, DiagKind::Error,
+                   "POST result field '" + c.result + "' does not name any "
+                   "WORKSTN file's INFDS data structure");
+            return;
+        }
+        Value *wsId = resolve_ws_id(c.lineno, 43, "POST", fs->name);
+        if (!wsId) return;
+        auto &cctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(cctx);
+        Value *devArg = resolve_program_name_arg(c.factor1);
+        Value *sizeA = builder_.CreateAlloca(i32, nullptr, "post_size");
+        Value *modeA = builder_.CreateAlloca(i32, nullptr, "post_mode");
+        Value *inpA  = builder_.CreateAlloca(i32, nullptr, "post_inp");
+        Value *outA  = builder_.CreateAlloca(i32, nullptr, "post_out");
+        Value *ok = builder_.CreateCall(ws_post_fn_,
+            {wsId, devArg, sizeA, modeA, inpA, outA}, "post_ok");
+        Value *err = builder_.CreateICmpEQ(ok, ConstantInt::get(i32, 0), "post_err");
+        if (c.lo.indicator) inds_.store_resolved(c.lo.indicator, err);
+        emit_infds_post(fs->name,
+            builder_.CreateLoad(i32, sizeA, "post_size_v"),
+            builder_.CreateLoad(i32, modeA, "post_mode_v"),
+            builder_.CreateLoad(i32, inpA, "post_inp_v"),
+            builder_.CreateLoad(i32, outA, "post_out_v"));
+    }
+
+    /* SHTDN (Chapter 27): turn on the resulting indicator (cols 54-55) if
+     * the system operator has requested shutdown. */
+    void emit_shtdn(const CSpec &c) {
+        using namespace llvm;
+        if (!c.hi.indicator) return;   // reported in cspec.cpp
+        auto *i32 = Type::getInt32Ty(mod_->getContext());
+        Value *v = builder_.CreateCall(ws_shtdn_fn_, {}, "shtdn_v");
+        Value *on = builder_.CreateICmpNE(v, ConstantInt::get(i32, 0), "shtdn_on");
+        inds_.store_resolved(c.hi.indicator, on);
     }
 
     /* Emit prerun-time array/table loads at the current insert point. Each
@@ -1198,6 +1305,37 @@ private:
         field_to_cstr_fn_ = Function::Create(
             FunctionType::get(i32, {ptr, i32, ptr, i32}, false),
             Function::ExternalLinkage, "rpg_rt_field_to_cstr", mod_.get());
+
+        // W5/W6: WORKSTN (Chapter 7).
+        ws_open_fn_ = Function::Create(
+            FunctionType::get(i32, {ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_open", mod_.get());
+        ws_acquire_fn_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_acquire", mod_.get());
+        ws_release_fn_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_release", mod_.get());
+        ws_next_fn_ = Function::Create(
+            FunctionType::get(voidTy, {i32, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_next", mod_.get());
+        ws_read_fn_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr, i32, ptr, ptr, ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_read", mod_.get());
+        ws_flush_fn_ = Function::Create(
+            FunctionType::get(voidTy, {i32, ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_flush", mod_.get());
+        ws_post_fn_ = Function::Create(
+            FunctionType::get(i32, {i32, ptr, ptr, ptr, ptr, ptr}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_post", mod_.get());
+        ws_shtdn_fn_ = Function::Create(
+            FunctionType::get(i32, {}, false),
+            Function::ExternalLinkage, "rpg_rt_ws_shtdn", mod_.get());
+        ws_infds_fn_ = Function::Create(
+            FunctionType::get(voidTy,
+                {ptr, ptr, ptr, ptr, ptr, ptr, ptr, i32, ptr, ptr, i32, i32, i32, i32},
+                false),
+            Function::ExternalLinkage, "rpg_rt_ws_infds", mod_.get());
     }
 
     /* D2: pre-declare every ordinary I-spec field's storage up front (see the
@@ -1239,13 +1377,14 @@ private:
         using namespace llvm;
         for (size_t i = 0; i < prog.data_structures.size(); ++i) {
             const ISpecDS &ds = prog.data_structures[i];
-            if (ds.is_lda) {
-                rpgc::error("data structure '" + ds.name + "' (line " +
-                            std::to_string(ds.lineno) + "): local data areas "
-                            "(H-spec col 18 'U') are WORKSTN/display-station "
-                            "specific and are not implemented");
-                continue;
-            }
+            // W3: a local data area (I-spec col 18 'U') is backed by an
+            // ordinary global buffer, same as any other DS below. Real
+            // System/36 RPG swaps a fresh copy per attached display station;
+            // this project implements SRT (single requester terminal)
+            // programs only (see WORKSTN support notes in
+            // docs/ARCHITECTURE.md), where there is exactly one device, so
+            // "per device" storage degenerates to "per program" -- no
+            // special-casing needed here at all.
             int max_to = 0;
             for (const auto &sf : prog.ds_subfields)
                 if (sf.ds_index == (int)i) max_to = std::max(max_to, sf.to);
@@ -1529,6 +1668,15 @@ private:
             for (const auto &f : prog.files)
                 if (f.name == o.file) { ofs = &f; break; }
             if (!ofs || ofs->type == FileType::Input) continue;
+            // W5: col 16 'R' (release device, ospec.cpp) only makes sense
+            // for a WORKSTN file; cross-checked here (not at parse time,
+            // which has no F-spec to consult -- see ospec.cpp's comment).
+            if (o.release_device && ofs->device != Device::Workstn) {
+                rpgc::error("O-spec file '" + o.file + "' (line " +
+                            std::to_string(o.lineno) + "): col 16 'R' "
+                            "(release device) requires a WORKSTN file");
+            }
+            if (ofs->device == Device::Workstn) continue;   // opened by open_input_files (W6)
             Value *onm = builder_.CreateGlobalStringPtr(o.file, "oname");
             // Update files (type U) open r+ for in-place rewrite; output files
             // (type O) open w (truncate). (Section G, G25.)
@@ -1620,6 +1768,21 @@ private:
             if (f.name.empty()) continue;
             if (in_ids_.count(f.name)) continue;
             if (is_cycle_file(f.name)) continue;
+            // W6: a non-primary WORKSTN file (e.g. an ACQ-acquired secondary
+            // device file, or a demand WORKSTN file used only via READ/EXCPT)
+            // is opened here too, registered in ws_ids_ rather than in_ids_.
+            // No device is auto-acquired -- the source's own ACQ (or, for a
+            // demand file whose F-spec design already implies attachment,
+            // nothing further) decides that.
+            if (f.device == Device::Workstn) {
+                if (ws_ids_.count(f.name)) continue;
+                Value *fmtsPath = builder_.CreateGlobalStringPtr(f.fmts_path, "wsfmts");
+                Value *progId = builder_.CreateGlobalStringPtr(program_name_, "wsprog");
+                Value *wsId = builder_.CreateCall(ws_open_fn_,
+                    {fmtsPath, progId}, f.name + "_wsid");
+                ws_ids_[f.name] = wsId;
+                continue;
+            }
             // Only DISK input/update files make sense for keyed/random access.
             if (f.device != Device::Disk) continue;
             if (f.type != FileType::Input && f.type != FileType::Update) continue;
@@ -1657,8 +1820,16 @@ private:
 
         const FSpec *pf = find_primary_input(prog.files);
         if (!pf) return generate_linear(prog); // defensive
+        // W6: a WORKSTN primary file drives the cycle's implicit input step
+        // through rpg_rt_ws_open/acquire/read instead of the DISK open/
+        // read_next family. Steps 2, 4-10, 14, 16+ (control levels, matching,
+        // total/detail ordering, LR handling) are unchanged and reused
+        // verbatim below -- only the open (here) and the cycle.head read
+        // (below) differ, per the manual's own Figure 69/70 (only steps 1,
+        // 3, 11-13, 15 differ for a WORKSTN primary).
+        bool pf_is_ws = (pf->device == Device::Workstn);
 
-        int reclen = pf->reclen > 0 ? pf->reclen : 80;
+        int reclen = pf->reclen > 0 ? pf->reclen : (pf_is_ws ? 256 : 80);
 
         // Function + entry block.
         EntryInfo ei = create_entry_function();
@@ -1679,26 +1850,45 @@ private:
             GlobalValue::InternalLinkage,
             ConstantAggregateZero::get(bufTy), "rpg_rec");
 
-        // Open the primary file. The file name comes from the F-spec; the path
-        // is taken to be the literal filename (a Linux file in the cwd). An
-        // update file (type U) opens r+ so records can be rewritten (G25).
-        Value *name = builder_.CreateGlobalStringPtr(pf->name, "fname");
-        Value *fid  = (pf->type == FileType::Update)
-            ? builder_.CreateCall(open_update_, {name}, "file_id")
-            : builder_.CreateCall(open_input_, {name}, "file_id");
-        // set_reclen(fid, reclen)
-        builder_.CreateCall(set_reclen_,
-            {fid, ConstantInt::get(i32, reclen, true)});
-        // For an update primary, also register it in in_ids_ so CHAIN/READ can
-        // target it, and configure its key if declared.
-        if (pf->type == FileType::Update) {
-            in_ids_[pf->name] = fid;
-            // E6: skip set_key for an 'I' (RRN) file -- see open_input_files.
-            if (pf->key_len > 0 && pf->key_start > 0 && pf->addr_type != 'I') {
-                builder_.CreateCall(set_key_, {
-                    fid,
-                    ConstantInt::get(i32, pf->key_start, true),
-                    ConstantInt::get(i32, pf->key_len, true)});
+        Value *fid = nullptr;
+        Value *wsId = nullptr;
+        if (pf_is_ws) {
+            // Open the display file and acquire the default device (SRT:
+            // exactly one requester). fspec.h's NUM/id_field/infsr/infds
+            // continuation options are consulted elsewhere (INFDS wiring,
+            // ID field); NUM (multiple acquired devices) beyond the default
+            // one is only reachable via an explicit ACQ.
+            Value *fmtsPath = builder_.CreateGlobalStringPtr(pf->fmts_path, "wsfmts");
+            Value *progId = builder_.CreateGlobalStringPtr(program_name_, "wsprog");
+            wsId = builder_.CreateCall(ws_open_fn_, {fmtsPath, progId}, "ws_id");
+            ws_ids_[pf->name] = wsId;
+            Value *blank = builder_.CreateGlobalStringPtr("", "acq_dev_blank");
+            Value *outdev = builder_.CreateAlloca(Type::getInt8Ty(c),
+                ConstantInt::get(i32, 3), "acq_outdev");
+            builder_.CreateCall(ws_acquire_fn_, {wsId, blank, outdev});
+        } else {
+            // Open the primary file. The file name comes from the F-spec; the
+            // path is taken to be the literal filename (a Linux file in the
+            // cwd). An update file (type U) opens r+ so records can be
+            // rewritten (G25).
+            Value *name = builder_.CreateGlobalStringPtr(pf->name, "fname");
+            fid = (pf->type == FileType::Update)
+                ? builder_.CreateCall(open_update_, {name}, "file_id")
+                : builder_.CreateCall(open_input_, {name}, "file_id");
+            // set_reclen(fid, reclen)
+            builder_.CreateCall(set_reclen_,
+                {fid, ConstantInt::get(i32, reclen, true)});
+            // For an update primary, also register it in in_ids_ so CHAIN/READ
+            // can target it, and configure its key if declared.
+            if (pf->type == FileType::Update) {
+                in_ids_[pf->name] = fid;
+                // E6: skip set_key for an 'I' (RRN) file -- see open_input_files.
+                if (pf->key_len > 0 && pf->key_start > 0 && pf->addr_type != 'I') {
+                    builder_.CreateCall(set_key_, {
+                        fid,
+                        ConstantInt::get(i32, pf->key_start, true),
+                        ConstantInt::get(i32, pf->key_len, true)});
+                }
             }
         }
 
@@ -1707,11 +1897,22 @@ private:
         std::unordered_map<std::string, llvm::Value *> out_ids;
         // An update primary is also the write target for its UPDATE records, so
         // pre-register it so open_output_files doesn't open a second stream (G25).
-        if (pf->type == FileType::Update) out_ids[pf->name] = fid;
+        if (!pf_is_ws && pf->type == FileType::Update) out_ids[pf->name] = fid;
         open_output_files(prog, out_ids);
         out_ids_ = &out_ids;
-        // Open keyed/random-access input files (CHAIN/SETLL/READ/READE targets).
+        // Open keyed/random-access input files (CHAIN/SETLL/READ/READE targets)
+        // and any other WORKSTN files (ACQ/REL/NEXT/POST targets).
         open_input_files(prog);
+
+        // W6: WORKSTN has no look-ahead (E19) support -- a demand-read/
+        // display-driven file has no "next record" to peek at ahead of an
+        // operator's input. Loud error rather than silently reading garbage
+        // through the DISK-only peek_next_ path below.
+        if (pf_is_ws && !prog.lookahead_fields.empty()) {
+            rpgc::error("WORKSTN primary file '" + pf->name + "': look-ahead "
+                        "fields (I-spec '**' record type, E19) are not "
+                        "supported for WORKSTN files");
+        }
 
         // First-page pass: emit headings (and 1P-conditioned detail) once at
         // program start, before the cycle begins (D12).
@@ -1783,6 +1984,10 @@ private:
         Value *bufPtr = builder_.CreateConstInBoundsGEP2_32(
             ArrayType::get(Type::getInt8Ty(c), reclen + 1), rec_buf_, 0, 0);
         Value *haveRec = emit_conditioned_bool(main, pf->name, [&]() -> Value* {
+            if (pf_is_ws) {
+                WSReadResult r = emit_ws_read_core(main, pf->name, wsId, bufPtr, reclen);
+                return r.got;
+            }
             Value *got = builder_.CreateCall(read_next_,
                 {fid, bufPtr, ConstantInt::get(i64, reclen + 1, false)}, "got_rec");
             return builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "have_rec");
@@ -1821,7 +2026,8 @@ private:
 
         // Look-ahead fields (E19): peek at the next record and decode the
         // look-ahead fields from it; at EOF the fields are filled with 9s.
-        if (!prog.lookahead_fields.empty()) {
+        // Not supported for a WORKSTN primary (see the diagnostic above).
+        if (!prog.lookahead_fields.empty() && !pf_is_ws) {
             // Look-ahead buffer global (created once).
             if (!la_buf_) {
                 auto *bufTy = ArrayType::get(Type::getInt8Ty(c), reclen + 1);
@@ -2746,11 +2952,21 @@ private:
         auto &c   = mod_->getContext();
         auto *i32 = Type::getInt32Ty(c);
 
-        // Resolve the output file id for this record.
+        // Resolve the output file id for this record. A WORKSTN file's id
+        // (its ws_id) lives in ws_ids_, not out_ids_ -- open_output_files
+        // skips WORKSTN files entirely (W6 opens them instead).
         auto it = out_ids_->find(rec.file);
-        if (it == out_ids_->end()) return prev;   // no output file: skip
-        Value *fid = it->second;
-        cur_out_fid_ = fid;   // visible to PAGE fields (D14)
+        bool is_ws = false;
+        Value *fid;
+        if (it != out_ids_->end()) {
+            fid = it->second;
+        } else {
+            auto wit = ws_ids_.find(rec.file);
+            if (wit == ws_ids_.end()) return prev;   // no output file: skip
+            fid = wit->second;
+            is_ws = true;
+        }
+        if (!is_ws) cur_out_fid_ = fid;   // visible to PAGE fields (D14)
 
         builder_.SetInsertPoint(prev);
         // Conditioning: branch around the line if conditions don't hold.
@@ -2766,6 +2982,60 @@ private:
         builder_.CreateCondBr(cond, dob, nxt);
 
         builder_.SetInsertPoint(dob);
+
+        // W4/W6: WORKSTN output (a format-name O-spec line). Field placement
+        // is byte-offset based, same mechanism as ordinary printer/disk
+        // output (manual confirms this -- row/column belong to the *display
+        // format*, W2) -- build into the shared line buffer, then hand off
+        // via rpg_rt_ws_flush instead of the printer/disk path.
+        if (is_ws) {
+            std::string fmtname;
+            for (const auto &f : rec.fields) if (f.is_format_name) { fmtname = f.text; break; }
+            if (fmtname.empty()) {
+                report("input", rec.lineno, 32, DiagKind::Error,
+                       "WORKSTN output record for file '" + rec.file +
+                       "' has no format-name (Kn) field line");
+                builder_.CreateBr(nxt);
+                builder_.SetInsertPoint(nxt);
+                return nxt;
+            }
+            int width = 256;
+            if (files_)
+                for (const auto &f : *files_)
+                    if (f.name == rec.file) width = f.reclen > 0 ? f.reclen : 256;
+            builder_.CreateCall(line_begin_, {ConstantInt::get(i32, width, true)});
+            for (const auto &f : rec.fields) {
+                if (f.is_format_name) continue;
+                if (f.conditions.empty()) {
+                    emit_one_field(main, f);
+                } else {
+                    Value *fc = eval_conditions(inds_, builder_, f.conditions);
+                    BasicBlock *fdo = BasicBlock::Create(c, "wsfld_do", main);
+                    BasicBlock *fskip = BasicBlock::Create(c, "wsfld_skip", main);
+                    BasicBlock *fafter = BasicBlock::Create(c, "wsfld_after", main);
+                    builder_.CreateCondBr(fc, fdo, fskip);
+                    builder_.SetInsertPoint(fdo);
+                    emit_one_field(main, f);
+                    builder_.CreateBr(fafter);
+                    builder_.SetInsertPoint(fskip);
+                    builder_.CreateBr(fafter);
+                    builder_.SetInsertPoint(fafter);
+                }
+            }
+            Value *fmtStr = builder_.CreateGlobalStringPtr(fmtname, "ws_fmt");
+            Value *nullDev = ConstantPointerNull::get(
+                cast<PointerType>(PointerType::get(c, 0)));
+            builder_.CreateCall(ws_flush_fn_, {fid, fmtStr, nullDev});
+            emit_infds_update(rec.file, "WRITE", fmtname, ConstantInt::get(i32, 0));
+            // F2: col 16 'R' -- release the device after this record is
+            // written (validated as WORKSTN-only in open_output_files).
+            if (rec.release_device)
+                builder_.CreateCall(ws_release_fn_, {fid, nullDev});
+            builder_.CreateBr(nxt);
+            builder_.SetInsertPoint(nxt);
+            return nxt;
+        }
+
         // Disk update/add/delete records (Section G, G25): build the record
         // from its fields into a byte buffer and call the runtime record op,
         // bypassing the printer line path.
@@ -3642,6 +3912,11 @@ private:
             case Op::CALL:  emit_call(c);   return false;
             case Op::EXIT:  emit_exit_op(c); return false;
             case Op::FREE:  emit_free(c);   return false;
+            case Op::ACQ:   emit_acq(c);    return false;
+            case Op::REL:   emit_rel(c);    return false;
+            case Op::NEXT:  emit_next(c);   return false;
+            case Op::POST:  emit_post(c);   return false;
+            case Op::SHTDN: emit_shtdn(c);  return false;
             case Op::RETRN: {
                 if (in_subroutine_) {
                     report("input", c.lineno, 28, DiagKind::Error,
@@ -4426,6 +4701,212 @@ private:
         builder_.CreateStore(i, resolve_result_ptr(c));
     }
 
+    /* ----- WORKSTN (Chapter 7) ----------------------------------------------- */
+
+    /* Resolve the ws_id named in `fname` (set up by open_input_files or
+     * generate_cycle's primary-file open). Reports an error and returns
+     * nullptr if `fname` isn't an opened WORKSTN file. */
+    llvm::Value *resolve_ws_id(int lineno, int col, const std::string &opname,
+                               const std::string &fname) {
+        auto it = ws_ids_.find(fname);
+        if (it == ws_ids_.end()) {
+            report("input", lineno, col, DiagKind::Error,
+                   opname + " file '" + fname + "' is not an open WORKSTN file");
+            return nullptr;
+        }
+        return it->second;
+    }
+
+    /* W3: a raw i8* pointer to an INFDS DS's keyword subfield bytes (see
+     * ispec.h's InfdsKeyword), or nullptr if `infds_name` doesn't name a
+     * declared DS, or that DS has no subfield line for `kw`. Subfield
+     * storage was already created by declare_data_structures (ordinary DS
+     * byte-range views, ds_subfields.infds_kw just says which bytes to
+     * write); this only computes the address. */
+    llvm::Value *infds_subfield_ptr(const std::string &infds_name, InfdsKeyword kw) {
+        using namespace llvm;
+        if (infds_name.empty() || !data_structures_ || !ds_subfields_) return nullptr;
+        int ds_index = -1;
+        std::string want = upper_trim(infds_name);
+        for (size_t i = 0; i < data_structures_->size(); ++i)
+            if (upper_trim((*data_structures_)[i].name) == want) { ds_index = (int)i; break; }
+        if (ds_index < 0) return nullptr;
+        for (const auto &sf : *ds_subfields_) {
+            if (sf.ds_index != ds_index || sf.infds_kw != kw) continue;
+            const FieldInfo *fi = syms_.info(sf.name);
+            if (!fi || !fi->is_ds_field || !fi->ds_base) return nullptr;
+            auto &ctx = mod_->getContext();
+            auto *i8 = Type::getInt8Ty(ctx);
+            auto *i32 = Type::getInt32Ty(ctx);
+            auto *arrTy = ArrayType::get(i8, (unsigned)fi->ds_len);
+            Value *idx[] = {ConstantInt::get(i32, 0),
+                            ConstantInt::get(i32, (unsigned)fi->ds_offset)};
+            return builder_.CreateInBoundsGEP(arrTy, fi->ds_base, idx, "infds_p");
+        }
+        return nullptr;
+    }
+
+    /* Update `fname`'s INFDS (if declared) after an ACQ/REL/NEXT/READ/WRITE
+     * WORKSTN operation: *STATUS = `status_val` (i32 Value), *OPCODE =
+     * `opcode`, *RECORD = `record` (format name, WRITE only). *SIZE/*MODE/
+     * *INP/*OUT are untouched (POST-only, see emit_infds_post). No-op if
+     * `fname` has no INFDS or none of the three subfields are declared. */
+    void emit_infds_update(const std::string &fname, const std::string &opcode,
+                           const std::string &record, llvm::Value *status_val) {
+        using namespace llvm;
+        if (!files_) return;
+        const FSpec *fs = nullptr;
+        for (const auto &f : *files_) if (f.name == fname) { fs = &f; break; }
+        if (!fs || fs->infds.empty()) return;
+        Value *statusP = infds_subfield_ptr(fs->infds, InfdsKeyword::Status);
+        Value *opcodeP = infds_subfield_ptr(fs->infds, InfdsKeyword::Opcode);
+        Value *recordP = infds_subfield_ptr(fs->infds, InfdsKeyword::Record);
+        if (!statusP && !opcodeP && !recordP) return;
+        auto &cctx = mod_->getContext();
+        auto *ptrTy = PointerType::get(cctx, 0);
+        auto *i32 = Type::getInt32Ty(cctx);
+        Value *nullP = ConstantPointerNull::get(cast<PointerType>(ptrTy));
+        Value *zero = ConstantInt::get(i32, 0);
+        builder_.CreateCall(ws_infds_fn_, {
+            statusP ? statusP : nullP, opcodeP ? opcodeP : nullP,
+            recordP ? recordP : nullP, nullP, nullP, nullP, nullP,
+            status_val, builder_.CreateGlobalStringPtr(opcode, "infds_op"),
+            builder_.CreateGlobalStringPtr(record, "infds_rec"),
+            zero, zero, zero, zero});
+    }
+
+    /* POST fills *SIZE/*MODE/*INP/*OUT only (manual); *STATUS/*OPCODE/
+     * *RECORD are left untouched. `sizeV`/`modeV`/`inpV`/`outV` are the i32
+     * values loaded from rpg_rt_ws_post's out-params. */
+    void emit_infds_post(const std::string &fname, llvm::Value *sizeV,
+                         llvm::Value *modeV, llvm::Value *inpV, llvm::Value *outV) {
+        using namespace llvm;
+        if (!files_) return;
+        const FSpec *fs = nullptr;
+        for (const auto &f : *files_) if (f.name == fname) { fs = &f; break; }
+        if (!fs || fs->infds.empty()) return;
+        Value *sizeP = infds_subfield_ptr(fs->infds, InfdsKeyword::Size);
+        Value *modeP = infds_subfield_ptr(fs->infds, InfdsKeyword::Mode);
+        Value *inpP  = infds_subfield_ptr(fs->infds, InfdsKeyword::Inp);
+        Value *outP  = infds_subfield_ptr(fs->infds, InfdsKeyword::Out);
+        if (!sizeP && !modeP && !inpP && !outP) return;
+        auto &cctx = mod_->getContext();
+        auto *ptrTy = PointerType::get(cctx, 0);
+        auto *i32 = Type::getInt32Ty(cctx);
+        Value *nullP = ConstantPointerNull::get(cast<PointerType>(ptrTy));
+        Value *nullStr = ConstantPointerNull::get(cast<PointerType>(ptrTy));
+        builder_.CreateCall(ws_infds_fn_, {
+            nullP, nullP, nullP,
+            sizeP ? sizeP : nullP, modeP ? modeP : nullP,
+            inpP ? inpP : nullP, outP ? outP : nullP,
+            ConstantInt::get(i32, 0), nullStr, nullStr,
+            sizeV, modeV, inpV, outV});
+    }
+
+    struct WSReadResult { llvm::Value *got = nullptr; llvm::Value *cmdkey = nullptr; };
+
+    /* Core WORKSTN read (Chapter 7): calls rpg_rt_ws_read against `wsId`,
+     * filling `bufPtr` (rlen+1 bytes, caller-owned -- either a fresh alloca
+     * for a demand READ, or the cycle's shared rec_buf_ so record-
+     * identification selection sees the real bytes). Resets then sets KA-KY
+     * function-key indicators on a real read (manual: "all function-key
+     * indicators are turned off; then the appropriate one, if any, is
+     * turned on" -- not on EOF), copies the responding device into the
+     * F-spec's ID field if declared, and updates INFDS (*STATUS/
+     * *OPCODE="READ") unconditionally (manual: INFDS is updated for every
+     * READ, including EOF -- `statA` is pre-initialized to status 00011 so
+     * a runtime EOF return, which doesn't touch the out-params, still
+     * reports the right code). Does NOT decode I-spec fields or do record-
+     * identification selection -- the caller does that from `bufPtr` once
+     * `got` is known, so the cycle's own field-record-relation gating
+     * (cols 63-64) and emit_record_selection apply exactly as they do for
+     * an ordinary DISK primary. Shared by the demand READ opcode
+     * (emit_ws_read) and the WORKSTN cycle's own implicit read (W6). Leaves
+     * the builder positioned in the merge block. */
+    WSReadResult emit_ws_read_core(llvm::Function *fn, const std::string &fname,
+                                   llvm::Value *wsId, llvm::Value *bufPtr, int rlen) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        auto *i8  = Type::getInt8Ty(ctx);
+        const FSpec *fs = nullptr;
+        if (files_) for (const auto &f : *files_) if (f.name == fname) { fs = &f; break; }
+
+        Value *devbuf = builder_.CreateAlloca(i8, ConstantInt::get(i32, 3), "wsread_dev");
+        Value *funcA  = builder_.CreateAlloca(i32, nullptr, "wsread_func");
+        Value *cmdA   = builder_.CreateAlloca(i32, nullptr, "wsread_cmd");
+        Value *statA  = builder_.CreateAlloca(i32, nullptr, "wsread_stat");
+        builder_.CreateStore(ConstantInt::get(i32, 0), funcA);
+        builder_.CreateStore(ConstantInt::get(i32, 0), cmdA);
+        builder_.CreateStore(ConstantInt::get(i32, 11), statA);   // EOF default
+
+        Value *got = builder_.CreateCall(ws_read_fn_,
+            {wsId, bufPtr, ConstantInt::get(i32, rlen + 1, true), devbuf, funcA, cmdA, statA},
+            "wsread_got");
+        Value *gotb = builder_.CreateICmpNE(got, ConstantInt::get(i32, 0), "wsread_ok");
+
+        BasicBlock *doDec = BasicBlock::Create(ctx, "wsread_dec", fn);
+        BasicBlock *after = BasicBlock::Create(ctx, "wsread_after", fn);
+        builder_.CreateCondBr(gotb, doDec, after);
+        builder_.SetInsertPoint(doDec);
+        Value *funcV = builder_.CreateLoad(i32, funcA, "wsread_func_v");
+        for (int i = 0; i < 25; ++i) {
+            Value *match = builder_.CreateICmpEQ(funcV, ConstantInt::get(i32, i + 1), "wsread_kmatch");
+            inds_.store_resolved(-38 - i, match);
+        }
+        if (fs && !fs->id_field.empty()) {
+            Value *idfld = syms_.get_or_create_char_field(fs->id_field, 2);
+            auto *arrTy2 = ArrayType::get(i8, 2);
+            Value *idptr = builder_.CreateConstInBoundsGEP2_32(arrTy2,
+                cast<GlobalVariable>(idfld), 0, 0, "id_p");
+            for (int b = 0; b < 2; ++b) {
+                Value *srcp = builder_.CreateInBoundsGEP(i8, devbuf, ConstantInt::get(i32, b), "id_src");
+                Value *v = builder_.CreateLoad(i8, srcp, "id_byte");
+                Value *dstp = builder_.CreateInBoundsGEP(i8, idptr, ConstantInt::get(i32, b), "id_dst");
+                builder_.CreateStore(v, dstp);
+            }
+        }
+        builder_.CreateBr(after);
+        builder_.SetInsertPoint(after);
+
+        Value *statV = builder_.CreateLoad(i32, statA, "wsread_stat_v");
+        Value *cmdV  = builder_.CreateLoad(i32, cmdA,  "wsread_cmd_v");
+        emit_infds_update(fname, "READ", "", statV);
+        return { gotb, cmdV };
+    }
+
+    /* READ against a WORKSTN file (manual 123677-123760): dispatches to
+     * emit_ws_read_core instead of the ordinary demand-file read. Resulting
+     * indicator 56-57 (c.lo) = exception (a command key was pressed, or an
+     * input error); cols 58-59 stays unused for WORKSTN (manual requires it
+     * blank). This compiler does not implement the INFSR exception/error-
+     * processing subroutine (out of this plan's scope, see WRKSTN support
+     * notes in docs/ARCHITECTURE.md) -- an unhandled exception with no c.lo
+     * indicator is simply not surfaced, rather than the manual's "program
+     * halts". */
+    void emit_ws_read(const CSpec &c, llvm::Value *wsId) {
+        using namespace llvm;
+        auto &ctx = mod_->getContext();
+        auto *i32 = Type::getInt32Ty(ctx);
+        Function *fn = builder_.GetInsertBlock()->getParent();
+        int rlen = 256;
+        if (files_) for (const auto &f : *files_) if (f.name == c.factor2) rlen = f.reclen > 0 ? f.reclen : 256;
+        Value *buf = builder_.CreateAlloca(Type::getInt8Ty(ctx),
+            ConstantInt::get(i32, rlen + 1, false), "wsread_buf");
+        WSReadResult r = emit_ws_read_core(fn, c.factor2, wsId, buf, rlen);
+        BasicBlock *doDec = BasicBlock::Create(ctx, "wsread_fdec", fn);
+        BasicBlock *after = BasicBlock::Create(ctx, "wsread_fafter", fn);
+        builder_.CreateCondBr(r.got, doDec, after);
+        builder_.SetInsertPoint(doDec);
+        decode_file_fields(c.factor2, buf, rlen);
+        builder_.CreateBr(after);
+        builder_.SetInsertPoint(after);
+        if (c.lo.indicator) {
+            Value *exc = builder_.CreateICmpNE(r.cmdkey, ConstantInt::get(i32, 0), "wsread_exc");
+            inds_.store_resolved(c.lo.indicator, exc);
+        }
+    }
+
     /* ----- Section G (G24): keyed / random file access --------------------- */
 
     /* Resolve the file id named in `fname` from the input-files map (set up by
@@ -4568,6 +5049,15 @@ private:
      * file's fields; cols 58-59 indicator (c.eq) turns on at EOF. */
     void emit_read(const CSpec &c) {
         using namespace llvm;
+        // W5: a WORKSTN target dispatches to rpg_rt_ws_read instead of the
+        // ordinary demand-file read (manual 123677-123760).
+        if (files_)
+            for (const auto &f : *files_)
+                if (f.name == c.factor2 && f.device == Device::Workstn) {
+                    Value *wsId = resolve_ws_id(c.lineno, 33, "READ", c.factor2);
+                    if (wsId) emit_ws_read(c, wsId);
+                    return;
+                }
         auto &ctx = mod_->getContext();
         auto *i32 = Type::getInt32Ty(ctx);
         auto *i64 = Type::getInt64Ty(ctx);
@@ -5235,6 +5725,24 @@ private:
     static constexpr unsigned kNameScratchLen = 32;
     const std::vector<ParamList> *param_lists_ = nullptr;
     const std::vector<ExitDecl>  *exit_decls_  = nullptr;
+    // W5/W6: WORKSTN (Chapter 7).
+    llvm::Function *ws_open_fn_    = nullptr;
+    llvm::Function *ws_acquire_fn_ = nullptr;
+    llvm::Function *ws_release_fn_ = nullptr;
+    llvm::Function *ws_next_fn_    = nullptr;
+    llvm::Function *ws_read_fn_    = nullptr;
+    llvm::Function *ws_flush_fn_   = nullptr;
+    llvm::Function *ws_post_fn_    = nullptr;
+    llvm::Function *ws_shtdn_fn_   = nullptr;
+    llvm::Function *ws_infds_fn_   = nullptr;
+    // Map of WORKSTN filename -> its ws_id Value (set by open_input_files or
+    // generate_cycle's primary-file open). ACQ/REL/NEXT/POST/READ/EXCPT all
+    // resolve their target file through this, same shape as in_ids_.
+    std::unordered_map<std::string, llvm::Value *> ws_ids_;
+    // Stashed for INFDS keyword-subfield resolution (W3's ISpecSubfield::
+    // infds_kw); set in generate() alongside files_/in_fields_.
+    const std::vector<ISpecDS>       *data_structures_ = nullptr;
+    const std::vector<ISpecSubfield> *ds_subfields_    = nullptr;
     // False for a "library" program compiled alongside others and only
     // reachable via CALL (see main.cpp's multi-file build): its entry
     // function is rpg_prog_<NAME>(void **parm_ptrs, i32 parm_count,

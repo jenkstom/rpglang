@@ -42,6 +42,28 @@ struct FSpec {
     bool        end_required = false; // col 17: file must reach EOF before program can end
     int         cond_ind  = 0;        // cols 71-72: U1-U8 external file-condition indicator
     bool        has_cond  = false;    // true if a conditioning indicator is assigned
+
+    // WORKSTN continuation-line options (manual "Continuation-Line Options
+    // for WORKSTN File", cols 54-59 keyword / 60-65 or 60-67 value). Each is
+    // its own physical F-spec line with a blank filename (cols 7-14) that
+    // applies to the most recently named file -- see parse_fspecs.
+    int         num = 1;              // NUM: max devices attachable at once (<=251)
+    std::string savds;                // SAVDS: DS name swapped per attached device
+    int         ind_count = 0;        // IND: indicator count (01-nn) swapped per device
+    std::string sln;                  // SLN: 2-digit field naming the variable start line
+    std::string fmts;                 // FMTS: display-format file name (W2); default set
+                                       // at parse time to name + "FM" if blank
+    std::string id_field;             // ID: 2-char field holding the responding device ID
+    std::string infsr;                // INFSR: exception/error-processing subroutine name
+    std::string infds;                // INFDS: file-information DS name (see ispec.h)
+    std::string cfile;                // CFILE: ICF communications file (parsed, inert)
+
+    // W2: resolved absolute path of `fmts`'s .dspf file, filled in by
+    // main.cpp after parse_fspecs() once the program-id default (name +
+    // "FM") can be applied and the file can be looked up on disk. Baked into
+    // the generated IR as a literal path, same convention as an ordinary
+    // DISK filename (codegen.cpp's open_input_files).
+    std::string fmts_path;
 };
 
 /* Parse all F-specs. Returns one FSpec per 'F' line. */

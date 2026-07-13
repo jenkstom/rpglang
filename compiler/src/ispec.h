@@ -63,18 +63,37 @@ struct ISpecDS {
     int         lineno = 0;
     std::string name;       // cols 7-12, may be blank (anonymous DS)
     bool        is_lda = false;   // col 18 == 'U': local data area for a
-                                   // display station -- WORKSTN-adjacent,
-                                   // unimplemented (see the WORKSTN scope cut
-                                   // already documented elsewhere); reported
-                                   // as a hard error at codegen time rather
-                                   // than silently ignored.
+                                   // display station (WORKSTN). This project
+                                   // implements SRT (single requester
+                                   // terminal) programs only -- see WORKSTN
+                                   // support notes in docs/ARCHITECTURE.md --
+                                   // so "per device" degenerates to "per
+                                   // program": codegen backs this with one
+                                   // ordinary global buffer, same as any
+                                   // other DS (codegen.cpp's
+                                   // declare_data_structures).
 };
+
+/* W3: which INFDS keyword (manual "Coding the INFDS Data Structure") a
+ * subfield line's cols 44-51 named, if any. None means an ordinary
+ * numeric-position subfield. */
+enum class InfdsKeyword { None, Status, Opcode, Record, Size, Mode, Inp, Out };
 
 /* One subfield line under a data structure statement. `ds_index` identifies
  * the owning ISpecDS by position in ISpecs::data_structures (not by name --
  * a DS statement's name column may be blank, and name-based lookup can't
  * disambiguate two anonymous data structures in the same program). From/To
- * are positions within the data structure, not the input record. */
+ * are positions within the data structure, not the input record.
+ *
+ * W3: an INFDS subfield line names a keyword (*STATUS/*OPCODE/*RECORD/
+ * *SIZE/*MODE/*INP/*OUT) in cols 44-51 instead of a numeric From position
+ * (manual: "columns 44 through 51 must contain a keyword that identifies
+ * the location of the subfields"). This compiler auto-assigns From/To for
+ * keyword subfields sequentially in declaration order within their DS
+ * (there is no real predefined System/36 byte layout to match here, since
+ * INFDS is entirely this project's own runtime-backed data structure, not
+ * a byte-for-byte port) -- ordinary numeric-position subfields keep
+ * whatever position the source gives them, same as always. */
 struct ISpecSubfield {
     int         lineno = 0;
     int         ds_index = -1;
@@ -82,6 +101,7 @@ struct ISpecSubfield {
     int         to   = 0;    // cols 48-51
     int         decimals = -1;   // col 52 (-1 = alphameric)
     std::string name;        // cols 53-58
+    InfdsKeyword infds_kw = InfdsKeyword::None;
 };
 
 struct ISpecs {

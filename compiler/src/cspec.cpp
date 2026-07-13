@@ -181,6 +181,12 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "RLABL")  return Op::RLABL;
     if (u == "RETRN")  return Op::RETRN;
     if (u == "FREE")   return Op::FREE;
+    // W5: WORKSTN device operations.
+    if (u == "ACQ")    return Op::ACQ;
+    if (u == "REL")    return Op::REL;
+    if (u == "NEXT")   return Op::NEXT;
+    if (u == "POST")   return Op::POST;
+    if (u == "SHTDN")  return Op::SHTDN;
     return Op::Unknown;
 }
 
@@ -373,6 +379,67 @@ std::vector<CSpec> parse_cspecs(const std::vector<SourceLine> &src) {
             if (c.factor2.empty()) {
                 report("input", sl.lineno, 33, DiagKind::Error,
                        "FREE requires a program name in factor 2");
+            }
+        }
+
+        // W5: WORKSTN device operations (manual Chapter 27's own tables).
+        if (c.op == Op::ACQ) {
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "ACQ requires a WORKSTN file name in factor 2");
+            }
+        }
+        if (c.op == Op::REL) {
+            if (c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "REL requires a device in factor 1");
+            }
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "REL requires a WORKSTN file name in factor 2");
+            }
+        }
+        if (c.op == Op::NEXT) {
+            if (c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "NEXT requires a device ID in factor 1");
+            }
+            if (c.factor2.empty()) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "NEXT requires a WORKSTN file name in factor 2");
+            }
+        }
+        if (c.op == Op::POST) {
+            if (c.factor1.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "POST requires a device ID in factor 1");
+            }
+            if (c.result.empty()) {
+                report("input", sl.lineno, 43, DiagKind::Error,
+                       "POST requires an INFDS data structure name in the "
+                       "result field");
+            }
+            // Manual: "Columns 33 through 42, 49 through 55, and 58 and 59
+            // must be blank for a POST operation." Cols 56-57 (c.lo) are
+            // excluded on purpose -- that's POST's own error-indicator slot
+            // ("Columns 56 and 57 can specify an indicator that is set on
+            // if an error occurs"), not one of the required-blank ranges.
+            if (!c.factor2.empty() || c.result_len != 0 || c.result_dec != -1 ||
+                c.half_adjust || c.hi.indicator || c.eq.indicator) {
+                report("input", sl.lineno, 33, DiagKind::Error,
+                       "POST factor 2, result length/decimals/half-adjust, "
+                       "column 54-55, and columns 58-59 must be blank");
+            }
+        }
+        if (c.op == Op::SHTDN) {
+            if (!c.factor1.empty() || !c.factor2.empty() || !c.result.empty()) {
+                report("input", sl.lineno, 18, DiagKind::Error,
+                       "SHTDN factor 1, factor 2, and the result field must "
+                       "be blank");
+            }
+            if (c.hi.indicator == 0) {
+                report("input", sl.lineno, 54, DiagKind::Error,
+                       "SHTDN requires a resulting indicator in columns 54-55");
             }
         }
 

@@ -1,4 +1,9 @@
-     C* E8: F-spec device WORKSTN has no codegen support and must
-     C* be a hard compile error, not a silent flat-file miscompile.
-     FWSDATA  IP  F    80              WORKSTN
-     CLR                   SETOF
+     C* E8: F-spec device WORKSTN now has real codegen support
+     C* (W1-W6) and must compile successfully, unlike SPECIAL/CONSOLE
+     C* (still hard errors -- see neg_special.rpg/neg_console.rpg).
+     C* This file used to be the negative E8 test for WORKSTN itself;
+     C* WORKSTN's own regression coverage lives in workstn.rpg and
+     C* workstn_ops.rpg.
+     FWSDATA  IP  F      10            WORKSTN
+     F                                               FMTS  WSFORM
+     C                     SETOF

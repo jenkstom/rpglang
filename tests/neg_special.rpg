@@ -1,0 +1,6 @@
+     C* E8: F-spec device SPECIAL has no codegen support and must
+     C* be a hard compile error, not a silent flat-file miscompile.
+     C* (WORKSTN is exempt from E8 -- see neg_workstn.rpg, now a
+     C* positive WORKSTN test -- but SPECIAL/CONSOLE still hard-error.)
+     FSPDATA  IP  F    80              SPECIAL
+     CLR                   SETOF

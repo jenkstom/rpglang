@@ -21,6 +21,8 @@ add_library(rpgc_parse STATIC
     src/ospec.cpp
     src/espec.cpp
     src/uspec.cpp
+    src/sspec.cpp
+    src/dspec.cpp
 )
 target_include_directories(rpgc_parse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 

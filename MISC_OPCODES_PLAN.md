@@ -93,11 +93,10 @@ blocked; treat it as a contained, Group-C-style opcode addition.
 
 ## 2. `FORCE`
 
-Already correctly scoped as independent by `WRKSTN_PLAN.md` §0 and flagged
-in its §7 as a side-quest "with zero WORKSTN dependency ... a small,
-self-contained DISK-cycle feature ... not sequenced there." This section
-gives it the actual implementation plan `WRKSTN_PLAN.md` deliberately left
-unwritten.
+Correctly scoped as independent of WORKSTN support (now implemented — see
+`docs/SPEC_MAP.md`'s WORKSTN section): a small, self-contained DISK-cycle
+feature with zero WORKSTN dependency. This section gives it the actual
+implementation plan.
 
 **What it does** (111276-111414): overrides which primary/secondary/update
 DISK file the *next* program cycle reads from, superseding the normal

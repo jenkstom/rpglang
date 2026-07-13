@@ -93,6 +93,15 @@ enum class Op {
     RLABL,  // one parameter passed to the preceding EXIT's external subroutine
     RETRN,  // return control to the caller (or end the program if not called)
     FREE,   // drop a called program's "initialized" state (factor2 = name)
+    // W5: WORKSTN device operations (Chapter 27).
+    ACQ,    // acquire factor1's device on factor2's WORKSTN file
+    REL,    // release factor1's device from factor2's WORKSTN file
+    NEXT,   // force the next read on factor2's WORKSTN file to come from
+            // factor1's device
+    POST,   // post *SIZE/*MODE/*INP/*OUT status for factor1's device into
+            // the INFDS DS named in the result field
+    SHTDN,  // turn on the resulting indicator (cols 54-55) if system
+            // shutdown has been requested
 };
 
 /* For IFxx/DOWxx/DOUxx/CASxx, the comparison operator suffix (xx). NONE marks

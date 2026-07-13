@@ -292,6 +292,35 @@ out the rest of the record:
 Numeric fields are decoded as **plain ASCII digits** (`strtol`-style); the
 EBCDIC zoned-decimal sign zone does not apply to ASCII text.
 
+### WORKSTN backend (porting decision)  [WORKSTN support — implemented]
+
+Same category of porting decision as the DISK record format above: the
+manual assumes a real 5250 display station and SDA-authored display formats,
+neither of which exist on Linux. Two pieces stand in for them:
+
+* **Display formats** are authored as a project-specific `.dspf` text file
+  (no DDS/SDA equivalent existed to be compatible with) parsed at compile
+  time by `compiler/src/sspec.cpp`/`dspec.cpp` for validation and reclen
+  computation, and independently at *runtime* by a small duplicate parser in
+  `runtime/rpg_runtime.c` (the C runtime doesn't link the compiler's C++
+  frontend, so it can't share that parser) — both backends need the field
+  layout to know where on screen to render which buffer bytes.
+* **The terminal itself** is a Linux tty driven with ANSI/VT100 escapes
+  (cursor positioning, SGR color/reverse/blink), with a second **headless**
+  backend for the non-interactive test harness (`RPG_WORKSTN_MODE=headless`,
+  a line-oriented script + screen dump, see `docs/SPEC_MAP.md`'s WORKSTN
+  section for the full contract). Backend selection is one environment
+  variable read once at `rpg_rt_ws_open` time — see `runtime/rpg_runtime.h`.
+
+The record-identification mechanism needed **no new code at all**: the
+manual's own worked example (Chapter 7, Figure 59) shows a WORKSTN record's
+type identified by an ordinary record-identification code (I-spec cols
+21–41) matched against a byte the display format itself embeds as a
+literal at a fixed buffer position — exactly `ispec.cpp`'s existing DISK
+mechanism (`eval_record_code_match`/`emit_record_selection`), reused
+unchanged. This was the biggest open design question going in, and turned
+out to not be a new mechanism at all.
+
 ---
 
 ## 5. Data representation  [Phase 2–4]

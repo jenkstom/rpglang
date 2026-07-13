@@ -1,0 +1,10 @@
+     H                                                                    WSTEST
+     FWSFILE  CP  F      10            WORKSTN
+     F                                               FMTS  WSFORM
+     IWSFILE      01
+     I                                        1  10 NAME
+     C                     ADD  1         RPGRET
+     CLR                   SETOF
+     OWSFILE  D
+     O                                 K6   'PROMPT'
+     O                         NAME      10

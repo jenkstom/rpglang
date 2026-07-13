@@ -41,11 +41,13 @@
 #include <llvm/Config/llvm-config.h>
 #include <llvm/Linker/Linker.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -328,6 +330,55 @@ int main(int argc, char **argv) {
         rpgc::load_compile_time_data(src, prog.arrays);
         prog.param_lists = rpgc::group_param_lists(prog.calcs);
         prog.exit_decls  = rpgc::group_exit_decls(prog.calcs);
+
+        // W2: for every WORKSTN file, resolve its FMTS display-format file
+        // (default: program-id + "FM", manual's own default) and parse it.
+        // Done once per file name so two WORKSTN files sharing an FMTS value
+        // don't reparse/re-diagnose the same source twice.
+        {
+            auto slash = input_file.find_last_of('/');
+            std::string base_dir = (slash == std::string::npos)
+                ? std::string(".") : input_file.substr(0, slash);
+            std::string default_id = prog.hspec.program_id.empty()
+                ? std::string("RPGOBJ") : prog.hspec.program_id;
+            std::transform(default_id.begin(), default_id.end(), default_id.begin(),
+                           [](unsigned char c){ return std::toupper(c); });
+            std::unordered_map<std::string, bool> loaded;   // fmts name -> already loaded
+            for (auto &f : prog.files) {
+                if (f.device != rpgc::Device::Workstn) continue;
+                if (f.fmts.empty()) f.fmts = default_id + "FM";
+                if (loaded.count(f.fmts)) {
+                    // Still needs its own resolved path even if already parsed.
+                    for (const auto &other : prog.files)
+                        if (other.fmts == f.fmts && !other.fmts_path.empty()) {
+                            f.fmts_path = other.fmts_path;
+                            break;
+                        }
+                    continue;
+                }
+                loaded[f.fmts] = true;
+                f.fmts_path = rpgc::resolve_display_file(base_dir, f.fmts);
+                if (f.fmts_path.empty()) {
+                    rpgc::report("input", f.lineno, 60, rpgc::DiagKind::Error,
+                                 "F-spec file '" + f.name + "': FMTS display "
+                                 "file '" + f.fmts + "' not found (looked for "
+                                 + f.fmts + ", " + f.fmts + ".dspf in " +
+                                 (base_dir.empty() ? std::string(".") : base_dir) +
+                                 ")");
+                    continue;
+                }
+                std::vector<rpgc::SourceLine> dspf_src;
+                if (!rpgc::load_source(f.fmts_path, dspf_src)) {
+                    rpgc::report("input", f.lineno, 60, rpgc::DiagKind::Error,
+                                 "F-spec file '" + f.name + "': cannot read "
+                                 "FMTS display file '" + f.fmts_path + "'");
+                    continue;
+                }
+                auto fmts = rpgc::parse_display_formats(dspf_src);
+                prog.display_formats.insert(prog.display_formats.end(),
+                                            fmts.begin(), fmts.end());
+            }
+        }
 
         if (opts.verbose) {
             std::cerr << "rpgc: parsed " << input_file << ": "

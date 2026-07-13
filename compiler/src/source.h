@@ -52,6 +52,15 @@ char form_type(const SourceLine &l);
 bool expand_copy_statements(std::vector<SourceLine> &src,
                             const std::string &base_dir);
 
+/* W2: resolve an F-spec FMTS continuation option's display-file name to a
+ * path under `base_dir`. Tries the name itself, then `name + ".dspf"`
+ * (this project's own extension convention -- there is no legacy DDS/SDA
+ * artifact to be compatible with; see WORKSTN support notes in
+ * docs/ARCHITECTURE.md). Same "look up a sibling source file by name"
+ * shape /COPY uses (D3), factored out here so both share one convention.
+ * Returns "" if neither exists. */
+std::string resolve_display_file(const std::string &base_dir, const std::string &name);
+
 } // namespace rpgc
 
 #endif // RPGC_SOURCE_H

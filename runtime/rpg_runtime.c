@@ -16,9 +16,12 @@
 
 #include "rpg_runtime.h"
 
+#include <ctype.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 /* -------------------------------------------------------------------------- */
@@ -1464,4 +1467,592 @@ int rpg_rt_field_to_cstr(const char *field, int len, char *out, int out_cap) {
     }
     if (out_cap > 0) out[n] = '\0';
     return n;
+}
+
+/* -------------------------------------------------------------------------- */
+/* WORKSTN (Chapter 7, "Using a WORKSTN File") -- W5.                         */
+/*                                                                            */
+/* Two backends behind one interface (rpg_runtime.h has the full contract):   */
+/* "terminal" drives the real controlling tty via ANSI/VT100 escapes;         */
+/* "headless" reads a line-oriented script and dumps each written screen,     */
+/* for the non-interactive regression-test harness. Display-format layouts   */
+/* are parsed from the .dspf file at runtime by a small parser mirroring the  */
+/* compiler's own sspec.cpp/dspec.cpp column layout (see docs/SPEC_MAP.md);   */
+/* duplicated rather than shared because the compiler-side parser lives in a  */
+/* C++ static library this plain-C runtime doesn't link against.             */
+/* -------------------------------------------------------------------------- */
+#define WS_MAX_FILES    8
+#define WS_MAX_FORMATS  16
+#define WS_MAX_FIELDS   48
+#define WS_MAX_DEVICES  8
+
+typedef struct {
+    char name[9];       /* blank => literal (see text) */
+    int  usage;          /* 0=Output 1=Input 2=Both */
+    int  row, col;        /* screen position (terminal backend) */
+    int  from, to;        /* 1-based record-buffer byte range */
+    int  decimals;        /* -1 = alphameric */
+    int  protect;
+    char color;
+    int  reverse;
+    int  blink;
+    char text[80];        /* literal text (name blank) */
+} ws_field_t;
+
+typedef struct {
+    char name[9];
+    int  reclen;
+    int  nfields;
+    ws_field_t fields[WS_MAX_FIELDS];
+} ws_format_t;
+
+typedef struct {
+    int  in_use;
+    int  mode;                          /* 0=terminal 1=headless */
+    int  nformats;
+    ws_format_t formats[WS_MAX_FORMATS];
+    int  ndevices;
+    char devices[WS_MAX_DEVICES][3];
+    int  next_device_forced;            /* -1 = none, else index into devices[] */
+    int  last_read_device;              /* -1 = none */
+    char last_written_format[9];
+    FILE *headless_script;
+    FILE *headless_dump;
+} ws_file_t;
+
+static ws_file_t g_ws[WS_MAX_FILES];
+
+static ws_file_t *ws_get(int ws_id) {
+    if (ws_id < 0 || ws_id >= WS_MAX_FILES || !g_ws[ws_id].in_use) return NULL;
+    return &g_ws[ws_id];
+}
+
+/* Extract 1-based inclusive columns [first,last] from `line` (length `len`),
+ * trimmed of surrounding whitespace, into `out` (capacity `outcap`). Mirrors
+ * source.cpp's col_trim() for the compiler-side parser. */
+static void ws_col_trim(const char *line, int len, int first, int last,
+                        char *out, int outcap) {
+    int begin = first - 1, end = last;
+    if (begin < 0) begin = 0;
+    if (end > len) end = len;
+    int n = end - begin;
+    if (n < 0) n = 0;
+    if (n > outcap - 1) n = outcap - 1;
+    if (begin < len && n > 0) memcpy(out, line + begin, (size_t)n);
+    out[n < 0 ? 0 : n] = '\0';
+    /* trim leading */
+    int i = 0;
+    while (out[i] == ' ' || out[i] == '\t') i++;
+    if (i > 0) memmove(out, out + i, strlen(out + i) + 1);
+    /* trim trailing */
+    int m = (int)strlen(out);
+    while (m > 0 && (out[m-1] == ' ' || out[m-1] == '\t')) out[--m] = '\0';
+}
+
+static void ws_upper(char *s) {
+    for (; *s; ++s) if (*s >= 'a' && *s <= 'z') *s = (char)(*s - 'a' + 'A');
+}
+
+/* Parse a .dspf display-format file into `wf`'s format table. Same column
+ * layout as sspec.cpp/dspec.cpp: S-line (col 6) name in 7-14, function/
+ * command key lists in 16-39/41-70 (unused by this runtime -- function-key
+ * *enablement* is a compile-time-only concern here, see WRKSTN_PLAN's W2);
+ * D-line (col 6) usage col 16, row 18-19, col 21-22, protect col 31, color
+ * col 33, reverse col 35, blink col 37, buffer From/To 44-47/48-51, decimals
+ * col 52, name 53-58, literal text (quoted) from col 60 when name is blank. */
+static int ws_load_formats(const char *path, ws_file_t *wf) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+    char raw[512];
+    ws_format_t *cur = NULL;
+    while (fgets(raw, sizeof raw, fp)) {
+        int len = (int)strlen(raw);
+        while (len > 0 && (raw[len-1] == '\n' || raw[len-1] == '\r')) raw[--len] = '\0';
+        if (len < 6) continue;
+        char ft = raw[5];              /* column 6 */
+        if (len >= 7 && raw[6] == '*') continue;   /* comment line */
+        char tmp[80];
+        if (ft == 'S') {
+            if (wf->nformats >= WS_MAX_FORMATS) continue;
+            cur = &wf->formats[wf->nformats++];
+            memset(cur, 0, sizeof *cur);
+            ws_col_trim(raw, len, 7, 14, tmp, sizeof tmp);
+            strncpy(cur->name, tmp, sizeof(cur->name) - 1);
+        } else if (ft == 'D') {
+            if (!cur || cur->nfields >= WS_MAX_FIELDS) continue;
+            ws_field_t *f = &cur->fields[cur->nfields++];
+            memset(f, 0, sizeof *f);
+            ws_col_trim(raw, len, 53, 58, tmp, sizeof tmp);
+            strncpy(f->name, tmp, sizeof(f->name) - 1);
+            ws_col_trim(raw, len, 16, 16, tmp, sizeof tmp); ws_upper(tmp);
+            f->usage = (tmp[0] == 'I') ? 1 : (tmp[0] == 'B') ? 2 : 0;
+            ws_col_trim(raw, len, 18, 19, tmp, sizeof tmp);
+            f->row = tmp[0] ? atoi(tmp) : 1;
+            ws_col_trim(raw, len, 21, 22, tmp, sizeof tmp);
+            f->col = tmp[0] ? atoi(tmp) : 1;
+            ws_col_trim(raw, len, 31, 31, tmp, sizeof tmp); ws_upper(tmp);
+            f->protect = (tmp[0] == 'P');
+            ws_col_trim(raw, len, 33, 33, tmp, sizeof tmp); ws_upper(tmp);
+            f->color = tmp[0];
+            ws_col_trim(raw, len, 35, 35, tmp, sizeof tmp); ws_upper(tmp);
+            f->reverse = (tmp[0] == 'R');
+            ws_col_trim(raw, len, 37, 37, tmp, sizeof tmp); ws_upper(tmp);
+            f->blink = (tmp[0] == 'B');
+            ws_col_trim(raw, len, 44, 47, tmp, sizeof tmp);
+            f->from = tmp[0] ? atoi(tmp) : 0;
+            ws_col_trim(raw, len, 48, 51, tmp, sizeof tmp);
+            f->to = tmp[0] ? atoi(tmp) : 0;
+            if (f->to == 0) f->to = f->from;
+            ws_col_trim(raw, len, 52, 52, tmp, sizeof tmp);
+            f->decimals = (tmp[0] >= '0' && tmp[0] <= '9') ? (tmp[0] - '0') : -1;
+            if (f->name[0] == '\0' && len >= 60) {
+                char lit[128];
+                ws_col_trim(raw, len, 60, len, lit, sizeof lit);
+                int n = (int)strlen(lit);
+                if (n >= 2 && lit[0] == '\'' && lit[n-1] == '\'') {
+                    lit[n-1] = '\0';
+                    memmove(lit, lit + 1, (size_t)n - 1);
+                }
+                strncpy(f->text, lit, sizeof(f->text) - 1);
+                if (f->from == 0) { f->from = 1; f->to = (int)strlen(f->text); }
+            }
+            if (f->to > cur->reclen) cur->reclen = f->to;
+        }
+    }
+    fclose(fp);
+    return 1;
+}
+
+static ws_format_t *ws_find_format(ws_file_t *wf, const char *name) {
+    if (!name) return NULL;
+    for (int i = 0; i < wf->nformats; ++i)
+        if (strcasecmp(wf->formats[i].name, name) == 0) return &wf->formats[i];
+    return NULL;
+}
+
+/* ANSI SGR foreground color for a D-spec color letter (B/R/G/W/T/Y/P), 0 if
+ * unrecognized (caller skips emitting an SGR code). */
+static int ws_color_sgr(char c) {
+    switch (c) {
+        case 'B': return 34;   /* blue */
+        case 'R': return 31;   /* red */
+        case 'G': return 32;   /* green */
+        case 'W': return 37;   /* white */
+        case 'T': return 36;   /* turquoise -> cyan */
+        case 'Y': return 33;   /* yellow */
+        case 'P': return 35;   /* pink -> magenta */
+        default:  return 0;
+    }
+}
+
+static volatile sig_atomic_t g_ws_shtdn_signal = 0;
+static void ws_shtdn_handler(int sig) { (void)sig; g_ws_shtdn_signal = 1; }
+static void ws_install_shtdn_handler(void) {
+    static int installed = 0;
+    if (installed) return;
+    installed = 1;
+    signal(SIGTERM, ws_shtdn_handler);
+    signal(SIGHUP, ws_shtdn_handler);
+}
+
+int rpg_rt_ws_open(const char *fmts_path, const char *program_id) {
+    (void)program_id;
+    int id = -1;
+    for (int i = 0; i < WS_MAX_FILES; ++i) if (!g_ws[i].in_use) { id = i; break; }
+    if (id < 0) {
+        fprintf(stderr, "rpg_rt: too many open WORKSTN files (max %d)\n", WS_MAX_FILES);
+        return -1;
+    }
+    ws_file_t *wf = &g_ws[id];
+    memset(wf, 0, sizeof *wf);
+    if (!ws_load_formats(fmts_path, wf)) {
+        fprintf(stderr, "rpg_rt: cannot read WORKSTN display file '%s'\n", fmts_path);
+        return -1;
+    }
+    const char *modeenv = getenv("RPG_WORKSTN_MODE");
+    wf->mode = (modeenv && strcmp(modeenv, "headless") == 0) ? 1 : 0;
+    wf->last_read_device = -1;
+    wf->next_device_forced = -1;
+    if (wf->mode == 1) {
+        const char *script = getenv("RPG_WORKSTN_SCRIPT");
+        if (!script) {
+            fprintf(stderr, "rpg_rt: RPG_WORKSTN_MODE=headless requires "
+                            "RPG_WORKSTN_SCRIPT\n");
+            return -1;
+        }
+        wf->headless_script = fopen(script, "r");
+        if (!wf->headless_script) {
+            fprintf(stderr, "rpg_rt: cannot open RPG_WORKSTN_SCRIPT '%s'\n", script);
+            return -1;
+        }
+        const char *dump = getenv("RPG_WORKSTN_DUMP");
+        wf->headless_dump = dump ? fopen(dump, "w") : stdout;
+        if (!wf->headless_dump) wf->headless_dump = stdout;
+    } else {
+        ws_install_shtdn_handler();
+    }
+    wf->in_use = 1;
+    return id;
+}
+
+int rpg_rt_ws_acquire(int ws_id, const char *device_id, char *out_device_id) {
+    ws_file_t *wf = ws_get(ws_id);
+    if (!wf) return 0;
+    if (wf->ndevices >= WS_MAX_DEVICES) return 0;
+    char id2[3] = { 0, 0, 0 };
+    if (device_id && device_id[0] && device_id[0] != ' ') {
+        id2[0] = device_id[0];
+        id2[1] = device_id[1] ? device_id[1] : ' ';
+    } else {
+        id2[0] = 'T';
+        id2[1] = (char)('1' + (wf->ndevices % 9));
+    }
+    for (int i = 0; i < wf->ndevices; ++i)
+        if (memcmp(wf->devices[i], id2, 2) == 0) return 0;   /* already attached */
+    memcpy(wf->devices[wf->ndevices], id2, 2);
+    wf->devices[wf->ndevices][2] = '\0';
+    wf->ndevices++;
+    if (out_device_id) { memcpy(out_device_id, id2, 2); out_device_id[2] = '\0'; }
+    return 1;
+}
+
+int rpg_rt_ws_release(int ws_id, const char *device_id) {
+    ws_file_t *wf = ws_get(ws_id);
+    if (!wf) return 0;
+    /* NULL/blank device_id => release the device that supplied the last
+     * input (same default O-spec col 16 'R' relies on -- there is no
+     * factor 1 on an O-spec release, unlike the REL operation code). */
+    if (!device_id || !device_id[0] || device_id[0] == ' ') {
+        if (wf->last_read_device < 0 || wf->last_read_device >= wf->ndevices) return 0;
+        int i = wf->last_read_device;
+        for (int j = i; j < wf->ndevices - 1; ++j) memcpy(wf->devices[j], wf->devices[j+1], 3);
+        wf->ndevices--;
+        wf->last_read_device = -1;
+        return 1;
+    }
+    char id2[3]; id2[0] = device_id[0]; id2[1] = device_id[1] ? device_id[1] : ' '; id2[2] = '\0';
+    for (int i = 0; i < wf->ndevices; ++i) {
+        if (memcmp(wf->devices[i], id2, 2) != 0) continue;
+        for (int j = i; j < wf->ndevices - 1; ++j) memcpy(wf->devices[j], wf->devices[j+1], 3);
+        wf->ndevices--;
+        if (wf->last_read_device == i) wf->last_read_device = -1;
+        else if (wf->last_read_device > i) wf->last_read_device--;
+        return 1;
+    }
+    return 0;
+}
+
+void rpg_rt_ws_next(int ws_id, const char *device_id) {
+    ws_file_t *wf = ws_get(ws_id);
+    if (!wf || !device_id) return;
+    char id2[3]; id2[0] = device_id[0]; id2[1] = device_id[1] ? device_id[1] : ' '; id2[2] = '\0';
+    for (int i = 0; i < wf->ndevices; ++i)
+        if (memcmp(wf->devices[i], id2, 2) == 0) { wf->next_device_forced = i; return; }
+}
+
+/* Map a KEY token ("ENTER", "KA".."KY", or a command-key name) to
+ * (funckey, cmdkey), matching cspec.cpp's KA-KY numbering (KA=1..KY=25) and
+ * the manual's Print/RollUp/RollDown/Clear/Help/Home command-key order
+ * (status codes 01121-01126, so cmdkey N <-> status 1120+N). */
+static void ws_parse_key(const char *tok, int *funckey, int *cmdkey) {
+    *funckey = 0; *cmdkey = 0;
+    if (strcmp(tok, "ENTER") == 0) return;
+    if (tok[0] == 'K' && tok[1] >= 'A' && tok[1] <= 'Y' && tok[2] == '\0') {
+        *funckey = tok[1] - 'A' + 1;
+        return;
+    }
+    if      (strcmp(tok, "PRINT")    == 0) *cmdkey = 1;
+    else if (strcmp(tok, "ROLLUP")   == 0) *cmdkey = 2;
+    else if (strcmp(tok, "ROLLDOWN") == 0) *cmdkey = 3;
+    else if (strcmp(tok, "CLEAR")    == 0) *cmdkey = 4;
+    else if (strcmp(tok, "HELP")     == 0) *cmdkey = 5;
+    else if (strcmp(tok, "HOME")     == 0) *cmdkey = 6;
+}
+
+/* Place `fmt`'s fields (literals always; input/both fields from `values`,
+ * looked up by name) into `buf` (buflen bytes, blank-filled first). Numeric
+ * fields right-justify within their width, matching this runtime's ASCII-
+ * digit convention (rpg_rt_get_decimal). Shared by both backends. */
+static void ws_build_record(ws_format_t *fmt, char *buf, int buflen,
+                            char names[][9], char values[][80], int nvalues) {
+    memset(buf, ' ', (size_t)buflen);
+    if (!fmt) return;
+    for (int i = 0; i < fmt->nfields; ++i) {
+        ws_field_t *f = &fmt->fields[i];
+        int width = f->to - f->from + 1;
+        if (width <= 0 || f->from < 1 || f->from - 1 + width > buflen) continue;
+        if (f->name[0] == '\0') {
+            int tlen = (int)strlen(f->text);
+            int cpy = tlen < width ? tlen : width;
+            memcpy(buf + f->from - 1, f->text, (size_t)cpy);
+        }
+    }
+    for (int k = 0; k < nvalues; ++k) {
+        for (int i = 0; i < fmt->nfields; ++i) {
+            ws_field_t *f = &fmt->fields[i];
+            if (f->name[0] == '\0' || strcasecmp(f->name, names[k]) != 0) continue;
+            int width = f->to - f->from + 1;
+            if (width <= 0 || f->from < 1 || f->from - 1 + width > buflen) break;
+            int vlen = (int)strlen(values[k]);
+            int cpy = vlen < width ? vlen : width;
+            memset(buf + f->from - 1, ' ', (size_t)width);
+            if (f->decimals >= 0) {
+                int pad = width - cpy; if (pad < 0) pad = 0;
+                memcpy(buf + f->from - 1 + pad, values[k], (size_t)cpy);
+            } else {
+                memcpy(buf + f->from - 1, values[k], (size_t)cpy);
+            }
+            break;
+        }
+    }
+}
+
+/* Headless read: consume one script block (FORMAT/DEVICE/FIELD lines up to
+ * a terminating KEY line) from RPG_WORKSTN_SCRIPT. Returns 0 (EOF) once the
+ * script is exhausted. See docs/SPEC_MAP.md for the script grammar. */
+static int ws_read_headless(ws_file_t *wf, char *buf, int buflen,
+                            char *out_device_id, int *out_funckey,
+                            int *out_cmdkey, int *out_status) {
+    if (!wf->headless_script) return 0;
+    char line[256];
+    char fmtname[16] = "";
+    char devid[3] = "";
+    char names[32][9];
+    char values[32][80];
+    int nvalues = 0;
+    int got_key = 0, funckey = 0, cmdkey = 0;
+
+    while (fgets(line, sizeof line, wf->headless_script)) {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0' || *p == '#') continue;
+        char kw[16]; int i = 0;
+        while (p[i] && p[i] != ' ' && p[i] != '\t' && i < 15) { kw[i] = (char)toupper((unsigned char)p[i]); i++; }
+        kw[i] = '\0';
+        char *rest = p + i;
+        while (*rest == ' ' || *rest == '\t') rest++;
+        if (strcmp(kw, "FORMAT") == 0) {
+            strncpy(fmtname, rest, sizeof(fmtname) - 1);
+        } else if (strcmp(kw, "DEVICE") == 0) {
+            devid[0] = rest[0] ? rest[0] : ' ';
+            devid[1] = rest[0] && rest[1] ? rest[1] : ' ';
+            devid[2] = '\0';
+        } else if (strcmp(kw, "FIELD") == 0 && nvalues < 32) {
+            int j = 0;
+            while (rest[j] && rest[j] != ' ' && rest[j] != '\t' && j < 8) { names[nvalues][j] = rest[j]; j++; }
+            names[nvalues][j] = '\0';
+            char *val = rest + j;
+            while (*val == ' ' || *val == '\t') val++;
+            strncpy(values[nvalues], val, 79); values[nvalues][79] = '\0';
+            nvalues++;
+        } else if (strcmp(kw, "KEY") == 0) {
+            char keyname[16]; strncpy(keyname, rest, 15); keyname[15] = '\0';
+            ws_upper(keyname);
+            ws_parse_key(keyname, &funckey, &cmdkey);
+            got_key = 1;
+            break;
+        }
+    }
+    if (!got_key) return 0;
+
+    ws_format_t *fmt = fmtname[0] ? ws_find_format(wf, fmtname)
+                                  : (wf->nformats ? &wf->formats[0] : NULL);
+    ws_build_record(fmt, buf, buflen, names, values, nvalues);
+
+    int devidx = -1;
+    if (devid[0]) {
+        for (int i = 0; i < wf->ndevices; ++i)
+            if (memcmp(wf->devices[i], devid, 2) == 0) devidx = i;
+    } else if (wf->next_device_forced >= 0) {
+        devidx = wf->next_device_forced;
+    } else if (wf->ndevices > 0) {
+        devidx = 0;
+    }
+    wf->next_device_forced = -1;
+    wf->last_read_device = devidx;
+    if (out_device_id) {
+        if (devidx >= 0) { memcpy(out_device_id, wf->devices[devidx], 2); out_device_id[2] = '\0'; }
+        else out_device_id[0] = out_device_id[1] = out_device_id[2] = '\0';
+    }
+    if (out_funckey) *out_funckey = funckey;
+    if (out_cmdkey)  *out_cmdkey  = cmdkey;
+    if (out_status)  *out_status  = cmdkey ? (1120 + cmdkey) : (funckey ? 2 : 0);
+    return 1;
+}
+
+/* Terminal read: render the last-written format via ANSI cursor positioning
+ * and SGR attributes, prompt (line-buffered, not raw single-keystroke -- see
+ * rpg_runtime.h) for each unprotected input/both field, then for a
+ * function/command key name. */
+static int ws_read_terminal(ws_file_t *wf, char *buf, int buflen,
+                            char *out_device_id, int *out_funckey,
+                            int *out_cmdkey, int *out_status) {
+    if (wf->ndevices == 0) return 0;
+    int devidx = wf->next_device_forced >= 0 ? wf->next_device_forced : 0;
+    wf->next_device_forced = -1;
+
+    ws_format_t *fmt = wf->last_written_format[0]
+        ? ws_find_format(wf, wf->last_written_format)
+        : (wf->nformats ? &wf->formats[0] : NULL);
+
+    char names[32][9]; char values[32][80]; int nvalues = 0;
+    if (fmt) {
+        printf("\x1b[2J\x1b[H");
+        for (int i = 0; i < fmt->nfields; ++i) {
+            ws_field_t *f = &fmt->fields[i];
+            printf("\x1b[%d;%dH", f->row, f->col);
+            if (f->reverse) printf("\x1b[7m");
+            if (f->blink) printf("\x1b[5m");
+            int sgr = ws_color_sgr(f->color);
+            if (sgr) printf("\x1b[%dm", sgr);
+            if (f->name[0] == '\0') printf("%s", f->text);
+            printf("\x1b[0m");
+        }
+        printf("\x1b[24;1H\n");
+        fflush(stdout);
+        for (int i = 0; i < fmt->nfields && nvalues < 32; ++i) {
+            ws_field_t *f = &fmt->fields[i];
+            if (f->name[0] == '\0' || f->usage == 0 || f->protect) continue;
+            printf("%s (%d): ", f->name, f->to - f->from + 1);
+            fflush(stdout);
+            char line[128];
+            if (!fgets(line, sizeof line, stdin)) return 0;
+            int n = (int)strlen(line);
+            while (n > 0 && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = '\0';
+            strncpy(names[nvalues], f->name, 8); names[nvalues][8] = '\0';
+            strncpy(values[nvalues], line, 79); values[nvalues][79] = '\0';
+            nvalues++;
+        }
+    }
+    ws_build_record(fmt, buf, buflen, names, values, nvalues);
+
+    printf("key (Enter, KA-KY, PRINT, ROLLUP, ROLLDOWN, CLEAR, HELP, HOME): ");
+    fflush(stdout);
+    char keyline[32] = "";
+    if (!fgets(keyline, sizeof keyline, stdin)) return 0;
+    int n = (int)strlen(keyline);
+    while (n > 0 && (keyline[n-1] == '\n' || keyline[n-1] == '\r')) keyline[--n] = '\0';
+    ws_upper(keyline);
+    int funckey = 0, cmdkey = 0;
+    ws_parse_key(keyline[0] ? keyline : "ENTER", &funckey, &cmdkey);
+
+    wf->last_read_device = devidx;
+    if (out_device_id) { memcpy(out_device_id, wf->devices[devidx], 2); out_device_id[2] = '\0'; }
+    if (out_funckey) *out_funckey = funckey;
+    if (out_cmdkey)  *out_cmdkey  = cmdkey;
+    if (out_status)  *out_status  = cmdkey ? (1120 + cmdkey) : (funckey ? 2 : 0);
+    return 1;
+}
+
+int rpg_rt_ws_read(int ws_id, char *buf, int buflen, char *out_device_id,
+                   int *out_funckey, int *out_cmdkey, int *out_status) {
+    ws_file_t *wf = ws_get(ws_id);
+    if (!wf) return 0;
+    if (wf->ndevices == 0 && wf->mode == 0) return 0;   /* all devices released */
+    return wf->mode == 1
+        ? ws_read_headless(wf, buf, buflen, out_device_id, out_funckey, out_cmdkey, out_status)
+        : ws_read_terminal(wf, buf, buflen, out_device_id, out_funckey, out_cmdkey, out_status);
+}
+
+void rpg_rt_ws_write(int ws_id, const char *format_name, const char *device_id,
+                     const char *buf, int buflen) {
+    ws_file_t *wf = ws_get(ws_id);
+    if (!wf) return;
+    (void)device_id;   /* SRT: exactly one device is ever attached at a time in practice */
+    strncpy(wf->last_written_format, format_name ? format_name : "",
+           sizeof(wf->last_written_format) - 1);
+    ws_format_t *fmt = ws_find_format(wf, wf->last_written_format);
+
+    if (wf->mode == 1) {
+        FILE *out = wf->headless_dump ? wf->headless_dump : stdout;
+        fprintf(out, "SCREEN %s\n", wf->last_written_format);
+        if (fmt) {
+            for (int i = 0; i < fmt->nfields; ++i) {
+                ws_field_t *f = &fmt->fields[i];
+                int width = f->to - f->from + 1;
+                if (width <= 0 || f->from < 1 || f->from - 1 + width > buflen) continue;
+                char valbuf[128];
+                int n = width < (int)sizeof(valbuf) - 1 ? width : (int)sizeof(valbuf) - 1;
+                memcpy(valbuf, buf + f->from - 1, (size_t)n); valbuf[n] = '\0';
+                if (f->name[0]) fprintf(out, "FIELD %s %s\n", f->name, valbuf);
+                else             fprintf(out, "LITERAL %d %d %s\n", f->row, f->col, f->text);
+            }
+        }
+        fprintf(out, "END\n");
+        fflush(out);
+        return;
+    }
+
+    if (!fmt) return;
+    printf("\x1b[2J\x1b[H");
+    for (int i = 0; i < fmt->nfields; ++i) {
+        ws_field_t *f = &fmt->fields[i];
+        printf("\x1b[%d;%dH", f->row, f->col);
+        if (f->reverse) printf("\x1b[7m");
+        if (f->blink) printf("\x1b[5m");
+        int sgr = ws_color_sgr(f->color);
+        if (sgr) printf("\x1b[%dm", sgr);
+        int width = f->to - f->from + 1;
+        if (f->name[0] == '\0') {
+            printf("%s", f->text);
+        } else if (width > 0 && f->from >= 1 && f->from - 1 + width <= buflen) {
+            printf("%.*s", width, buf + f->from - 1);
+        }
+        printf("\x1b[0m");
+    }
+    printf("\x1b[24;1H");
+    fflush(stdout);
+}
+
+void rpg_rt_ws_flush(int ws_id, const char *format_name, const char *device_id) {
+    int len = g_line_len;
+    while (len > 1 && g_line[len - 1] == ' ') --len;   /* rtrim like emit_line */
+    rpg_rt_ws_write(ws_id, format_name, device_id, g_line, len);
+    g_line_len = 0;
+}
+
+int rpg_rt_ws_post(int ws_id, const char *device_id, int *out_size,
+                   int *out_mode, int *out_inp, int *out_out) {
+    ws_file_t *wf = ws_get(ws_id);
+    if (!wf || !device_id) return 0;
+    char id2[3]; id2[0] = device_id[0]; id2[1] = device_id[1] ? device_id[1] : ' '; id2[2] = '\0';
+    int found = 0;
+    for (int i = 0; i < wf->ndevices; ++i)
+        if (memcmp(wf->devices[i], id2, 2) == 0) { found = 1; break; }
+    if (!found) return 0;
+    if (out_size) *out_size = 1920;    /* 24x80 */
+    if (out_mode) *out_mode = 0;       /* no DBCS support */
+    if (out_inp)  *out_inp  = 0;
+    if (out_out)  *out_out  = 0;
+    return 1;
+}
+
+int rpg_rt_ws_shtdn(void) {
+    const char *e = getenv("RPG_WORKSTN_SHTDN");
+    if (e && strcmp(e, "1") == 0) return 1;
+    return g_ws_shtdn_signal ? 1 : 0;
+}
+
+static void ws_put_char(char *ptr, int width, const char *text) {
+    int n = text ? (int)strlen(text) : 0;
+    if (n > width) n = width;
+    memset(ptr, ' ', (size_t)width);
+    if (n > 0) memcpy(ptr, text, (size_t)n);
+}
+
+void rpg_rt_ws_infds(char *status_ptr, char *opcode_ptr, char *record_ptr,
+                     char *size_ptr, char *mode_ptr, char *inp_ptr,
+                     char *out_ptr, int status, const char *opcode,
+                     const char *record, int size_val, int mode_val,
+                     int inp_val, int out_val) {
+    char tmp[16];
+    if (status_ptr) { rpg_rt_fmt_key(status, 5, tmp); memcpy(status_ptr, tmp, 5); }
+    if (opcode_ptr) ws_put_char(opcode_ptr, 5, opcode);
+    if (record_ptr) ws_put_char(record_ptr, 8, record);
+    if (size_ptr) { rpg_rt_fmt_key(size_val, 4, tmp); memcpy(size_ptr, tmp, 4); }
+    if (mode_ptr) { rpg_rt_fmt_key(mode_val, 2, tmp); memcpy(mode_ptr, tmp, 2); }
+    if (inp_ptr)  { rpg_rt_fmt_key(inp_val, 2, tmp); memcpy(inp_ptr, tmp, 2); }
+    if (out_ptr)  { rpg_rt_fmt_key(out_val, 2, tmp); memcpy(out_ptr, tmp, 2); }
 }

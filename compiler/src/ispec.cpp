@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <unordered_map>
 
 namespace rpgc {
 
@@ -44,6 +45,9 @@ ISpecs parse_ispecs(const std::vector<SourceLine> &src) {
     // (manual 61069-61071), so this is sticky for the rest of the program.
     bool ds_mode = false;
     int  current_ds_index = -1;
+    // W3: next free byte offset for auto-assigned INFDS keyword subfields,
+    // per DS index (see ISpecSubfield's InfdsKeyword doc comment).
+    std::unordered_map<int, int> infds_next_offset;
 
     for (const auto &sl : src) {
         if (sl.comment) continue;
@@ -69,6 +73,40 @@ ISpecs parse_ispecs(const std::vector<SourceLine> &src) {
 
         std::string fromtxt = col_trim(sl.text, 44, 47);
         std::string nametxt = col_trim(sl.text, 53, 58);
+        std::string kwtxt   = upper(col_trim(sl.text, 44, 51));
+
+        if (ds_mode && !kwtxt.empty() && kwtxt[0] == '*' && !nametxt.empty()) {
+            // ---- INFDS keyword subfield line (W3) ----
+            int width = 0, dec = -1;
+            InfdsKeyword kw = InfdsKeyword::None;
+            if      (kwtxt == "*STATUS") { kw = InfdsKeyword::Status; width = 5; dec = 0; }
+            else if (kwtxt == "*OPCODE") { kw = InfdsKeyword::Opcode; width = 5; dec = -1; }
+            else if (kwtxt == "*RECORD") { kw = InfdsKeyword::Record; width = 8; dec = -1; }
+            else if (kwtxt == "*SIZE")   { kw = InfdsKeyword::Size;   width = 4; dec = 0; }
+            else if (kwtxt == "*MODE")   { kw = InfdsKeyword::Mode;   width = 2; dec = 0; }
+            else if (kwtxt == "*INP")    { kw = InfdsKeyword::Inp;    width = 2; dec = 0; }
+            else if (kwtxt == "*OUT")    { kw = InfdsKeyword::Out;    width = 2; dec = 0; }
+            else {
+                report("input", sl.lineno, 44, DiagKind::Error,
+                       "unknown INFDS keyword '" + kwtxt + "' in cols 44-51 "
+                       "(valid: *STATUS, *OPCODE, *RECORD, *SIZE, *MODE, "
+                       "*INP, *OUT)");
+                continue;
+            }
+            int &next = infds_next_offset[current_ds_index];
+            if (next == 0) next = 1;
+            ISpecSubfield sub;
+            sub.lineno = sl.lineno;
+            sub.ds_index = current_ds_index;
+            sub.from = next;
+            sub.to   = next + width - 1;
+            sub.decimals = dec;
+            sub.name = nametxt;
+            sub.infds_kw = kw;
+            next = sub.to + 1;
+            out.ds_subfields.push_back(std::move(sub));
+            continue;
+        }
 
         if (ds_mode && !fromtxt.empty() && is_digits(fromtxt) && !nametxt.empty()) {
             // ---- data-structure subfield line (D2) ----

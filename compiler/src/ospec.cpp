@@ -139,17 +139,17 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
                 if (c16 == "F") {
                     rec.fetch_overflow = true;
                 } else if (c16 == "R") {
-                    // Release is meaningful only for a WORKSTN display
-                    // station or ICF session (manual: "release the device
-                    // ... after output has been written"); this compiler
-                    // has no WORKSTN/ICF device support at all (E8 already
-                    // hard-errors those F-spec devices), so a real R here
-                    // would silently do nothing. Loud error, same E8/E5
-                    // precedent, instead of a silent no-op.
-                    report("input", sl.lineno, 16, DiagKind::Error,
-                           "O-spec col 16 'R' (release device) requires a "
-                           "WORKSTN/ICF file, which this compiler does not "
-                           "support");
+                    // W5: release the device after this record is written
+                    // (manual: "release the device ... after output has
+                    // been written"). Meaningful only for a WORKSTN file;
+                    // whether `rec.file` actually is one isn't known at
+                    // this parse-only stage (ospec.cpp has no F-spec cross
+                    // reference), so codegen.cpp validates the device type
+                    // once the whole Program is assembled and hard-errors
+                    // there for a non-WORKSTN file (same "parse structurally,
+                    // validate cross-references in codegen" split as other
+                    // O-spec checks).
+                    rec.release_device = true;
                 }
             }
             // Space before/after (cols 17/18): digit 0-3.
@@ -191,12 +191,6 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
         fld.lineno = sl.lineno;
         fld.conditions = parse_o_conditions(t);
 
-        // Edit code (col 38) — parsed early so we can tell an edit word (blank
-        // col 38 + field name + quoted cols 45-70) from a plain constant.
-        std::string ec = col_trim(t, 38, 38);
-        if (!ec.empty()) fld.edit_code = ec[0];
-
-        std::string nameArea = col_trim(t, 32, 37);
         // Strip apostrophes / collapse '' -> ' from a quoted region.
         auto unquote = [&](const std::string &region) -> std::string {
             std::string raw = region;
@@ -213,6 +207,41 @@ std::vector<ORecord> parse_ospecs(const std::vector<SourceLine> &src) {
             }
             return outc;
         };
+
+        // W4: a WORKSTN format-name field line -- cols 40-43 hold "Kn" (n =
+        // the format name's length) instead of a numeric end position; cols
+        // 45-54 hold the quoted format name. Checked first since it has a
+        // completely different shape from every other field line (no field
+        // name, no edit code, no constant semantics).
+        std::string ep43 = upper(col_trim(t, 40, 43));
+        if (!ep43.empty() && ep43[0] == 'K') {
+            if (!fld.conditions.empty()) {
+                report("input", sl.lineno, 23, DiagKind::Error,
+                       "WORKSTN format-name line cannot carry conditioning "
+                       "indicators (manual: the line containing the format "
+                       "name cannot be conditioned by any indicators)");
+            }
+            std::string conArea = col(t, 45, 70);
+            bool quoted = (!conArea.empty() && conArea[0] == '\'');
+            if (!quoted) {
+                report("input", sl.lineno, 45, DiagKind::Error,
+                       "WORKSTN format-name line ('K" + ep43.substr(1) +
+                       "' in cols 40-43) requires a quoted format name in "
+                       "cols 45-54");
+                continue;
+            }
+            fld.is_format_name = true;
+            fld.text = unquote(conArea);
+            current->fields.push_back(std::move(fld));
+            continue;
+        }
+
+        // Edit code (col 38) — parsed early so we can tell an edit word (blank
+        // col 38 + field name + quoted cols 45-70) from a plain constant.
+        std::string ec = col_trim(t, 38, 38);
+        if (!ec.empty()) fld.edit_code = ec[0];
+
+        std::string nameArea = col_trim(t, 32, 37);
 
         if (fld.edit_code != 0 && !nameArea.empty()) {
             // A13: field name + edit code both present. Columns 45-47 (a

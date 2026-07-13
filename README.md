@@ -206,10 +206,13 @@ Man pages are installed to `<prefix>/share/man/man1/` and are also available in
 - Scaled-integer arithmetic with decimal alignment and half-adjust rounding
 - Zoned, packed, and binary numeric field decoding
 - Sign-overpunch encoding for character/numeric conversion
+- WORKSTN (interactive display-file) support: `.dspf` display formats, the
+  five WORKSTN operation codes, INFDS, and both a real-terminal and a
+  headless (scripted) backend — see `docs/SPEC_MAP.md`'s WORKSTN section
 
-**Not yet implemented:** WORKSTN/display files, DEBUG operation,
-externally-described files. See the plan documents (`WRKSTN_PLAN.md`,
-`MISC_OPCODES_PLAN.md`) for design status.
+**Not yet implemented:** the `KEY`/`SET` operations (KEYBORD device), DEBUG
+operation, externally-described files. See the plan documents
+(`KEYBORD_PLAN.md`, `MISC_OPCODES_PLAN.md`) for design status.
 
 ## Project layout
 

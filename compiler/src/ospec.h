@@ -45,6 +45,12 @@ struct OField {
     // A13: floating fill character following an edit code (cols 45-47) -- a
     // bare '*' (asterisk fill) or a quoted currency symbol like '$'. 0 = none.
     char        fill_char = 0;
+    // W4: a WORKSTN format-name field line: cols 40-43 hold "Kn" (n = name
+    // length) instead of a numeric end position, and cols 45-54 hold the
+    // quoted display-format name (`text`). Manual: "the output
+    // specifications line containing the format name cannot be conditioned
+    // by any indicators" -- enforced at parse time (ospec.cpp).
+    bool        is_format_name = false;
 };
 
 /* One output record line + the fields that belong on it. */

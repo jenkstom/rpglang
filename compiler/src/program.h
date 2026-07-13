@@ -16,6 +16,7 @@
 #include "ispec.h"
 #include "ospec.h"
 #include "espec.h"
+#include "sspec.h"
 #include <vector>
 
 namespace rpgc {
@@ -34,6 +35,7 @@ struct Program {
     std::vector<ESpecArray> arrays;
     std::vector<ParamList>  param_lists;  // program linkage: PLIST/PARM
     std::vector<ExitDecl>   exit_decls;
+    std::vector<DisplayFormat> display_formats;  // W2: WORKSTN display formats
 };
 
 } // namespace rpgc

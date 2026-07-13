@@ -2,11 +2,10 @@
 
 **Status: planning only. No implementation has started.** This document is a
 design and phasing plan for the `KEY` and `SET` operation codes and their
-three supporting devices — `KEYBORD`, `CONSOLE`, and `CRT` — which
-`WRKSTN_PLAN.md` explicitly scoped out of its own WORKSTN effort (§0: "`KEY`
-... is explicitly KEYBORD-device-only ... a different (simpler,
-single-field) device type this plan does not cover"; §1: "`KEY`, `SET` ...
-see §0").
+three supporting devices — `KEYBORD`, `CONSOLE`, and `CRT` — which WORKSTN
+support (implemented; see `docs/SPEC_MAP.md`'s WORKSTN section) explicitly
+scoped out of its own effort: `KEY` is KEYBORD-device-only, a different
+(simpler, single-field) device type WORKSTN support does not cover.
 
 ---
 
@@ -26,15 +25,16 @@ This should be fixed as a standalone, near-zero-risk change **independent
 of the rest of this plan** — add `Device::Keybord`/`Device::Crt` to the
 enum (`fspec.h:20`) and extend the `E8` hard-error condition
 (`fspec.cpp:119-120`) to include them, with a `neg_keybord.rpg`/
-`neg_crt.rpg` regression test pair (same shape as the existing
-`tests/neg_workstn.rpg`). This closes the silent-miscompile gap immediately
+`neg_crt.rpg` regression test pair (same shape as `tests/neg_special.rpg`/
+`tests/neg_console.rpg`). This closes the silent-miscompile gap immediately
 and gives phase K1 below a clean, already-diagnosed starting point (narrow
-the hard error, the same pattern `WRKSTN_PLAN.md` W1 uses for
-`Device::Workstn`) rather than a "nothing happens" starting point.
+the hard error, the same pattern WORKSTN support's own W1 phase used to
+exempt `Device::Workstn` from E8) rather than a "nothing happens" starting
+point.
 
 ---
 
-## 1. Why this is one small plan, not folded into `WRKSTN_PLAN.md`
+## 1. Why this is one small plan, not folded into WORKSTN support
 
 The manual is explicit that these are the *legacy*, single-field-at-a-time
 predecessors WORKSTN replaced ("Whenever possible, use a WORKSTN file
@@ -76,12 +76,12 @@ interaction model than WORKSTN's named-format full-screen I/O:
   program with a `WORKSTN` file cannot also declare `KEYBORD`, `CRT`, or
   `CONSOLE`.
 
-None of this needs WORKSTN's new surface area (a second display-format
+None of this needs WORKSTN's surface area (a second display-format
 spec-file type, row/column screen layout, multi-device ACQ/REL, INFDS).
 It's a much smaller runtime surface — one prompt/response pair or one
 message per operation — closer in size to a single new opcode pair than to
-the WORKSTN effort. Folding it into `WRKSTN_PLAN.md` would have made that
-plan's already-largest-item status worse for no shared implementation
+the WORKSTN effort. Folding it into WORKSTN support would have made that
+already-largest item's status worse for no shared implementation
 benefit; the two efforts touch different F-spec device values and don't
 share codegen.
 
@@ -89,8 +89,9 @@ share codegen.
 
 ## 2. Relationship to the WORKSTN terminal backend
 
-`WRKSTN_PLAN.md` §3 already designs a two-backend split (real `termios`
-terminal vs. headless scripted backend for the test suite) for WORKSTN's
+WORKSTN support's runtime (`runtime/rpg_runtime.h`) already implements a
+two-backend split (real ANSI/VT100 terminal vs. a headless scripted backend
+for the test suite, selected via `RPG_WORKSTN_MODE`) for WORKSTN's
 full-screen I/O. `KEY`/`SET`'s single-field prompt/response model is simple
 enough that it likely does **not** need its own termios/ANSI escape-code
 backend at all — a prompt-then-read-a-line interaction is expressible with
@@ -99,21 +100,18 @@ plain blocking stdin/stdout, no raw mode or cursor positioning required
 detail, printable as plain text without terminal control codes). This is a
 meaningfully smaller runtime lift than WORKSTN's backend.
 
-**If WORKSTN support (`WRKSTN_PLAN.md`) lands first**, reuse its headless
-scripted-backend convention (§3.2's plain-text script format, once that
-open question is settled) for `KEY`/`SET`'s test fixtures too, rather than
-inventing a second script format — same reasoning as this plan's device
-list reusing WORKSTN's `Device` enum precedent. If this plan is implemented
-**before** WORKSTN, its headless-mode design (§4 K3 below) should be built
-generically enough that `WRKSTN_PLAN.md` can reuse it rather than the
-other way around, since KEY/SET's is the simpler of the two models.
+Reuse WORKSTN's headless scripted-backend convention (the `FORMAT`/
+`DEVICE`/`FIELD`/`KEY` line-oriented script format documented in
+`docs/SPEC_MAP.md`'s WORKSTN section) for `KEY`/`SET`'s test fixtures too,
+rather than inventing a second script format — same reasoning as this
+plan's device list reusing WORKSTN's `Device` enum precedent.
 
 ---
 
 ## 3. New surface area
 
 Two runtime primitives cover both opcodes — no new spec-file type, unlike
-WORKSTN's S/D-spec (`WRKSTN_PLAN.md` §2):
+WORKSTN's `.dspf` S/D-spec (`compiler/src/sspec.h`/`dspec.h`):
 
 ```
 int  rpg_rt_key(const char *prompt, int prompt_len,
@@ -131,9 +129,10 @@ needs the `USER1` message member format nailed down first (§5 open
 question 2) since nothing in the project currently has a "message member"
 concept to draw on.
 
-Backend selection follows `WRKSTN_PLAN.md` §3's precedent: an environment
-variable read once at file-open time selects a real-stdin/stdout backend
-vs. a headless scripted backend for the regression suite.
+Backend selection follows WORKSTN support's own precedent
+(`RPG_WORKSTN_MODE`): an environment variable read once at file-open time
+selects a real-stdin/stdout backend vs. a headless scripted backend for the
+regression suite.
 
 ---
 
@@ -146,8 +145,8 @@ vs. a headless scripted backend for the regression suite.
 - `fspec.cpp:101-108`: recognize the `KEYBORD` and `CRT` tokens.
 - `fspec.cpp:119-125`'s E8 hard error: include the two new device values
   (still hard errors until K2+ land), narrowed away once the real codegen
-  exists — same "hard error now, narrow later" precedent
-  `WRKSTN_PLAN.md` W1 uses for `Device::Workstn`.
+  exists — same "hard error now, narrow later" precedent WORKSTN support's
+  own W1 phase used for `Device::Workstn`.
 - Enforce the mutual-exclusion rule (a program declaring `WORKSTN` cannot
   also declare `KEYBORD`/`CRT`/`CONSOLE`, and at most one of each) as a
   parse-time check across all F-specs in the program, not per-line.
@@ -173,8 +172,7 @@ vs. a headless scripted backend for the regression suite.
 
 - Headless: a plain-text script (prompt text in, response text out) read
   from a file, matching `tests/run_tests.sh`'s existing fixture
-  conventions — reuse `WRKSTN_PLAN.md`'s eventual script format if that
-  plan lands first (§2 above).
+  conventions — reuse WORKSTN support's script format (§2 above).
   This phase is what actually makes K2/K4 verifiable by the existing
   non-interactive test harness; sequence it right after K2 rather than
   batching it with K4, since K2 alone is otherwise untestable.
@@ -225,7 +223,7 @@ vs. a headless scripted backend for the regression suite.
    (message number → text) and where it's expected relative to the source
    file, following the same "sibling file, looked up by convention" shape
    `/COPY` (`source.cpp`'s `expand_copy_statements`) and WORKSTN's `FMTS`
-   (`WRKSTN_PLAN.md` §2) both already use.
+   (`source.cpp`'s `resolve_display_file`) both already use.
 2. **`SETnn`/`KEYnn` column mechanics** — the SET operation references a message
    ID "in columns 31 and 32" (124278) but also describes a `SETnn`/`KEYnn`
    opcode-suffix convention (124278-124281); these two descriptions need
@@ -236,7 +234,8 @@ vs. a headless scripted backend for the regression suite.
    confirm whether v1 needs to reproduce them pixel/column-exact or
    whether a simpler "print the prompt, read a line" real-terminal backend
    is acceptable for v1, deferring exact layout replication the same way
-   `WRKSTN_PLAN.md` §1 defers full DDS attribute fidelity.
+   WORKSTN support's own non-goals (`docs/SPEC_MAP.md`) defer full DDS
+   attribute fidelity.
 
 Question 2 blocks K4's message-display sub-feature specifically, not K1-K3
 or K4's non-message paths (display, function-key, ERASE) — those can

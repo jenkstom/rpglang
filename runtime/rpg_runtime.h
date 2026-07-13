@@ -308,6 +308,108 @@ int rpg_rt_call(const char *name, void **parm_ptrs, int parm_count,
  * resulting indicator on the FREE op). */
 int rpg_rt_free(const char *name);
 
+/* ----- WORKSTN (Chapter 7, "Using a WORKSTN File") ------------------------- */
+/*
+ * Two backends behind one interface, selected once at rpg_rt_ws_open() time
+ * via the RPG_WORKSTN_MODE environment variable ("headless" or "terminal";
+ * default "terminal"):
+ *   - terminal: drives the real controlling tty with ANSI/VT100 cursor
+ *     positioning and SGR attributes (color/reverse/blink); input fields are
+ *     collected with ordinary line-buffered prompts rather than a full
+ *     raw-mode single-keystroke editor (see WORKSTN support notes in
+ *     docs/ARCHITECTURE.md for why -- this is the part expected to evolve
+ *     most after first real use).
+ *   - headless: reads a line-oriented script from RPG_WORKSTN_SCRIPT and
+ *     dumps each written screen to RPG_WORKSTN_DUMP (default stdout); this
+ *     is what the regression test suite drives, since it runs
+ *     non-interactively.
+ *
+ * Only SRT (single requester terminal) programs are supported: no MRT
+ * multi-terminal request sharing. A device is identified by a 2-character
+ * id (3-byte buffers below hold it NUL-terminated).
+ */
+
+/* Open a WORKSTN file: parse its .dspf display-format file (`fmts_path`,
+ * already resolved to an absolute/relative path by the compiler -- same
+ * "literal path baked into the generated IR" convention as an ordinary DISK
+ * filename) and initialize backend state. Returns a non-negative ws_id, or
+ * -1 on failure (bad .dspf, or headless mode with no usable script). */
+int rpg_rt_ws_open(const char *fmts_path, const char *program_id);
+
+/* Acquire a device for `ws_id` (ACQ, or the cycle's own primary-file open).
+ * `device_id` (2 chars, NULL/blank => let the backend assign one).
+ * `out_device_id` (3-byte buffer) receives the attached device's id.
+ * Returns 1 on success, 0 on failure (NUM limit reached, fspec.h). */
+int rpg_rt_ws_acquire(int ws_id, const char *device_id, char *out_device_id);
+
+/* Release `device_id` from `ws_id` (REL, or O-spec col 16 'R'). NULL/blank
+ * `device_id` releases whichever device supplied the last input (O-spec 'R'
+ * has no factor 1 to name one explicitly). Returns 1 on success, 0 if the
+ * device was not attached. When this empties every attached device,
+ * subsequent rpg_rt_ws_read calls return 0 (end of file). */
+int rpg_rt_ws_release(int ws_id, const char *device_id);
+
+/* Force the next rpg_rt_ws_read on `ws_id` to come from `device_id` (NEXT). */
+void rpg_rt_ws_next(int ws_id, const char *device_id);
+
+/* Read the next input record (implicit cycle input, or a WORKSTN READ).
+ * `buf` (buflen bytes) is filled per the display format that was showing:
+ * literal fields at their D-spec byte ranges, input fields at theirs (typed
+ * value in the terminal backend; the current script block's FIELD values in
+ * the headless backend). `out_device_id` (3 bytes) receives the responding
+ * device. `out_funckey` is 0, or 1-25 for KA-KY (manual: "all function-key
+ * indicators are turned off; then the appropriate one, if any, is turned
+ * on"). `out_cmdkey` is 0, or 1-6 for Print/RollUp/RollDown/Clear/Help/Home
+ * (a command-key "exception": no field data is returned). `out_status`
+ * receives the *STATUS code (INFDS; see rpg_rt_ws_infds). Returns 1 on a
+ * record or exception, 0 on end-of-file (every device released). */
+int rpg_rt_ws_read(int ws_id, char *buf, int buflen, char *out_device_id,
+                   int *out_funckey, int *out_cmdkey, int *out_status);
+
+/* Write `buf` (buflen bytes, the format's record buffer, already field-
+ * placed by ordinary O-spec byte-position output codegen) to `device_id`
+ * (NULL/blank => the device that supplied the last input) using display
+ * format `format_name`: renders it (terminal) or dumps it (headless). */
+void rpg_rt_ws_write(int ws_id, const char *format_name, const char *device_id,
+                     const char *buf, int buflen);
+
+/* Flush the current line buffer (rpg_rt_line_begin/rpg_rt_line_put_*,
+ * already populated by ordinary O-spec byte-position field placement -- the
+ * manual confirms WORKSTN field placement is byte-offset based, not
+ * row/column) to `ws_id` as a WORKSTN write, using display format
+ * `format_name`. `device_id` may be NULL (use the device that supplied the
+ * last input). Same "build in the shared line buffer, then hand off" shape
+ * as rpg_rt_flush_rec for a disk record. */
+void rpg_rt_ws_flush(int ws_id, const char *format_name, const char *device_id);
+
+/* POST: retrieve status for `device_id` into the four INFDS status values
+ * (manual: "*SIZE"/"*MODE"/"*INP"/"*OUT"; *STATUS/*OPCODE/*RECORD are left
+ * untouched by POST). Returns 1 on success, 0 if `device_id` isn't attached
+ * to `ws_id`. */
+int rpg_rt_ws_post(int ws_id, const char *device_id, int *out_size,
+                   int *out_mode, int *out_inp, int *out_out);
+
+/* SHTDN: returns 1 if the system operator has requested shutdown (headless:
+ * RPG_WORKSTN_SHTDN=1 in the environment; terminal: a SIGTERM/SIGHUP was
+ * received since program start), else 0. */
+int rpg_rt_ws_shtdn(void);
+
+/* Write the up-to-seven INFDS subfields' raw bytes (manual "Coding the INFDS
+ * Data Structure"). Each `*_ptr` may be NULL -- the program's WORKSTN file
+ * has no INFDS, or (POST) that subfield isn't touched by this operation --
+ * and is skipped. Fixed widths: *STATUS/*OPCODE 5, *RECORD 8, *SIZE 4,
+ * *MODE/*INP/*OUT 2 (ispec.cpp assigns matching byte ranges when parsing an
+ * INFDS DS's keyword subfield lines). `opcode` is "READ"/"ACQ"/"REL"/
+ * "NEXT"/"POST"/"WRITE"/NULL; `record` is the format name (WRITE only, else
+ * NULL); `size_val`/`mode_val`/`inp_val`/`out_val` are ignored (NULL
+ * pointer) unless this call is filling those subfields (POST, or a READ
+ * that also refreshes them). */
+void rpg_rt_ws_infds(char *status_ptr, char *opcode_ptr, char *record_ptr,
+                     char *size_ptr, char *mode_ptr, char *inp_ptr,
+                     char *out_ptr, int status, const char *opcode,
+                     const char *record, int size_val, int mode_val,
+                     int inp_val, int out_val);
+
 /* CALL/FREE's dynamic (field-valued) target-name form: `field` is a fixed-
  * width character field's raw bytes (`len` of them, blank-padded, not NUL-
  * terminated); this right-trims trailing blanks, upper-cases (name lookups

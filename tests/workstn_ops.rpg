@@ -1,0 +1,10 @@
+     FWSFILE   D  F      10            WORKSTN
+     F                                               FMTS  WSFORM
+     F                                               INFDS WINFDS
+     IWINFDS      DS
+     I                                     *SIZE    WSSIZE
+     C                     ACQ  WSFILE                 01
+     C           T1        POST           WINFDS       03
+     C                     Z-ADDWSSIZE    RPGRET
+     C           T1        REL  WSFILE                 04
+     C                     SHTDN                     05
