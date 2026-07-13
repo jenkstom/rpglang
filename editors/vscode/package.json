@@ -1,0 +1,28 @@
+{
+  "name": "rpg2-syntax",
+  "displayName": "RPG II Syntax Highlighting",
+  "description": "Syntax highlighting for the fixed-format RPG II language (IBM System/34, System/36, AS/400). Companion to the rpglang compiler (rpgc).",
+  "version": "0.1.0",
+  "publisher": "rpglang",
+  "license": "GPL-3.0-or-later",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": [ "Programming Languages" ],
+  "keywords": [ "rpg", "rpg2", "rpg ii", "ibm", "as400", "system/36", "system/34" ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rpg2",
+        "aliases": [ "RPG II", "rpg2", "RPG" ],
+        "extensions": [ ".rpg", ".rpgle", ".src", ".rpg38", ".sqlrpgle" ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rpg2",
+        "scopeName": "source.rpg2",
+        "path": "./syntaxes/rpg2.tmLanguage.json"
+      }
+    ]
+  }
+}

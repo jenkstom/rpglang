@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Notepad++ User Defined Language (UDL) for RPG II.
+
+  Notepad++ UDL is keyword/delimiter based rather than column-aware, so this
+  file gives full opcode / indicator / device / string / comment coloring but
+  not column-precise form-type coloring. For column validation, use
+  `rpg-analyze format -c` (see TOOLS_IDEAS.md section 8.4).
+
+  Token lists are derived from the compiler sources:
+    opcodes    -> compiler/src/cspec.cpp parse_op()  (lines 106-203)
+    indicators -> compiler/src/cspec.cpp ind_token() (lines 43-77)
+
+  Install: Language -> "Define your language..." -> Import... -> pick this file.
+  Or copy it into %APPDATA%\Notepad++\userDefineLang.xml (merge if present).
+-->
+<NotepadPlus>
+    <UserLang name="RPG II" ext="rpg rpgle sqlrpgle rpg38 src" udlVersion="2.1">
+        <Settings>
+            <Global caseIgnored="yes" allowFoldOfComments="no" foldCompact="no" forcePureLC="0" decimalSeparator="0" />
+            <Prefix Keywords1="no" Keywords2="no" Keywords3="no" Keywords4="yes" Keywords5="no" Keywords6="no" Keywords7="no" Keywords8="no" />
+        </Settings>
+        <KeywordLists>
+            <!-- Keywords1: plain opcodes -->
+            <Keywords name="Keywords1">ADD Z-ADD ZADD Z-SUB ZSUB SETON SETOF SUB MULT DIV MVR COMP GOTO TAG MOVE MOVEL MOVEA DO ELSE END EXSR BEGSR ENDSR EXCPT XFOOT SQRT LOKUP LOOKUP TESTZ TESTB CHAIN SETLL READE READP READ BITON BITOF DEFN SORTA TIME MHHZO MHLZO MLHZO MLLZO PLIST PARM CALL EXIT RLABL RETRN FREE ACQ REL NEXT POST SHTDN DEBUG FORCE</Keywords>
+            <!-- Keywords2: structured-op roots (the suffix matches separately as Keywords3) -->
+            <Keywords name="Keywords2">IF DOW DOU CAS</Keywords>
+            <!-- Keywords3: two-letter comparison suffixes -->
+            <Keywords name="Keywords3">EQ NE GT LT GE LE</Keywords>
+            <!-- Keywords4: devices (prefix=no, but kept on its own group) -->
+            <Keywords name="Keywords4">DISK PRINTER WORKSTN KEYBORD CRT SPECIAL CONSOLE</Keywords>
+            <!-- Keywords5: control levels -->
+            <Keywords name="Keywords5">LR L0 L1 L2 L3 L4 L5 L6 L7 L8 L9 AN OR SR</Keywords>
+            <!-- Keywords6: named indicators -->
+            <Keywords name="Keywords6">LR L0 L1 L2 L3 L4 L5 L6 L7 L8 L9 MR 1P OA OB OC OD OE OF OG OV U1 U2 U3 U4 U5 U6 U7 U8 H1 H2 H3 H4 H5 H6 H7 H8 H9 KA KB KC KD KE KF KG KH KI KJ KK KL KM KN KO KP KQ KR KS KT KU KV KW KX KY</Keywords>
+            <!-- Keywords7: KEY/SET message-id op roots -->
+            <Keywords name="Keywords7">KEY SET</Keywords>
+            <!-- Keywords8: special * values. Keywords4 prefix group handles the *; here are the suffix words -->
+            <Keywords name="Keywords8">ENTRY LIKE ALL IN BLANK ZERO ON OFF DATE DAY MONTH YEAR LDA</Keywords>
+
+            <!-- Folders: fold subroutine bodies BEGSR..ENDSR (column-blind) -->
+            <Keywords name="Folders in code1, open">BEGSR</Keywords>
+            <Keywords name="Folders in code1, middle"></Keywords>
+            <Keywords name="Folders in code1, close">ENDSR</Keywords>
+            <Keywords name="Folders in code2, open"></Keywords>
+            <Keywords name="Folders in code2, middle"></Keywords>
+            <Keywords name="Folders in code2, close"></Keywords>
+            <Keywords name="Folders in comment, open"></Keywords>
+            <Keywords name="Folders in comment, middle"></Keywords>
+            <Keywords name="Folders in comment, close"></Keywords>
+
+            <!-- Comments. RPG II full-line comment is a '*' at column 7 of any
+                 spec line (e.g. "     C*..."). UDL cannot anchor to a column,
+                 so we treat '*' at line start (after optional spaces + one
+                 spec letter) as a line comment via the open/close tokens below. -->
+            <Keywords name="Comments">0#[space]* 0#[space]* 0 0</Keywords>
+            <!-- Delimiter 1: single-quoted strings 'foo' -->
+            <Keywords name="Delimiters">000000</Keywords>
+            <!-- Numbers -->
+            <Keywords name="Operators1">-</Keywords>
+            <Keywords name="Operators2"></Keywords>
+            <Keywords name="Numbers, prefix1"></Keywords>
+            <Keywords name="Numbers, prefix2"></Keywords>
+            <Keywords name="Numbers, extras1"></Keywords>
+            <Keywords name="Numbers, extras2"></Keywords>
+            <Keywords name="Numbers, suffix1"></Keywords>
+            <Keywords name="Numbers, suffix2"></Keywords>
+            <Keywords name="Numbers, range"></Keywords>
+            <Keywords name="Numbers, range">000000</Keywords>
+        </KeywordLists>
+
+        <WordsStyles>
+            <WordsStyle name="DEFAULT" styleID="0" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+            <WordsStyle name="COMMENTS" styleID="1" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+            <!-- Line comment: '*' lines -->
+            <WordsStyle name="COMMENT LINE" styleID="2" fgColor="008000" bgColor="FFFFFF" fontName="" fontStyle="2" fontSize="" />
+            <WordsStyle name="COMMENT DOC" styleID="3" fgColor="008000" bgColor="FFFFFF" fontName="" fontStyle="2" fontSize="" />
+            <!-- Opcodes -->
+            <WordsStyle name="KEYWORD 1" styleID="5" fgColor="0000FF" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+            <!-- Structured-op roots -->
+            <WordsStyle name="KEYWORD 2" styleID="6" fgColor="0000FF" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+            <!-- Comparison suffixes -->
+            <WordsStyle name="KEYWORD 3" styleID="7" fgColor="0000FF" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+            <!-- Devices -->
+            <WordsStyle name="KEYWORD 4" styleID="8" fgColor="800080" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+            <!-- Control levels -->
+            <WordsStyle name="KEYWORD 5" styleID="9" fgColor="0000FF" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+            <!-- Indicators -->
+            <WordsStyle name="KEYWORD 6" styleID="10" fgColor="FF8000" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+            <!-- KEY/SET roots -->
+            <WordsStyle name="KEYWORD 7" styleID="11" fgColor="0000FF" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+            <!-- Special * suffix words -->
+            <WordsStyle name="KEYWORD 8" styleID="12" fgColor="0080FF" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+            <!-- Operators (the '-' in Z-ADD) -->
+            <WordsStyle name="OPERATOR" styleID="13" fgColor="808080" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+            <!-- Numbers -->
+            <WordsStyle name="NUMBER" styleID="4" fgColor="FF0000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+            <!-- String literal 'foo' -->
+            <WordsStyle name="DELIMITER" styleID="14" fgColor="A31515" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+        </WordsStyles>
+    </UserLang>
+</NotepadPlus>

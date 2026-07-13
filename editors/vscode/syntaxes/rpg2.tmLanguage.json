@@ -1,0 +1,189 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RPG II",
+  "scopeName": "source.rpg2",
+  "fileTypes": ["rpg", "rpgle", "src", "rpg38", "sqlrpgle"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#copy" },
+    { "include": "#specF" },
+    { "include": "#specI" },
+    { "include": "#specC" },
+    { "include": "#specO" },
+    { "include": "#specE" },
+    { "include": "#specH" },
+    { "include": "#specL" },
+    { "include": "#sequenceRuler" }
+  ],
+  "repository": {
+    "comment": {
+      "comment": "Full-line comment: col 6 is a spec letter, col 7 is '*' (e.g. 'C*' or 'F**'). Also a bare '*' at col 6.",
+      "match": "^.{5,5}[\\sA-Za-z]?\\*.*$|^\\s*\\*.*$",
+      "name": "comment.line.rpg2"
+    },
+    "copy": {
+      "comment": "/COPY include directive in cols 7-11.",
+      "match": "^.{6,6}/(?i:COPY)\\b",
+      "name": "keyword.control.import.rpg2",
+      "captures": { "0": { "name": "keyword.control.import.rpg2" } }
+    },
+    "sequenceRuler": {
+      "comment": "The '.....1....+....2' column ruler some shops put at the top of a source member.",
+      "match": "^\\.+[0-9+].*$",
+      "name": "constant.language.rpg2"
+    },
+
+    "specF": {
+      "comment": "F-spec: form type F at column 6.",
+      "begin": "^.{5,5}(F)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.fspec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" },
+        { "include": "#devices" },
+        { "include": "#fileName" },
+        { "include": "#string" }
+      ]
+    },
+    "specI": {
+      "begin": "^.{5,5}(I)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.ispec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" },
+        { "include": "#string" },
+        { "include": "#fileName" }
+      ]
+    },
+    "specC": {
+      "comment": "C-spec: form type C at column 6.",
+      "begin": "^.{5,5}(C)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.cspec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" },
+        { "include": "#cControlLevel" },
+        { "include": "#cConditions" },
+        { "include": "#opcodes" },
+        { "include": "#resultIndicators" },
+        { "include": "#halfAdjust" },
+        { "include": "#string" },
+        { "include": "#starValue" },
+        { "include": "#number" }
+      ]
+    },
+    "specO": {
+      "begin": "^.{5,5}(O)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.ospec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" },
+        { "include": "#string" },
+        { "include": "#fileName" }
+      ]
+    },
+    "specE": {
+      "begin": "^.{5,5}(E)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.espec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" },
+        { "include": "#string" }
+      ]
+    },
+    "specH": {
+      "begin": "^.{5,5}(H)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.hspec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" }
+      ]
+    },
+    "specL": {
+      "begin": "^.{5,5}(L)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "keyword.control.forms.lspec.rpg2" } },
+      "patterns": [
+        { "include": "#inlineComment" }
+      ]
+    },
+
+    "inlineComment": {
+      "comment": "Trailing comment, columns 60-74 (we loosely match from a double-space-run to EOL).",
+      "match": " {2,}\\S.*$",
+      "name": "comment.line.trailing.rpg2"
+    },
+
+    "opcodes": {
+      "patterns": [
+        {
+          "comment": "Structured ops with a two-letter comparison suffix (IFxx/DOWxx/DOUxx/CASxx) sit in cols 28-32.",
+          "match": "(?i)\\b(IF|DOW|DOU|CAS)(EQ|NE|GT|LT|GE|LE)?\\b",
+          "name": "keyword.control.structured.rpg2"
+        },
+        {
+          "comment": "KEY/SET may carry a 2-digit message-id suffix.",
+          "match": "(?i)\\b(KEY|SET)([0-9]{2})?\\b",
+          "name": "keyword.control.keyset.rpg2"
+        },
+        {
+          "comment": "All other opcodes (col 28-32, but keyword match is robust to column drift).",
+          "match": "(?i)\\b(Z-ADD|Z-SUB|ZADD|ZSUB|SETON|SETOF|ADD|SUB|MULT|DIV|MVR|COMP|GOTO|TAG|MOVE|MOVEL|MOVEA|DO|ELSE|END|EXSR|BEGSR|ENDSR|EXCPT|XFOOT|SQRT|LOKUP|LOOKUP|TESTZ|TESTB|CHAIN|SETLL|READE|READP|READ|BITON|BITOF|DEFN|SORTA|TIME|MHHZO|MHLZO|MLHZO|MLLZO|PLIST|PARM|CALL|EXIT|RLABL|RETRN|FREE|ACQ|REL|NEXT|POST|SHTDN|DEBUG|FORCE)\\b",
+          "name": "keyword.other.opcode.rpg2"
+        }
+      ]
+    },
+
+    "cControlLevel": {
+      "comment": "Control level cols 7-8: LR, L0-L9, AN, OR, SR.",
+      "match": "(?i)\\b(L[0-9R]|AN|OR|SR)\\b",
+      "name": "keyword.control.level.rpg2"
+    },
+
+    "cConditions": {
+      "comment": "Conditioning indicators in cols 9-17, three [N]II groups. Match a leading N plus a 2-char indicator token.",
+      "match": "(?i)\\bN?(0[1-9]|[1-8][0-9]|9[0-9]|L[0-9R]|MR|1P|O[A-GV]|U[1-8]|H[1-9]|K[A-Y])\\b",
+      "name": "variable.parameter.indicator.rpg2"
+    },
+
+    "resultIndicators": {
+      "comment": "Same indicator token grammar, used for HI/LO/EQ result indicators (cols 54-59). Kept as the same scope for simplicity.",
+      "match": "(?i)\\bN?(0[1-9]|[1-8][0-9]|9[0-9]|L[0-9R]|MR|1P|O[A-GV]|U[1-8]|H[1-9]|K[A-Y])\\b",
+      "name": "variable.parameter.indicator.rpg2"
+    },
+
+    "halfAdjust": {
+      "comment": "Half-adjust flag in col 53; not column-anchored to stay drift-tolerant.",
+      "match": "(?i)\\bH\\b",
+      "name": "constant.language.modifier.rpg2"
+    },
+
+    "devices": {
+      "match": "(?i)\\b(DISK|PRINTER|WORKSTN|KEYBORD|CRT|SPECIAL|CONSOLE)\\b",
+      "name": "support.type.device.rpg2"
+    },
+
+    "fileName": {
+      "comment": "Filename in cols 7-14: uppercase letters, digits, and a few specials. Anchored to col 7 (1-based) => 6 leading chars.",
+      "match": "^.{6}[A-Z@][A-Z0-9@#$*_]{0,13}",
+      "name": "entity.name.type.filename.rpg2"
+    },
+
+    "starValue": {
+      "comment": "Special factor values: *ENTRY, *LIKE, *ALL, *IN, etc.",
+      "match": "(?i)\\*(ENTRY|LIKE|ALL|IN|BLANK|ZERO|ON|OFF|DATE|DAY|MONTH|YEAR|LDA)\\b",
+      "name": "constant.language.star.rpg2"
+    },
+
+    "string": {
+      "comment": "Single-quoted string literal (used on O-specs and as factor values).",
+      "match": "'[^']*'",
+      "name": "string.quoted.single.rpg2"
+    },
+
+    "number": {
+      "match": "\\b[0-9]+\\b",
+      "name": "constant.numeric.rpg2"
+    }
+  }
+}

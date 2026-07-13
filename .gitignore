@@ -69,6 +69,15 @@ core.*
 compile_commands.json
 
 # -----------------------------------------------------------------------------
+# Test-suite runtime artifacts
+# -----------------------------------------------------------------------------
+# The debug_basic test (tests/run_tests.sh) has the compiled program write its
+# DEBUG output to tests/DBGOUT, then greps it. DBGOUT2 is created and removed
+# by the suite; DBGOUT is left behind as a leftover. Neither is source.
+tests/DBGOUT
+tests/DBGOUT2
+
+# -----------------------------------------------------------------------------
 # Debian/Ubuntu packaging byproducts
 # -----------------------------------------------------------------------------
 # dpkg-buildpackage / debhelper working state (debian/ *metadata* -- control,

@@ -1,0 +1,155 @@
+%YAML 1.2
+---
+# Syntax highlighting for the RPG II fixed-format language.
+# Companions the rpglang compiler (rpgc). Token lists are derived from the
+# compiler sources:
+#   opcodes    -> compiler/src/cspec.cpp parse_op()  (lines 106-203)
+#   indicators -> compiler/src/cspec.cpp ind_token() (lines 43-77)
+#   columns    -> docs/SPEC_MAP.md
+#
+# Install: copy this file to:
+#   macOS:   ~/Library/Application Support/Sublime Text/Packages/User/
+#   Linux:   ~/.config/sublime-text/Packages/User/
+#   Windows: %APPDATA%\Sublime Text\Packages\User\
+name: RPG II
+scope: source.rpg2
+file_extensions:
+  - rpg
+  - rpgle
+  - sqlrpgle
+  - rpg38
+  - src
+
+variables:
+  # 2-char indicator token: 01-99 plus all named forms.
+  ind: '(?:0[1-9]|[1-8][0-9]|9[0-9]|L[0-9R]|MR|1P|O[A-GV]|U[1-8]|H[1-9]|K[A-Y])'
+  opcodes: '(?:Z-ADD|Z-SUB|ZADD|ZSUB|SETON|SETOF|ADD|SUB|MULT|DIV|MVR|COMP|GOTO|TAG|MOVE|MOVEL|MOVEA|DO|ELSE|END|EXSR|BEGSR|ENDSR|EXCPT|XFOOT|SQRT|LOKUP|LOOKUP|TESTZ|TESTB|CHAIN|SETLL|READE|READP|READ|BITON|BITOF|DEFN|SORTA|TIME|MHHZO|MHLZO|MLHZO|MLLZO|PLIST|PARM|CALL|EXIT|RLABL|RETRN|FREE|ACQ|REL|NEXT|POST|SHTDN|DEBUG|FORCE)'
+
+contexts:
+  main:
+    - include: comment
+    - include: copy
+    - include: ruler
+    - include: specF
+    - include: specI
+    - include: specC
+    - include: specO
+    - include: specE
+    - include: specH
+    - include: specL
+
+  comment:
+    # Full-line comment: '*' at column 7 (after the spec letter at col 6).
+    - match: '^.{6}\*.*$'
+      scope: comment.line.rpg2
+    # Bare '*' comment line.
+    - match: '^\s*\*.*$'
+      scope: comment.line.rpg2
+
+  copy:
+    - match: '/(?i:COPY)\b'
+      scope: keyword.control.import.rpg2
+
+  ruler:
+    # Column ruler: '.....1....+....2'
+    - match: '^\.+[0-9+].*$'
+      scope: constant.language.rpg2
+
+  # Each spec: match the form type at column 6, then consume the rest of the
+  # line with sub-patterns. Sublime contexts are line-scoped; we pop on EOL.
+  specF:
+    - match: '^(.{5})(F)'
+      captures:
+        1: punctuation.whitespace.rpg2
+        2: keyword.control.forms.fspec.rpg2
+      push: specF-body
+  specF-body:
+    - meta_scope: meta.spec.f.rpg2
+    - match: '\b(?i:DISK|PRINTER|WORKSTN|KEYBORD|CRT|SPECIAL|CONSOLE)\b'
+      scope: support.type.device.rpg2
+    - include: string
+    - include: line-end
+
+  specI:
+    - match: '^(.{5})(I)'
+      captures:
+        2: keyword.control.forms.ispec.rpg2
+      push: specI-body
+  specI-body:
+    - meta_scope: meta.spec.i.rpg2
+    - include: string
+    - include: line-end
+
+  specC:
+    - match: '^(.{5})(C)'
+      captures:
+        2: keyword.control.forms.cspec.rpg2
+      push: specC-body
+  specC-body:
+    - meta_scope: meta.spec.c.rpg2
+    - include: c-control-level
+    - include: c-conditions
+    - include: opcodes
+    - include: star-value
+    - include: string
+    - include: number
+    - include: line-end
+  c-control-level:
+    # Cols 7-8: LR, L0-L9, AN, OR, SR.
+    - match: '\b(?i:LR|L[0-9]|AN|OR|SR)\b'
+      scope: keyword.control.level.rpg2
+  c-conditions:
+    # Conditioning + result indicators: [N]II anywhere on the line.
+    - match: '\b(?i:N?{{ind}})\b'
+      scope: variable.parameter.indicator.rpg2
+  opcodes:
+    - match: '\b(?i:(?:IF|DOW|DOU|CAS)(?:EQ|NE|GT|LT|GE|LE)?)\b'
+      scope: keyword.control.structured.rpg2
+    - match: '\b(?i:(?:KEY|SET)(?:[0-9]{2})?)\b'
+      scope: keyword.control.keyset.rpg2
+    - match: '\b(?i:{{opcodes}})\b'
+      scope: keyword.other.opcode.rpg2
+
+  specO:
+    - match: '^(.{5})(O)'
+      captures:
+        2: keyword.control.forms.ospec.rpg2
+      push: specO-body
+  specO-body:
+    - meta_scope: meta.spec.o.rpg2
+    - include: string
+    - include: line-end
+
+  specE:
+    - match: '^(.{5})(E)'
+      captures:
+        2: keyword.control.forms.espec.rpg2
+      push: specGeneric-body
+  specH:
+    - match: '^(.{5})(H)'
+      captures:
+        2: keyword.control.forms.hspec.rpg2
+      push: specGeneric-body
+  specL:
+    - match: '^(.{5})(L)'
+      captures:
+        2: keyword.control.forms.lspec.rpg2
+      push: specGeneric-body
+  specGeneric-body:
+    - include: string
+    - include: line-end
+
+  star-value:
+    - match: '\*(?i:ENTRY|LIKE|ALL|IN|BLANK|ZERO|ON|OFF|DATE|DAY|MONTH|YEAR|LDA)\b'
+      scope: constant.language.star.rpg2
+  string:
+    - match: "'[^']*'"
+      scope: string.quoted.single.rpg2
+  number:
+    - match: '\b[0-9]+\b'
+      scope: constant.numeric.rpg2
+  line-end:
+    # Pop out at end of line so the next line re-enters `main` and is
+    # reclassified by its own form-type character.
+    - match: '$'
+      pop: true

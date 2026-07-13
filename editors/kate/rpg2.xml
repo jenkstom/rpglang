@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language [
+        <!-- A general 2-char indicator token: 01-99 plus all named forms. -->
+        <!ENTITY ind "(?:0[1-9]|[1-8][0-9]|9[0-9]|L[0-9R]|MR|1P|O[A-GV]|U[1-8]|H[1-9]|K[A-Y])">
+]>
+<!--
+  Kate / KWrite / KDevelop / KatePart syntax definition for RPG II.
+
+  Token lists are derived from the compiler sources:
+    opcodes    -> compiler/src/cspec.cpp parse_op()  (lines 106-203)
+    indicators -> compiler/src/cspec.cpp ind_token() (lines 43-77)
+    columns    -> docs/SPEC_MAP.md
+
+  Install: copy this file to
+      $HOME/.local/share/org.kde.syntax-highlighting/syntax/rpg2.xml
+  (user) or /usr/share/org.kde.syntax-highlighting/syntax/ (system). Kate
+  picks it up by the .rpg extension. Reload at runtime with F7 then
+  `reload-highlighting`, or verify from the command line:
+      ksyntaxhighlighter6 -s rpg2 tests/hello.rpg
+-->
+<language name="RPG II" version="1" kateversion="5.53"
+          section="Sources" extensions="*.rpg;*.rpgle;*.sqlrpgle;*.rpg38;*.src"
+          casesensitive="0" priority="9"
+          author="rpglang project"
+          license="GPL-3.0-or-later">
+
+  <highlighting>
+
+    <!-- ===================== keyword lists ===================== -->
+
+    <list name="opcodes">
+      <!-- Plain opcodes (parse_op, cspec.cpp:106-203). -->
+      <item> ADD </item>     <item> Z-ADD </item> <item> ZADD </item>
+      <item> Z-SUB </item>   <item> ZSUB </item>  <item> SETON </item>
+      <item> SETOF </item>   <item> SUB </item>   <item> MULT </item>
+      <item> DIV </item>     <item> MVR </item>   <item> COMP </item>
+      <item> GOTO </item>    <item> TAG </item>   <item> MOVE </item>
+      <item> MOVEL </item>   <item> MOVEA </item> <item> DO </item>
+      <item> ELSE </item>    <item> END </item>   <item> EXSR </item>
+      <item> BEGSR </item>   <item> ENDSR </item> <item> EXCPT </item>
+      <item> XFOOT </item>   <item> SQRT </item>  <item> LOKUP </item>
+      <item> LOOKUP </item>  <item> TESTZ </item> <item> TESTB </item>
+      <item> CHAIN </item>   <item> SETLL </item> <item> READE </item>
+      <item> READP </item>   <item> READ </item>  <item> BITON </item>
+      <item> BITOF </item>   <item> DEFN </item>  <item> SORTA </item>
+      <item> TIME </item>    <item> MHHZO </item> <item> MHLZO </item>
+      <item> MLHZO </item>   <item> MLLZO </item> <item> PLIST </item>
+      <item> PARM </item>    <item> CALL </item>  <item> EXIT </item>
+      <item> RLABL </item>   <item> RETRN </item> <item> FREE </item>
+      <item> ACQ </item>     <item> REL </item>   <item> NEXT </item>
+      <item> POST </item>    <item> SHTDN </item> <item> DEBUG </item>
+      <item> FORCE </item>
+    </list>
+
+    <list name="structured">
+      <!-- Roots of IFxx/DOWxx/DOUxx/CASxx; the 2-letter suffix is matched
+           separately below. -->
+      <item> IF </item> <item> DOW </item> <item> DOU </item> <item> CAS </item>
+    </list>
+
+    <list name="cmpop">
+      <item> EQ </item> <item> NE </item> <item> GT </item>
+      <item> LT </item> <item> GE </item> <item> LE </item>
+    </list>
+
+    <list name="keyset">
+      <!-- KEY/SET may carry a 2-digit message-id suffix. -->
+      <item> KEY </item> <item> SET </item>
+    </list>
+
+    <list name="controllevel">
+      <item> LR </item> <item> L0 </item> <item> L1 </item> <item> L2 </item>
+      <item> L3 </item> <item> L4 </item> <item> L5 </item> <item> L6 </item>
+      <item> L7 </item> <item> L8 </item> <item> L9 </item>
+      <item> AN </item> <item> OR </item> <item> SR </item>
+    </list>
+
+    <list name="indicators">
+      <!-- Named indicators (ind_token, cspec.cpp:52-70). -->
+      <item> LR </item> <item> L0 </item> <item> L1 </item> <item> L2 </item>
+      <item> L3 </item> <item> L4 </item> <item> L5 </item> <item> L6 </item>
+      <item> L7 </item> <item> L8 </item> <item> L9 </item>
+      <item> MR </item> <item> 1P </item>
+      <item> OA </item> <item> OB </item> <item> OC </item> <item> OD </item>
+      <item> OE </item> <item> OF </item> <item> OG </item> <item> OV </item>
+      <item> U1 </item> <item> U2 </item> <item> U3 </item> <item> U4 </item>
+      <item> U5 </item> <item> U6 </item> <item> U7 </item> <item> U8 </item>
+      <item> H1 </item> <item> H2 </item> <item> H3 </item> <item> H4 </item>
+      <item> H5 </item> <item> H6 </item> <item> H7 </item> <item> H8 </item>
+      <item> H9 </item>
+      <item> KA </item> <item> KB </item> <item> KC </item> <item> KD </item>
+      <item> KE </item> <item> KF </item> <item> KG </item> <item> KH </item>
+      <item> KI </item> <item> KJ </item> <item> KK </item> <item> KL </item>
+      <item> KM </item> <item> KN </item> <item> KO </item> <item> KP </item>
+      <item> KQ </item> <item> KR </item> <item> KS </item> <item> KT </item>
+      <item> KU </item> <item> KV </item> <item> KW </item> <item> KX </item>
+      <item> KY </item>
+    </list>
+
+    <list name="devices">
+      <item> DISK </item> <item> PRINTER </item> <item> WORKSTN </item>
+      <item> KEYBORD </item> <item> CRT </item> <item> SPECIAL </item>
+      <item> CONSOLE </item>
+    </list>
+
+    <list name="starval">
+      <item> *ENTRY </item> <item> *LIKE </item> <item> *ALL </item>
+      <item> *IN </item> <item> *BLANK </item> <item> *ZERO </item>
+      <item> *ON </item> <item> *OFF </item> <item> *DATE </item>
+      <item> *DAY </item> <item> *MONTH </item> <item> *YEAR </item>
+      <item> *LDA </item>
+    </list>
+
+    <!-- ===================== contexts ===================== -->
+
+    <contexts>
+
+      <!-- Root context. Classify each line by the form-type char in column 6
+           (0-based column 5), then delegate to a per-spec context for the
+           remainder of the line. -->
+
+      <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <!-- Full-line comment: '*' at column 7 (0-based 6), after any spec
+             letter at col 6. Matched first so it shadows keyword rules. -->
+        <RegExpr attribute="Comment" context="Comment" String="^.{5}[FICLOEHL ]?\*" />
+        <!-- Column ruler line: '.....1....+....2' -->
+        <RegExpr attribute="RegionMarker" context="#stay" String="^\.+[0-9+]" />
+        <!-- /COPY directive beginning at column 7 (0-based 6). -->
+        <RegExpr attribute="Import" context="#stay" String="^.{6}/COPY\b" />
+
+        <!-- Per-form-type dispatch: the form-type char at col 6 (0-based 5). -->
+        <DetectChar attribute="FormType" context="FSpec" char="F" column="5" />
+        <DetectChar attribute="FormType" context="ISpec" char="I" column="5" />
+        <DetectChar attribute="FormType" context="CSpec" char="C" column="5" />
+        <DetectChar attribute="FormType" context="OSpec" char="O" column="5" />
+        <DetectChar attribute="FormType" context="ESpec" char="E" column="5" />
+        <DetectChar attribute="FormType" context="HSpec" char="H" column="5" />
+        <DetectChar attribute="FormType" context="LSpec" char="L" column="5" />
+      </context>
+
+      <!-- A consumed comment line; stay until EOL, then return to Normal. -->
+      <context name="Comment" attribute="Comment" lineEndContext="#pop" />
+
+      <!-- F-spec body. -->
+      <context name="FSpec" attribute="Normal Text" lineEndContext="#pop">
+        <keyword attribute="Device" context="#stay" String="devices" />
+        <!-- Filename begins at col 7 (0-based 6). -->
+        <RegExpr attribute="FileName" context="#stay" String="^.{6}[A-Za-z@][A-Za-z0-9@#$*_]*" />
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+        <DetectChar attribute="String" context="String" char="&apos;" />
+      </context>
+
+      <!-- I-spec body. -->
+      <context name="ISpec" attribute="Normal Text" lineEndContext="#pop">
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+        <DetectChar attribute="String" context="String" char="&apos;" />
+      </context>
+
+      <!-- C-spec body. -->
+      <context name="CSpec" attribute="Normal Text" lineEndContext="#pop">
+        <!-- Control level cols 7-8 (0-based 6-7). -->
+        <RegExpr attribute="ControlLevel" context="#stay" String="^.{6}(?:LR|L[0-9]|AN|OR|SR)\b" />
+        <!-- Conditioning indicators cols 9-17: three [N]II groups. -->
+        <RegExpr attribute="Indicator" context="#stay" String="N?&ind;" column="8" />
+        <RegExpr attribute="Indicator" context="#stay" String="N?&ind;" column="11" />
+        <RegExpr attribute="Indicator" context="#stay" String="N?&ind;" column="14" />
+        <!-- Operation: structured op + optional 2-letter suffix (cols 28-32). -->
+        <keyword attribute="Structured" context="#stay" String="structured" />
+        <keyword attribute="Keyword" context="#stay" String="cmpop" />
+        <keyword attribute="Keyword" context="#stay" String="keyset" />
+        <keyword attribute="Keyword" context="#stay" String="opcodes" />
+        <!-- Result indicators cols 54-59 (0-based 53-58). -->
+        <RegExpr attribute="Indicator" context="#stay" String="N?&ind;" column="53" />
+        <RegExpr attribute="Indicator" context="#stay" String="N?&ind;" column="55" />
+        <RegExpr attribute="Indicator" context="#stay" String="N?&ind;" column="57" />
+        <!-- Named indicators anywhere (covers LR etc. in any column). -->
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+        <!-- Special factor values *ENTRY etc. -->
+        <RegExpr attribute="Constant" context="#stay" String="\*(?:ENTRY|LIKE|ALL|IN|BLANK|ZERO|ON|OFF|DATE|DAY|MONTH|YEAR|LDA)\b" />
+        <DetectChar attribute="String" context="String" char="&apos;" />
+        <Int attribute="DecVal" context="#stay" />
+      </context>
+
+      <!-- O-spec body. -->
+      <context name="OSpec" attribute="Normal Text" lineEndContext="#pop">
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+        <DetectChar attribute="String" context="String" char="&apos;" />
+      </context>
+
+      <!-- E/H/L-spec bodies: light coverage. -->
+      <context name="ESpec" attribute="Normal Text" lineEndContext="#pop">
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+        <DetectChar attribute="String" context="String" char="&apos;" />
+      </context>
+      <context name="HSpec" attribute="Normal Text" lineEndContext="#pop">
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+      </context>
+      <context name="LSpec" attribute="Normal Text" lineEndContext="#pop">
+        <keyword attribute="Indicator" context="#stay" String="indicators" />
+      </context>
+
+      <!-- Single-quoted string literal. -->
+      <context name="String" attribute="String" lineEndContext="#pop">
+        <DetectChar attribute="String" context="#pop" char="&apos;" />
+      </context>
+
+    </contexts>
+
+    <!-- ===================== itemDatas (styles) ===================== -->
+
+    <itemDatas>
+      <itemData name="Normal Text"  defStyleNum="dsNormal" />
+      <itemData name="Comment"      defStyleNum="dsComment" />
+      <itemData name="FormType"     defStyleNum="dsKeyword" bold="1" />
+      <itemData name="Keyword"      defStyleNum="dsKeyword" />
+      <itemData name="Structured"   defStyleNum="dsControlFlow" />
+      <itemData name="ControlLevel" defStyleNum="dsControlFlow" />
+      <itemData name="Indicator"    defStyleNum="dsVariable" />
+      <itemData name="Device"       defStyleNum="dsDataType" />
+      <itemData name="FileName"     defStyleNum="dsFunction" />
+      <itemData name="String"       defStyleNum="dsString" />
+      <itemData name="DecVal"       defStyleNum="dsDecVal" />
+      <itemData name="Constant"     defStyleNum="dsConstant" />
+      <itemData name="Import"       defStyleNum="dsImport" />
+      <itemData name="RegionMarker" defStyleNum="dsRegionMarker" />
+    </itemDatas>
+
+  </highlighting>
+
+  <general>
+    <comments>
+      <!-- 'C*' / 'F*' style: a '*' at column 7 (after the spec letter). -->
+      <comment name="singleLine" start="*" position="afterwhitespace" />
+    </comments>
+    <keywords casesensitive="0" weakDeliminator="-*" additionalDeliminator=" " />
+  </general>
+
+</language>

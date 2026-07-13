@@ -1,0 +1,66 @@
+// RPG II grammar for Grammar-Kit (IntelliJ Platform custom-language plugin).
+//
+// This is a token-structure grammar suitable for syntax highlighting and a
+// basic PSI tree. It is NOT a re-implementation of the rpgc parser — the
+// authoritative parser lives in compiler/src/. The token names referenced
+// here (OPCODE, INDICATOR, DEVICE, ...) are produced by rpg2.flex.
+//
+// Generate the parser: right-click this file in IntelliJ with Grammar-Kit
+// installed, then "Generate Parser Code". Adjust the package below to match
+// your plugin's package.
+
+{
+  parserClass="org.rpg2.lang.parser.Rpg2Parser"
+  extends="com.intellij.lang.impl.PsiBuilderImpl"
+  // psiClassPrefix left default; adjust if you rename PSI classes.
+  psiPackage="org.rpg2.lang.psi"
+  psiImplPackage="org.rpg2.lang.psi.impl"
+  elementTypeHolderClass="org.rpg2.lang.psi.Rpg2Types"
+  elementTypePrefix="Rpg2_"
+  psiImplPrefix="Rpg2"
+  // Case-insensitive keywords (RPG II is conventionally uppercase but
+  // lowercase is accepted by the compiler too).
+  generateTokenTypes=true
+}
+
+// ---------------------------------------------------------------------------
+// Tokens. These are the JFlex token names from rpg2.flex. Names must match.
+// ---------------------------------------------------------------------------
+OPCODE          ::= "OPCODE"          // plain operation code (ADD, COMP, ...)
+STRUCTURED      ::= "STRUCTURED"      // IF / DOW / DOU / CAS root
+CMP_SUFFIX      ::= "CMP_SUFFIX"      // EQ NE GT LT GE LE
+KEYSET          ::= "KEYSET"          // KEY / SET root
+KEYSET_SUFFIX   ::= "KEYSET_SUFFIX"   // 2-digit message id
+CONTROL_LEVEL   ::= "CONTROL_LEVEL"   // LR / L0-L9 / AN / OR / SR
+INDICATOR       ::= "INDICATOR"       // any indicator token (incl. N-prefixed)
+DEVICE          ::= "DEVICE"          // DISK / PRINTER / ...
+STAR_VALUE      ::= "STAR_VALUE"      // *ENTRY / *LIKE / ...
+FILENAME        ::= "FILENAME"
+STRING          ::= "STRING"          // 'literal'
+NUMBER          ::= "NUMBER"
+COPY            ::= "COPY"            // /COPY directive
+FORM_TYPE       ::= "FORM_TYPE"       // F I C O E H L at column 6
+COMMENT         ::= "COMMENT"
+RULER           ::= "RULER"           // '.....1....+....2'
+IDENTIFIER      ::= "IDENTIFIER"
+BAD_CHAR        ::= "BAD_CHAR"
+
+private Tokens ::= (TOKEN?)*
+private TOKEN  ::= FORM_TYPE | OPCODE | STRUCTURED | CMP_SUFFIX | KEYSET
+                | KEYSET_SUFFIX | CONTROL_LEVEL | INDICATOR | DEVICE
+                | STAR_VALUE | FILENAME | STRING | NUMBER | COPY | COMMENT
+                | RULER | IDENTIFIER
+
+// ---------------------------------------------------------------------------
+// Grammar. A source member is a list of spec lines.
+// ---------------------------------------------------------------------------
+Rpg2File ::= (SpecLine | CommentLine | RulerLine | CopyLine | line_)*
+
+SpecLine      ::= FORM_TYPE line_rest
+CopyLine      ::= COPY line_rest
+CommentLine   ::= COMMENT
+RulerLine     ::= RULER
+line_         ::= IDENTIFIER | NUMBER | STRING | INDICATOR | DEVICE | OPCODE
+              |   STRUCTURED | CMP_SUFFIX | KEYSET | KEYSET_SUFFIX
+              |   CONTROL_LEVEL | STAR_VALUE | FILENAME | COMMENT | BAD_CHAR
+line_rest     ::= (line_)*
