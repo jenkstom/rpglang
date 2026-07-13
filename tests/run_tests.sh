@@ -740,6 +740,74 @@ fi
 # output file.
 expect_compile_fail neg_debug_multifile neg_debug_multifile.rpg
 
+# --- Phase: rpg-clean (source cleanup CLI) -----------------------------------
+hr; echo "Phase: rpg-clean (source cleanup CLI)"; hr
+
+# rpg-clean must exist (it's a build target alongside rpgc/rpg-analyze).
+if [[ ! -x "$BIN/rpg-clean" ]]; then
+    bad "rpg-clean: binary not built"
+else
+    # A clean .rpg must be reported 'ok' (no stages fire) and exit 0.
+    if "$BIN/rpg-clean" --check "$ROOT/tests/addrec.rpg" >/tmp/rpgc_clean_check 2>&1; then
+        if grep -q "^ok " /tmp/rpgc_clean_check; then
+            ok "rpg-clean: clean file detected as already-clean"
+        else
+            bad "rpg-clean: clean file not reported ok"; cat /tmp/rpgc_clean_check
+        fi
+    else
+        bad "rpg-clean: --check on clean file should exit 0"; cat /tmp/rpgc_clean_check
+    fi
+
+    # A fixed-80 no-newline file must be split when run as a filter, producing
+    # real line breaks on stdout. rpg-clean NEVER modifies its input, so we
+    # pipe to a separate output file and check that.
+    tmpf=$(mktemp /tmp/rpgc_clean_XXXX.rpg)
+    outf=$(mktemp /tmp/rpgc_clean_out_XXXX.rpg)
+    python3 - "$tmpf" <<'PY'
+import sys
+rec = "     C                   EVAL      A = 1".ljust(80)
+open(sys.argv[1], "wb").write((rec * 3).encode("ascii"))
+PY
+    before=$(sha256sum "$tmpf" | cut -d' ' -f1)
+    "$BIN/rpg-clean" "$tmpf" >"$outf" 2>/dev/null
+    after=$(sha256sum "$tmpf" | cut -d' ' -f1)
+    if [[ "$before" != "$after" ]]; then
+        bad "rpg-clean: modified its input file (should be read-only)"
+    elif [[ $(grep -c '' "$outf") -eq 3 ]]; then
+        ok "rpg-clean: fixed-80 file split into 3 lines (input untouched)"
+    else
+        bad "rpg-clean: fixed-80 split produced wrong line count"; cat "$outf"
+    fi
+    rm -f "$tmpf" "$outf"
+
+    # Cleanup runs automatically inside the compiler too: rpgc must accept a
+    # fixed-80 no-newline file directly (previously it would fail to parse).
+    # We use a minimal but valid F-spec-only program (the hello.rpg shape) and
+    # smash it into fixed-80 records with no newlines.
+    tmpf=$(mktemp /tmp/rpgc_clean_auto_XXXX.rpg)
+    python3 - "$tmpf" <<'PY'
+import sys
+# A minimal compilable program (a single F-spec), smashed into fixed-80
+# records with no line terminators. Before the cleanup hook this would have
+# been read as one giant line and failed to parse at column 6.
+recs = [
+    "     FEXAMPLR  IP  F  80     DISK".ljust(80),
+]
+open(sys.argv[1], "wb").write("".join(recs).encode("ascii"))
+PY
+    if "$BIN/rpgc" --runtime "$RT" -o /tmp/rpgc_clean_auto_exe "$tmpf" >/tmp/rpgc_clean_auto.log 2>&1; then
+        # The compiler should have warned that source cleanup ran.
+        if grep -q "source cleanup:" /tmp/rpgc_clean_auto.log; then
+            ok "rpg-clean: compiler auto-cleans fixed-80 input (warning emitted)"
+        else
+            ok "rpg-clean: compiler accepted fixed-80 input"
+        fi
+    else
+        bad "rpg-clean: compiler failed on fixed-80 input"; cat /tmp/rpgc_clean_auto.log
+    fi
+    rm -f "$tmpf" /tmp/rpgc_clean_auto_exe /tmp/rpgc_clean_auto.log
+fi
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

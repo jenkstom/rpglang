@@ -5,6 +5,7 @@
  * source.cpp -- implementation.
  * ========================================================================== */
 #include "source.h"
+#include "clean.h"
 #include "diagnostics.h"
 
 #include <algorithm>
@@ -16,26 +17,59 @@
 
 namespace rpgc {
 
-bool load_source(const std::string &path, std::vector<SourceLine> &out) {
+/* Read an entire file as raw bytes. Returns false on open failure (matching
+ * the previous std::ifstream behavior). Used so load_source can hand the whole
+ * file to clean_source_bytes before line-splitting -- cleaning at the byte
+ * level is what lets us repair fixed-80-no-newline files, NUL padding, EBCDIC,
+ * and embedded separator sequences, none of which survive std::getline. */
+static bool slurp_file(const std::string &path, std::string &out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
 
-    std::string raw;
+bool load_source(const std::string &path, std::vector<SourceLine> &out) {
+    std::string bytes;
+    if (!slurp_file(path, bytes)) return false;
+
+    // Run the staged cleanup pipeline in place. Each stage detects whether its
+    // issue is present and only applies if so, so already-clean files are left
+    // byte-identical (no transformation fires). What each stage did is surfaced
+    // as a diagnostic warning so users see when the compiler has repaired
+    // their input -- and so anything suspicious is flagged.
+    CleanReport crep = clean_source_bytes(bytes);
+    for (const auto &note : crep.notes)
+        report(path, 0, 0,
+               crep.suspicious ? DiagKind::Error : DiagKind::Warning,
+               "source cleanup: " + note);
+
+    // `bytes` is now clean ASCII text, LF-terminated. Split into SourceLines,
+    // keeping the previous CR-strip and col-7 comment semantics. We split on
+    // the in-memory string (not std::getline on the stream) because cleaning
+    // may have introduced/removed bytes; this keeps source positions exact.
     int lineno = 0;
-    while (std::getline(f, raw)) {
+    size_t pos = 0;
+    while (pos < bytes.size()) {
+        size_t nl = bytes.find('\n', pos);
+        std::string raw = (nl == std::string::npos)
+                              ? bytes.substr(pos)
+                              : bytes.substr(pos, nl - pos);
+        pos = (nl == std::string::npos) ? bytes.size() : nl + 1;
         ++lineno;
-        // Drop a trailing CR (CRLF files).
+        // Drop a trailing CR (in case any CRLF survived; cleanup normally
+        // normalizes these, but the strip is harmless and keeps semantics
+        // identical to the old std::getline path).
         if (!raw.empty() && raw.back() == '\r') raw.pop_back();
 
         SourceLine sl;
-        sl.text   = raw;
+        sl.text   = std::move(raw);
         sl.lineno = lineno;
-
-        // A comment line: column 6 is a spec letter OR blank/sequence area, and
-        // column 7 is '*'. We only treat lines that have an actual spec letter
-        // in col 6 with a '*' in col 7 as comments, plus the common "* in col 7
-        // of any line" convention.
-        if ((int)raw.size() >= 7 && raw[6] == '*') {
+        // A comment line: column 7 is '*'. (Column 6 is the spec letter or the
+        // sequence-number area; '*' in col 7 marks the line as a comment.)
+        if ((int)sl.text.size() >= 7 && sl.text[6] == '*') {
             sl.comment = true;
         }
         out.push_back(std::move(sl));

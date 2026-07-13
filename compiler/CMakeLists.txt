@@ -14,6 +14,7 @@
 add_library(rpgc_parse STATIC
     src/diagnostics.cpp
     src/source.cpp
+    src/clean.cpp
     src/cspec.cpp
     src/fspec.cpp
     src/hspec.cpp

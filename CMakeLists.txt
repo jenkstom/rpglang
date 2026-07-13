@@ -115,12 +115,23 @@ set(RPGC_CLANG "${LLVM_CLANG}" CACHE STRING "Path to clang used by rpgc")
 add_subdirectory(runtime)
 add_subdirectory(compiler)
 add_subdirectory(analyze)
+add_subdirectory(clean)
+
+# Optional test driver for the cleanup pipeline (and future C++ unit tests).
+# Off by default so it never enters the normal/package build; enable with
+# -DBUILD_TESTING=ON. The bash end-to-end suite in tests/run_tests.sh does
+# not require this.
+option(BUILD_TESTING "Build C++ unit tests" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests/clean)
+endif()
 
 install(FILES README.md LICENSE
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/rpg2-compiler
 )
 
-install(FILES docs/man/rpgc.1 docs/man/rpg-analyze.1
+install(FILES docs/man/rpgc.1 docs/man/rpg-analyze.1 docs/man/rpg-clean.1
     DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
 )
 

@@ -1,0 +1,164 @@
+.TH RPG-CLEAN 1 "July 2026" "rpg-clean 0.1.0" "RPG II Source Cleanup"
+.SH NAME
+rpg-clean \- repair mangled RPG source files
+.SH SYNOPSIS
+.B rpg-clean
+[\fIOPTIONS\fR] \fI<file...>\fR
+.SH DESCRIPTION
+.B rpg-clean
+repairs RPG source files that have been damaged by the transfer/export step
+that pulled them off a midrange system (S/34, S/36, AS/400, IBM i). It detects
+each issue independently and only applies a fix when its detector fires, so
+already-clean files are left byte-identical and the tool is safe to run over
+whole directories of mixed inputs.
+.PP
+It handles the same staged cleanup that
+.B rpgc
+and
+.B rpg-analyze
+run automatically when loading source (via the shared
+.I rpgc_parse
+frontend), so the tool and the compiler agree on exactly what "clean" means.
+Use
+.B rpg-clean
+when you want to repair files on disk rather than have the compiler repair
+them silently in memory.
+.SH CLEANUP STAGES
+The pipeline runs stages in a fixed order; each only fires if its detector
+confirms the issue is present:
+.TP
+1.\ \ trailing NUL padding
+IBM i member dumps are often zero-padded to a record boundary. A trailing run
+of four or more NUL bytes is stripped.
+.TP
+2.\ \ EBCDIC \(-> ASCII decode
+If the input is mostly non-ASCII, each candidate codepage (cp037 US EBCDIC,
+cp500 international) is decoded and scored for "ASCII RPG source"-likeness
+(printable ASCII ratio). The best wins, but only if it both scores high (>=90%
+printable) and beats the raw bytes by a clear margin (>=10 percentage points).
+Files that are ambiguous are left alone rather than guessed.
+.TP
+3.\ \ separator-sequence repair
+Some exports replace line terminators with stray control sequences: the EBCDIC
+0x15 "New Line" character mis-transcoded to the UTF-8 C1 control
+.IR U+0082 " (bytes C2 82), or"
+5250 workstation transparent-write controls (ESC + 0xEB + ...) that got
+embedded in the source. Known separator byte-patterns (see the
+.I KnownSeparators
+table in
+.IR compiler/src/clean.cpp )
+are replaced with newlines. Adding a new separator dialect is a one-line table
+entry.
+.TP
+4.\ \ fixed-width no-newline split
+S/34 and S/36 card-image dumps are fixed-length records with no line
+terminators at all -- a 240-byte file is three records run together. This is
+handled in two ways:
+.RS
+.IP \(bu 2
+If the whole file has no newlines, it is split into fixed-width records
+(default 80, override with
+.BR \-w ).
+.IP \(bu 2
+If the file is a hybrid -- some lines already newline-terminated, others are
+"blobs" of records concatenated with no separators (as in many IBM i member
+exports) -- each over-long line is split individually. The width is
+auto-detected per line by trying candidate widths (80 RPG II, 96, 100) and
+picking the one that puts a valid spec letter at column 6 of the most records.
+Lines that cannot be confidently aligned (e.g. comment prose with no spec
+letters) are left intact and flagged suspicious.
+.RE
+.TP
+5.\ \ line-ending normalization
+CRLF and lone CR are normalized to LF, and the file is guaranteed to end with
+a newline.
+.TP
+6.\ \ residue check
+After all stages, if more than 1% of bytes remain non-printable/non-ASCII, or
+any single line exceeds ~120 columns (far beyond any real RPG fixed-format
+width), the file is flagged
+.IR suspicious :
+the cleanup could not confidently classify it and a human should look.
+.SH MODES
+.PP
+.B rpg-clean
+never modifies its input files. By default it is a Unix filter: cleaned output
+goes to stdout (inputs are concatenated), so it composes with pipes and
+redirection. The only way to get a file written is to name one explicitly with
+.BR \-o .
+To replace a file in place, redirect yourself:
+.PP
+.RS
+.EX
+rpg-clean prog.rpg > prog.rpg.new && mv prog.rpg.new prog.rpg
+.EE
+.RE
+.TP
+(default)
+Write cleaned output to stdout.
+.TP
+.BR \-o ", " \-\-output " " \fIFILE\fR
+Write one cleaned input to
+.IR FILE .
+Takes exactly one input file.
+.TP
+.B \-\-check
+Read-only: report what
+.I would
+change; write no output. Exit status 1 if any input needs cleaning, 2 if any
+input looks suspicious even after cleaning.
+.SH OPTIONS
+.TP
+.BR \-w ", " \-\-width " " \fIN\fR
+Fixed-record width for the no-newline splitting stage (default 80).
+.TP
+.B \-\-report
+Print a per-stage note to stderr for each input, describing what fired.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-V ", " \-\-version
+Show version and exit.
+.SH EXIT STATUS
+.TP
+0
+All inputs processed, or
+.B \-\-check
+found nothing to clean.
+.TP
+1
+.B \-\-check
+found one or more inputs needing cleaning.
+.TP
+2
+I/O error, bad CLI usage, or an input looked
+.I suspicious
+after cleaning.
+.SH EXAMPLES
+.TP
+Clean one file to stdout
+.B rpg-clean prog.rpg > prog.clean.rpg
+.TP
+Clean a whole library, writing each result next to its source
+.B for f in legacy/*.rpg; do rpg-clean "$f" > "$f.clean"; done
+.TP
+Replace a file in place (atomic)
+.B rpg-clean prog.rpg > prog.rpg.new && mv prog.rpg.new prog.rpg
+.TP
+Write one cleaned file to a named output
+.B rpg-clean -o prog.clean.rpg prog.rpg
+.TP
+Just check whether a file needs cleaning
+.B rpg-clean \-\-check prog.rpg
+.PP
+Exit 0 means already clean; exit 1 means it needs cleaning; exit 2 means it
+looks suspicious even after cleaning.
+.TP
+See what each stage did
+.B rpg-clean \-\-report drvuni.mbr > drvuni.rpg
+.SH SEE ALSO
+.BR rpgc (1),
+.BR rpg-analyze (1)
+.SH AUTHOR
+Tom White <tom.white@gmail.com>
