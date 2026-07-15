@@ -151,25 +151,37 @@
   headings, spacing, and field placement automatically &mdash; before the RPG
   compiler proper ever ran.</p>
 
-  <p><strong>This compiler does not implement Auto Report.</strong> Expanding
-  option specs into full specifications is a large, separate preprocessing
-  feature, and silently ignoring <code>U</code> lines would be worse than
-  refusing them: an Auto Report program typically has no ordinary O-specs of
-  its own (the option specs stand in for them), so compiling it as-is would
-  silently produce a program with no meaningful output. Instead, every
-  <code>U</code> line is a <strong>hard compile error</strong> with a clear
-  diagnostic telling you to rewrite the program using explicit F/I/C/O-specs.</p>
+  <p><strong>This compiler implements Auto Report as a built-in
+  preprocessor</strong> (IBM System/36 RPG&nbsp;II manual, Chapter&nbsp;26). A
+  program that begins with a <code>U</code> line has its <code>*AUTO</code>
+  constructs expanded into ordinary specs before the column parser ever runs,
+  so the generated output is exactly what you would get from writing the
+  expanded F/I/C/O-specs by hand:</p>
+
+  <ul>
+    <li><strong><code>H-*AUTO</code></strong> &mdash; page-heading generation:
+    a date field (<code>UDATE</code>), a centered title, a
+    <code>PAGE</code> counter, and the <code>1P</code>-or-overflow
+    conditioning that reprints the heading at the top of each page.</li>
+    <li><strong><code>D/T-*AUTO</code></strong> &mdash; output-spec generation:
+    detail lines, column headings, total lines (with control-level breaks and
+    final-total constants), asterisk-fill depth suppression, and group
+    printing &mdash; all derived from a terse field list.</li>
+    <li>The synthesized <strong>accumulator C-spec chain</strong> and
+    <code>A$$SUM</code> subroutine that back the total lines above.</li>
+  </ul>
 
   <pre><code>....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-     U ...   (an Auto Report option spec)</code></pre>
+     U ...   (an Auto Report option spec, must precede all other specs)</code></pre>
 
   <div class="callout">
-    <p><strong>If you encounter a U-spec&hellip;</strong> the program was
-    written for the IBM Auto Report preprocessor. To compile it with this
-    tool, run the original preprocessor first (or expand the option specs by
-    hand into explicit specifications). See the
+    <p><strong>Inspecting the expansion.</strong> Pass
+    <code>--dump-autoreport</code> to <code>rpgc</code> to print the fully
+    expanded source &mdash; every generated heading, detail, total, and
+    accumulator spec &mdash; before compilation. For the full column layout
+    and generation rules, see the
     <a href="appendix-cheat-sheet.html#u-spec">U-spec note in the
-    appendix</a>.</p>
+    appendix</a> and <code>docs/AUTO_REPORT_PLAN.md</code>.</p>
   </div>
 
   <!-- ═════════════════════════════════════════════════════════════ -->
@@ -178,10 +190,10 @@
   <p>That completes the set of specification types this compiler recognises.
   The four core specs (F, I, C, O) carry your program's logic; the E-spec
   declares its arrays and tables; the H-spec sets program-wide options like
-  the currency symbol; and the U-spec, while rejected, is documented here so
-  you recognise it when porting older source. For a single-page visual
-  reference of every spec type, turn to the
-  <a href="appendix-cheat-sheet.html">appendix cheat sheet</a>.</p>
+  the currency symbol; and the U-spec is the entry point for Auto Report's
+  automatic spec generation. For a single-page visual reference of every spec
+  type, turn to the <a href="appendix-cheat-sheet.html">appendix cheat
+  sheet</a>.</p>
 
   <div class="nav">
     <a href="19-multifile.html">&larr; Chapter 19: Multifile Processing</a>

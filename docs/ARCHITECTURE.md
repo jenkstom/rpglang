@@ -23,11 +23,18 @@ to indicate when each mechanism comes online.
    .rpg source
         │
         ▼
- ┌──────────────┐    fixed-column      ┌──────────────┐
- │  Lexer       │ │  slicing (no        │  Spec Table  │
- │  (col-based) │─▶  whitespace tokens) │  (F/I/C/O)   │
- └──────────────┘                      └──────┬───────┘
-                                              │ AST-ish IR
+ ┌──────────────┐   /COPY splicing +    ┌──────────────┐
+ │  Preprocess  │ │  Auto Report *AUTO   │  expanded    │
+ │  (source.cpp │─▶  expansion (rewrites │  SourceLines │
+ │   autoreport)│    the line vector)    │  (F/I/C/O)   │
+ └──────────────┘                       └──────┬───────┘
+                                               │ fixed-column
+                                               ▼  slicing (no whitespace tokens)
+                                       ┌──────────────┐
+                                       │  Lexer +     │   AST-ish IR
+                                       │  parsers     │   (rpgc::Program)
+                                       └──────┬───────┘
+                                              │
                                               ▼
                                        ┌──────────────┐
                                        │ CodeGen      │   LLVM C++ API
@@ -49,6 +56,31 @@ to indicate when each mechanism comes online.
 * **Backend driver:** in `--emit-exe` mode `rpgc` shells out to `llc`
   (IR → object) and `clang` (object + `librpgruntime.a` → ELF). Both paths are
   resolved at configure time and baked in as defaults.
+
+### 1.1 Source preprocessing
+
+Before the column lexer sees a line, the raw source (`std::vector<SourceLine>`)
+passes through two source-to-source transforms (in `compiler/src/main.cpp`,
+mirrored in `analyze/src/ir.cpp`), each of which rewrites the line vector in
+place:
+
+1. **`/COPY` expansion** (`compiler/src/source.cpp`, `expand_copy_statements`)
+   splices a named library member's lines into the vector, recursively, before
+   any column parsing.
+
+2. **Auto Report expansion** (`compiler/src/autoreport.cpp`,
+   `expand_autoreport`) consumes a leading form-type `U` option spec and
+   expands its `*AUTO` constructs — `H-*AUTO` page headings, `D/T-*AUTO`
+   detail/total output lines, and the accumulator C-spec chain — into ordinary
+   F/I/C/O-spec text. The generated lines are plain RPG source, so every
+   downstream parser, the codegen, and the analyzer consume them unchanged;
+   nothing after this point needs to know Auto Report was involved. A program
+   with no `U` line passes through unchanged. `--dump-autoreport` prints the
+   expanded source and exits. See `docs/AUTO_REPORT_PLAN.md` for the full
+   design.
+
+`rpg-analyze` runs the same two transforms (`analyze/src/ir.cpp`), so its
+analysis reflects the post-expansion program a user actually gets.
 
 ---
 

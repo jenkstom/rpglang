@@ -444,6 +444,34 @@ A single JSON object per file (an array of these when multiple files given):
 
 The JSON schema is the contract consumed by `portfolio` and `migrate`.
 
+### 6.3 HTML (`--html`)
+
+A self-contained, single-file HTML dashboard — one document per invocation,
+written to `-o FILE` or stdout. Distinct from `portfolio --html` (which is a
+flat codebase metrics table): the `report --html` output is a tabbed view of a
+single program's full synthesized report.
+
+Structure (see `analyze/src/render_html.{h,cpp}`):
+
+- **Header** — program id, source file, and severity badges
+  (`N errors · N warnings · N info`).
+- **Category tabs** — modules grouped under their `section_group`
+  (Overview, Files, Fields, Indicators, Control Flow, Complexity, Security, …),
+  one tab per group in catalog first-appearance order.
+- **Section bodies** — when a section's `Json data` payload is populated it is
+  rendered as an HTML table (array-of-objects) or a key/value grid (scalar
+  object); the four text-only modules (security, compat, termination, smells)
+  fall back to a `<pre>` block of their pre-rendered `text_lines`.
+- **Section index** — multi-module tabs begin with a `Sections:` nav of in-page
+  anchor links.
+- **Findings tab** — a table of all findings with severity badges, check id,
+  location (`file:line` + spec/columns), message, and evidence cross-refs.
+- **Theming** — adapts to the browser color scheme via
+  `prefers-color-scheme`; all output is HTML-escaped.
+
+Tab switching is ~15 lines of vanilla JS; there are no external dependencies.
+`--no-findings` suppresses the Findings tab; `--severity` filters it.
+
 ---
 
 ## 7. Shared IR
@@ -605,6 +633,7 @@ analyze/src/
  ├─ findings.cpp       Finding type, de-dup, severity sort, filtering
  ├─ render_text.cpp    text/ANSI renderer
  ├─ render_json.cpp    JSON renderer (schema in §6.2)
+ ├─ render_html.cpp    HTML dashboard renderer (§6.3)
  ├─ cmds/              decode, search, diff, format, docgen, callgraph,
  │                     duplicate, portfolio, migrate
  └─ main.cpp           arg parsing, dispatch

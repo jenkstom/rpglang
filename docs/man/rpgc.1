@@ -22,6 +22,15 @@ Generated programs follow the implicit RPG program cycle: an outer loop that
 reads input records, extracts fields, runs total and detail calculations, and
 produces output. The cycle terminates when the last-record (LR) indicator turns
 on at end-of-file.
+.PP
+Before parsing, the compiler runs a source preprocessor that handles
+\fI/COPY\fR includes and \fIAuto Report\fR (IBM System/36 RPG II manual,
+Chapter 26). A program beginning with a form-type \fBU\fR line (the Auto Report
+option spec) has its \fB*AUTO\fR constructs &mdash; page headings
+(\fBH\-*AUTO\fR), output detail/total lines (\fBD/T\-*AUTO\fR), and accumulator
+C-specs &mdash; expanded into ordinary F/I/C/O-specs, which are then compiled
+normally. Programs without a \fBU\fR line pass through the preprocessor
+unchanged.
 .SH OPTIONS
 .TP
 .BR \-o " " \fIfile\fR
@@ -66,6 +75,12 @@ and above, the LLVM new-pass-manager pipeline runs before emission.
 .TP
 .B \-\-save-temps
 Keep intermediate \fB.ll\fR and \fB.o\fR files in a temporary directory.
+.TP
+.B \-\-dump-autoreport
+Print the Auto Report preprocessor's expanded source (after \fI/COPY\fR splicing
+and \fB*AUTO\fR expansion, before parsing) to stdout and exit. Useful for
+inspecting the generated heading, detail, total, and accumulator specs. Has no
+effect on a program with no Auto Report constructs.
 .TP
 .B \-v
 Verbose mode. Print each tool invocation (\fBllc\fR, \fBclang\fR) as it runs.
@@ -122,5 +137,7 @@ Runtime header, useful for understanding the generated code's external calls.
 docs/ARCHITECTURE.md \(em internal design and IR mapping
 .br
 docs/SPEC_MAP.md \(em authoritative column-position reference
+.br
+docs/AUTO_REPORT_PLAN.md \(em Auto Report preprocessor design (Ch. 26)
 .br
 docs/tutorial/ \(em interactive RPG II tutorial

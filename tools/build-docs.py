@@ -347,6 +347,14 @@ DOCS = [
         "icon": "⚙",
     },
     {
+        "title": "Auto Report Preprocessor — Design",
+        "src": "docs/AUTO_REPORT_PLAN.md",
+        "slug": "auto-report",
+        "blurb": "Design of the Auto Report source preprocessor (Ch. 26): U-spec option lines, H/D/T-*AUTO expansion, and the accumulator C-spec chain.",
+        "category": "Internals & design",
+        "icon": "⚙",
+    },
+    {
         "title": "rpg-analyze — Design & Rationale",
         "src": "TOOLS_IDEAS.md",
         "slug": "analyzer-design",
@@ -363,6 +371,7 @@ LINK_REWRITES = {
     "docs/BUILDING.md": "building.html",
     "docs/SPEC_MAP.md": "spec-map.html",
     "docs/ARCHITECTURE.md": "architecture.html",
+    "docs/AUTO_REPORT_PLAN.md": "auto-report.html",
     "docs/tutorial/": "tutorial/",
     "docs/tutorial/index.html": "tutorial/index.html",
     "docs/man/rpgc.1": "man/rpgc.html",

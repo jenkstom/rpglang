@@ -1,9 +1,11 @@
-# Auto Report Preprocessor — Implementation Plan
+# Auto Report Preprocessor — Design
 
-Status: **proposed** (not yet implemented). This plan is derived from the IBM
-*System/36-Compatible RPG II User's Guide and Reference*, Chapter 26 ("The Auto
-Report Feature"), with all column numbers and generation rules cross-checked
-against the manual text in `docs/ref/manual_text.txt` (lines cited below).
+Status: **implemented** (compiler/src/autoreport.cpp, uspec.cpp). This document
+is derived from the IBM *System/36-Compatible RPG II User's Guide and
+Reference*, Chapter 26 ("The Auto Report Feature"), with all column numbers and
+generation rules cross-checked against the manual text in
+`docs/ref/manual_text.txt` (lines cited below). It was originally written as an
+implementation plan; the design it describes is now realized in the compiler.
 
 ## 1. What Auto Report is, and why it's a preprocessor
 
@@ -15,11 +17,11 @@ specs in compiler order), which is then compiled normally.
 
 There are **three independent sub-features**, with very different costs:
 
-| Sub-feature | Manual ref | Status today | Effort |
+| Sub-feature | Manual ref | Status | Implementation |
 |---|---|---|---|
-| **Copy** (`/COPY`) — splice a library member | `89980+` | **Already done** (`source.cpp:199` `expand_copy_statements`) | none |
-| **Page-heading** (`H-*AUTO`) — generate heading O-specs | `90700+` | Not implemented; rejected by `reject_uspecs` | **Medium** |
-| **Output** (`D/T-*AUTO`) — generate C-specs + O-specs from a field list | `90907+` | Not implemented; rejected by `reject_uspecs` | **Large** |
+| **Copy** (`/COPY`) — splice a library member | `89980+` | **Done** | `compiler/src/source.cpp` `expand_copy_statements` |
+| **Page-heading** (`H-*AUTO`) — generate heading O-specs | `90700+` | **Done** | `compiler/src/autoreport.cpp` (Phase B) |
+| **Output** (`D/T-*AUTO`) — generate C-specs + O-specs from a field list | `90907+` | **Done** | `compiler/src/autoreport.cpp` (Phase C) |
 
 The `U` form-type line itself (the "option spec") is just the entry point and a
 handful of option flags — it carries none of the expansion logic. The expansion

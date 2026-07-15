@@ -138,6 +138,13 @@ JSON output for CI integration:
 rpg-analyze --json --severity warn *.rpg > report.json
 ```
 
+HTML dashboard for browsing a full report interactively (category-grouped
+tabs, a findings table with severity badges, dark-mode aware):
+
+```bash
+rpg-analyze --html program.rpg -o report.html
+```
+
 See `rpg-analyze --help` or the man page (`man rpg-analyze`) for details.
 
 ## Installation
@@ -168,6 +175,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for full instructions.
 | **docs/tutorial/** | All | Interactive HTML tutorial covering RPG II from basics through advanced features |
 | **docs/BUILDING.md** | All | Build prerequisites, installation, and `.deb` packaging |
 | **docs/SPEC_MAP.md** | All | Authoritative column-position reference for every spec type |
+| **docs/AUTO_REPORT_PLAN.md** | Experienced | Design of the Auto Report source preprocessor (U-spec, `*AUTO` expansion) |
 | **docs/ARCHITECTURE.md** | Experienced | Internal design: column parser, indicator→IR mapping, program cycle, codegen pipeline |
 | **TOOLS_IDEAS.md** | Experienced | Full design rationale for every `rpg-analyze` module and command |
 
@@ -197,6 +205,10 @@ Man pages are installed to `<prefix>/share/man/man1/` and are also available in
 - Control-level break processing with cascade (L3 sets L1, L2, L3)
 - Multifile cycle with primary/secondary files and matching fields
 - `/COPY` include directive
+- **Auto Report** preprocessor (IBM System/36 manual Ch. 26): a leading `U`
+  option-spec activates `H-*AUTO` page-heading generation, `D/T-*AUTO`
+  detail/total output specs, and accumulator C-spec synthesis — see
+  `docs/AUTO_REPORT_PLAN.md`. Inspect the expansion with `--dump-autoreport`.
 
 **Compiler capabilities:**
 
@@ -223,7 +235,7 @@ compiler/   C++ sources for rpgc (the compiler)
 runtime/    C sources for librpgruntime.a (file I/O, numeric decoding)
 analyze/    C++ sources for rpg-analyze (static analysis toolkit)
 tests/      RPG II sample programs + run_tests.sh
-docs/       ARCHITECTURE.md, BUILDING.md, SPEC_MAP.md, tutorial/, man/
+docs/       ARCHITECTURE.md, AUTO_REPORT_PLAN.md, BUILDING.md, SPEC_MAP.md, tutorial/, man/
 debian/     dpkg-buildpackage packaging metadata
 tools/      build helpers (build-deb.sh, build-cpack-deb.sh)
 ```
