@@ -1,0 +1,16 @@
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   30KEY   L1
+     I                                        4   90AMT
+     C                     EXSR A$$SUM
+     CL1         AMTR      ADD  AMT1      AMTR  8  0
+     C           A$$SUM    BEGSR
+     C                     ADD  AMT       AMT1  8  0
+     C                     ENDSR
+     OPRTOUT  D  1    N1P
+     O                         AMT   K 6
+     OPRTOUT  T 12    L1
+     O                         AMT1  KB6
+     OPRTOUT  T 12    LR
+     O                         AMTR  KB6

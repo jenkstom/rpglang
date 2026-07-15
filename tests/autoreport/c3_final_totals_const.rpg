@@ -1,0 +1,10 @@
+     C* Phase C3: 'FINAL TOTALS' constant on LR line.
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 KEY   L1
+     I                                        4  100AMT
+     OPRTOUT  D                *AUTO
+     O                         AMT    A     'AMOUNT'
+     O                                R     'FINAL TOTALS'

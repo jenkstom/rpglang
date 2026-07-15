@@ -1,0 +1,14 @@
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1  300COUNT
+     C                     EXSR A$$SUM
+     C           A$$SUM    BEGSR
+     C                     ADD  COUNT     COUNTR32 0
+     C                     ENDSR
+     OPRTOUT  D  1    N1P
+     O                         COUNT K 30
+     OPRTOUT  T 12    LR
+     O                                 5    'TOTAL'
+     O                         COUNTRKB30
+     O                                 31   '*'

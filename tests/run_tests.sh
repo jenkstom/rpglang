@@ -448,13 +448,97 @@ expect_compile_fail neg_ds_numeric_write neg_ds_numeric_write.rpg
 # D3: /COPY splices a member's specs into the source before any spec parser
 # runs (copymem.cpy's lone C-spec becomes this program's only C-spec).
 run_test copytest       1  copytest.rpg
-# D3: 'U' (Auto Report Option Specification) lines aren't expanded by this
-# compiler and must fail loudly rather than silently compiling an auto
-# report program with no real output specs.
-expect_compile_fail neg_uspec neg_uspec.rpg
-# D3: *AUTO in the O-spec field-name column must be a hard error instead of
-# silently printing nothing.
+
+# --- Auto Report preprocessor (Ch. 26): Phase A plumbing + H-*AUTO headings ---
+# A: an ordinary program (no U line, no *AUTO) passes through Auto Report
+# preprocessing unchanged -- compiles and runs as before.
+run_cycle_test ar_no_u_spec    1  autoreport/no_u_spec.rpg
+# A: a bare 'U' (Auto Report Option) line at the top of an otherwise-ordinary
+# program is consumed (no *AUTO constructs to expand) and the program compiles
+# and runs identically. (Replaces the former neg_uspec hard-rejection test: U
+# lines are now handled.)
+run_cycle_test ar_u_spec_options 1 autoreport/u_spec_options.rpg
+# A: a 'U' line that does not precede all other specs is a hard error
+# (manual 90211).
+expect_compile_fail ar_u_spec_not_first autoreport/u_spec_not_first.rpg
+# D3: *AUTO in the O-spec field-name column (a detail line with no H/D/T
+# record-description *AUTO) must be a hard error instead of silently printing
+# nothing.
 expect_compile_fail neg_auto neg_auto.rpg
+
+# --- Auto Report H-*AUTO page-heading generation (Phase B) ---
+# Golden-source tests: --dump-autoreport prints the expanded source, which we
+# diff (rstripped, comments stripped) against a checked-in .expected file. This
+# pins the exact generated column layout: date (UDATE) / centered title / PAGE
+# field, the 1P-OR-<overflow> conditioning, and the N1P rules.
+ar_dump_check() {
+    local name="$1" rpg="$2"
+    local stem="${rpg%.rpg}"
+    "$BIN/rpgc" --dump-autoreport "$ROOT/tests/autoreport/${rpg}" 2>/dev/null \
+        | sed 's/[[:space:]]*$//' | grep -v '^     C\*' > /tmp/ar_${name}.got
+    if diff -u "$ROOT/tests/autoreport/${stem}.expected" /tmp/ar_${name}.got >/dev/null; then
+        ok "${name}: generated source matches expected"
+    else
+        bad "${name}: generated source mismatch"; diff -u "$ROOT/tests/autoreport/${stem}.expected" /tmp/ar_${name}.got
+    fi
+    rm -f /tmp/ar_${name}.got
+}
+ar_dump_check ar_heading_basic             heading_basic.rpg
+ar_dump_check ar_heading_date_suppressed   heading_date_suppressed.rpg
+ar_dump_check ar_heading_multi_line        heading_multi_line.rpg
+ar_dump_check ar_heading_field_n1p         heading_field_n1p.rpg
+ar_dump_check ar_heading_reserved_no_n1p   heading_reserved_no_n1p.rpg
+# Golden-output test: a heading-only program compiles, runs, and the PRINTER
+# output contains the centered title and the PAGE counter on page 1.
+ar_run_check() {
+    local name="$1" rpg="$2" outfile="$3" check="$4"
+    "$BIN/rpgc" --runtime "$RT" -o /tmp/ar_${name} "$ROOT/tests/autoreport/${rpg}" >/dev/null 2>&1
+    if [[ ! -x /tmp/ar_${name} ]]; then bad "${name}: did not compile"; return; fi
+    ( cd "$ROOT/tests" && rm -f "${outfile}" && printf '01\n02\n' > INDATA && /tmp/ar_${name} >/dev/null 2>&1 )
+    rm -f "$ROOT/tests/INDATA"
+    if [[ -f "$ROOT/tests/${outfile}" ]] && eval "$check"; then
+        ok "${name}: output ok"
+    else
+        bad "${name}: output wrong"; cat "$ROOT/tests/${outfile}" 2>/dev/null
+    fi
+    rm -f /tmp/ar_${name}
+}
+# The title 'SALES REPORT' prints on the heading line, and PAGE prints the
+# page counter (a digit). The date prints as mm/dd/yy.
+ar_run_check ar_heading_run heading_basic.rpg PRTOUT \
+    'grep -q "SALES REPORT" "$ROOT/tests/PRTOUT" && grep -q "PAGE" "$ROOT/tests/PRTOUT" && grep -qE "[0-9]{2}/[0-9]{2}/[0-9]{2}" "$ROOT/tests/PRTOUT"'
+
+# --- Auto Report D/T-*AUTO output specs (Phase C) ---
+# Golden-source tests: the generated C-specs (accumulator roll chain + A$$SUM
+# subroutine) and O-specs (detail + total lines) are diffed against checked-in
+# .expected files. This pins the exact generated column layout.
+ar_dump_check ar_c1_detail_only       c1_detail_only.rpg
+ar_dump_check ar_c1_headings_multi    c1_column_headings_multiline.rpg
+ar_dump_check ar_c1_edit_code_k       c1_edit_code_default_k.rpg
+ar_dump_check ar_c2_accumulator       c2_accumulator_two_levels.rpg
+ar_dump_check ar_c2_no_control_levels c2_no_control_levels.rpg
+ar_dump_check ar_c2_six_char_field    c2_six_char_field.rpg
+ar_dump_check ar_c2_group_printing    c2_group_printing_t_auto.rpg
+ar_dump_check ar_c3_total_lines       c3_total_lines.rpg
+ar_dump_check ar_c3_asterisk_depth    c3_asterisk_depth.rpg
+ar_dump_check ar_c3_final_totals      c3_final_totals_const.rpg
+ar_dump_check ar_c3_suppress_asterisks c3_suppress_asterisks.rpg
+# C4 sort tests: generated specs interleave correctly with hand-coded specs.
+ar_dump_check ar_c4_sort_default      c4_sort_default.rpg
+ar_dump_check ar_c4_mixed             c4_mixed_handcoded_and_auto.rpg
+ar_dump_check ar_c4_alternate         c4_sort_alternate_mode.rpg
+# Error case: two A fields whose synthesized names collide must be rejected.
+expect_compile_fail ar_c2_name_collision autoreport/c2_name_collision.rpg
+# Golden-output: the canonical worked example compiles and its accumulator
+# produces correct totals (L1 subtotals, L2 branch totals, LR grand total).
+ar_run_check ar_c2_run c2_accumulator_two_levels.rpg PRTOUT \
+    'grep -q "FINAL" "$ROOT/tests/PRTOUT" && grep -qE "\*\*\*" "$ROOT/tests/PRTOUT"'
+# Full worked example (§7.6 exit criteria): page headings + column headings +
+# detail + totals + final totals, all in one program. Golden-source pins the
+# generated specs; golden-output verifies the runtime report structure.
+ar_dump_check ar_full_source   full_example.rpg
+ar_run_check ar_full_run full_example.rpg PRTOUT \
+    'grep -q "SALES REPORT" "$ROOT/tests/PRTOUT" && grep -q "FINAL TOTALS" "$ROOT/tests/PRTOUT" && grep -qE "[0-9]{2}/[0-9]{2}/[0-9]{2}" "$ROOT/tests/PRTOUT" && grep -q "ITEM" "$ROOT/tests/PRTOUT"'
 
 # --- Section L: TODO Group E F-spec/E-spec gaps ------------------------------
 hr; echo "Section L: F-spec external conditioning, sequence, EOF, packed prerun"; hr

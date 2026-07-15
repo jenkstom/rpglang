@@ -1,0 +1,15 @@
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   6 CUSTNM
+     I                                        7  120AMT
+     OPRTOUT  H  1    1P
+     O       OR       OA
+     O                                 6    'CUSTOMER'
+     O                                 14   'AMOUNT'
+     OPRTOUT  H  2    1P
+     O       OR       OA
+     O                                 6    'NAME'
+     OPRTOUT  D  1    N1P
+     O                         CUSTNM  6
+     O                         AMT   K 14

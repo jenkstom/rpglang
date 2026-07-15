@@ -1,0 +1,12 @@
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0N
+     OPRTOUT  H  206  1P
+     O       OR       OA
+     O                         UDATE   8
+     O                                 71   'SALES REPORT'
+     O                                 127  'PAGE'
+     O                         PAGE    132
+     OPRTOUT  D  1
+     O                         N01       10

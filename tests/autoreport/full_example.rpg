@@ -1,0 +1,14 @@
+     C* Full worked example: page headings + detail + totals (Auto Report).
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 BRANCHL1
+     I                                        4   8 ITEM
+     I                                        9  150AMT
+     OPRTOUT  H                *AUTO
+     O                                   30 'SALES REPORT'
+     OPRTOUT  D                *AUTO
+     O                         ITEM         'ITEM'
+     O                         AMT    A     'AMOUNT'
+     O                                R     'FINAL TOTALS'

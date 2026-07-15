@@ -1,0 +1,10 @@
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0N
+     OPRTOUT  H  206  1P
+     O       OR       OA
+     O                         UDATE   66
+     O                         PAGE    71
+     OPRTOUT  D  1
+     O                         N01       10

@@ -1,0 +1,11 @@
+     C* Phase C1: multi-line column headings (C-type continuation).
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   6 CUSTNM
+     I                                        7  120AMT
+     OPRTOUT  D                *AUTO
+     O                         CUSTNM       'CUSTOMER'
+     O                                C     'NAME'
+     O                         AMT          'AMOUNT'

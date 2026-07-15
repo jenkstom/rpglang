@@ -1,0 +1,18 @@
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   30KEY   L1
+     I                                        4  102SOLDVA
+     C                     EXSR A$$SUM
+     CL1         SOLDVR    ADD  SOLDV1    SOLDVR9  2
+     C           A$$SUM    BEGSR
+     C                     ADD  SOLDVA    SOLDV19  2
+     C                     ENDSR
+     OPRTOUT  D  1    N1P
+     O                         SOLDVAK 7
+     OPRTOUT  T 12    L1
+     O                         SOLDV1KB7
+     O                                 8    '*'
+     OPRTOUT  T 12    LR
+     O                         SOLDVRKB7
+     O                                 8    '**'

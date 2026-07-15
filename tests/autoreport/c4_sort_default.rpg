@@ -1,0 +1,9 @@
+     C* Phase C4: default sort -- generated specs in compiler order.
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 KEY   L1
+     I                                        4  100AMT
+     OPRTOUT  D                *AUTO
+     O                         AMT    A     'AMOUNT'

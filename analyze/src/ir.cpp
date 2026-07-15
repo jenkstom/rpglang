@@ -10,6 +10,7 @@
 #include "ospec.h"
 #include "espec.h"
 #include "uspec.h"
+#include "autoreport.h"
 
 #include <algorithm>
 #include <cctype>
@@ -505,7 +506,14 @@ ProgramIR ProgramIR::build(const std::string &path) {
     });
 
     expand_copy_statements(ir.raw_lines, base_dir);
-    reject_uspecs(ir.raw_lines);
+    {
+        // D3: Auto Report preprocessing (manual Ch. 26). Mirrors the compiler:
+        // rewrites the source lines in place before any spec parser runs. The
+        // boolean is discarded -- any hard error is captured via the diagnostic
+        // sink into ir.diagnostics, exactly like expand_copy_statements above.
+        AutoReportReport ar;
+        expand_autoreport(ir.raw_lines, base_dir, ar);
+    }
 
     ir.prog.hspec           = parse_hspec(ir.raw_lines);
     ir.prog.files            = parse_fspecs(ir.raw_lines);

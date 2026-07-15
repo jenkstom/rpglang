@@ -1,0 +1,10 @@
+     C* Phase C3: asterisk depth (L1=*, L2=**, LR=***).
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 L1KEY L1
+     I                                        4   6 L2KEY L2
+     I                                        7  130AMT
+     OPRTOUT  D                *AUTO
+     O                         AMT    A     'AMOUNT'

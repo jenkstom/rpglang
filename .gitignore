@@ -76,6 +76,9 @@ compile_commands.json
 # by the suite; DBGOUT is left behind as a leftover. Neither is source.
 tests/DBGOUT
 tests/DBGOUT2
+# The ar_heading_run test writes PRTOUT (printer output); left behind as a
+# leftover, same as DBGOUT above. Not source.
+tests/PRTOUT
 
 # -----------------------------------------------------------------------------
 # Debian/Ubuntu packaging byproducts

@@ -1,0 +1,11 @@
+     C* Phase C2: name collision -- two A fields, same first 5 chars.
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 BRANCHL1
+     I                                        4  102SOLDVA
+     I                                       11  172SOLDVB
+     OPRTOUT  D                *AUTO
+     O                         SOLDVA A     'AMOUNT1'
+     O                         SOLDVB A     'AMOUNT2'

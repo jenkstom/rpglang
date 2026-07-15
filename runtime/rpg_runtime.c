@@ -1424,6 +1424,21 @@ long rpg_rt_time(void) {
     return (long)tmv.tm_hour * 10000 + (long)tmv.tm_min * 100 + (long)tmv.tm_sec;
 }
 
+/* UDATE (Auto Report Ch. 26, manual 90709-90722): the current date formatted
+ * "mm/dd/yy" (8 chars), placed right-justified to `end_pos` on the current
+ * output line -- the date field of a generated H-*AUTO page heading. The
+ * H-spec's date-format option (cols 19-21) is not honored here; the default
+ * mm/dd/yy form is what Auto Report's generated headings use. */
+void rpg_rt_line_put_date(int end_pos) {
+    time_t t = time(NULL);
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    char buf[16];
+    int n = snprintf(buf, sizeof buf, "%02d/%02d/%02d",
+                     tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_year % 100);
+    place_right(buf, n, end_pos);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Program linkage: a runtime name -> entry-point registry. Every compiled    */
 /* program self-registers at process startup; CALL becomes a lookup +        */

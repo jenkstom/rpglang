@@ -192,6 +192,14 @@ struct ExitDecl {
     std::vector<RlablDecl> labels;
 };
 
+/* Parse the operation opcode text (cols 28-32) into an Op, and for the
+ * IFxx/DOWxx/DOUxx/CASxx families also return the trailing two-letter
+ * comparison operator in `cmp_out` (pass nullptr to ignore). Returns Op::Unknown
+ * for any mnemonic the compiler does not recognize. Exposed so the analyzer's
+ * compat module can share the single source of truth on which opcodes are
+ * supported, instead of mirroring the table by hand. */
+Op parse_op(const std::string &s, CmpOp *cmp_out = nullptr);
+
 /* Parse all C-specs out of a source file. Non-C lines are ignored. Returns the
  * vector by value; on hard parse errors it still returns what it could and
  * reports via diagnostics. */

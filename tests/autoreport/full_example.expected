@@ -1,0 +1,30 @@
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 BRANCHL1
+     I                                        4   8 ITEM
+     I                                        9  150AMT
+     OPRTOUT  H  206  1P
+     O       OR       OB
+     O                         UDATE   8
+     O                                 71   'SALES REPORT'
+     O                                 127  'PAGE'
+     O                         PAGE    132
+     C                     EXSR A$$SUM
+     CL1         AMTR      ADD  AMT1      AMTR  9  0
+     C           A$$SUM    BEGSR
+     C                     ADD  AMT       AMT1  9  0
+     C                     ENDSR
+     OPRTOUT  H  2    1P
+     O       OR       OA
+     O                                 5    'ITEM'
+     OPRTOUT  D  1    N1P
+     O                         ITEM    5
+     O                         AMT   K 14
+     OPRTOUT  T 12    L1
+     O                         AMT1  KB14
+     O                                 15   '*'
+     OPRTOUT  T 12    LR
+     O                                 12   'FINAL TOTALS'
+     O                         AMTR  KB14
+     O                                 15   '**'

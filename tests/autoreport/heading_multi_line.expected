@@ -1,0 +1,18 @@
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0N
+     OPRTOUT  H  106  1P
+     O       OR       OA
+     O                         UDATE   8
+     O                                 72   'LINE ONE TITLE'
+     O                                 127  'PAGE'
+     O                         PAGE    132
+     OPRTOUT  H  1    1P
+     O       OR       OA
+     O                                 70   'LINE TWO'
+     OPRTOUT  H  2    1P
+     O       OR       OA
+     O                                 71   'LINE THREE'
+     OPRTOUT  D  1
+     O                         N01       10

@@ -2,34 +2,31 @@
 // Copyright (C) 2026 Tom White
 
 /* ========================================================================== *
- * uspec.h -- Auto Report Option Specifications (form type 'U', D3).
+ * uspec.h -- parse the Auto Report 'U' (Options) spec line (D3, Ch. 26).
  *
  * A 'U' line is the entry point of an Auto Report source program (manual
- * 89988-90360, Ch. 26): it and the D/O-specs it implies are expanded by the
- * IBM auto-report preprocessor into ordinary F/I/C/O-specs before the RPG
- * compiler proper ever runs. That expansion (deriving headings, spacing, and
- * field placement from just a field list) is a large, separate preprocessing
- * feature this compiler does not implement -- lowest priority among this
- * compiler's known gaps unless a specific legacy program library needs it.
+ * 89988-90360): it and the D/O-specs it implies are expanded by the
+ * auto-report preprocessor (see autoreport.{h,cpp}) into ordinary F/I/C/O-specs
+ * before the RPG compiler proper ever runs. The 'U' line itself only carries
+ * option flags -- none of the expansion logic.
  *
- * Silently ignoring 'U' lines would be worse than refusing them: an Auto
- * Report source program typically has no ordinary O-specs of its own (the
- * option specs stand in for them), so compiling it as-is would silently
- * produce a program with no meaningful output, not just a degraded one. This
- * parser only detects the form type's presence so main.cpp can fail loudly
- * with a clear diagnostic instead (matching the existing E8/B6 precedent).
+ * This module parses those flags into AutoReportOptions. The expansion lives in
+ * autoreport.cpp; this parser is the piece that knows the U-spec's column
+ * layout.
  * ========================================================================== */
 #ifndef RPGC_USPEC_H
 #define RPGC_USPEC_H
 
+#include "autoreport.h"
 #include "source.h"
-#include <vector>
 
 namespace rpgc {
 
-/* Report a hard diagnostic error for every 'U' (Options) spec line found.
- * Returns true if any were found (and reported). */
-bool reject_uspecs(const std::vector<SourceLine> &src);
+/* Parse a single 'U' form-type line into options. Reports a diagnostic (and
+ * leaves the offending field at its default) on a malformed catalog reference
+ * (col 7 == 'C' but cols 8-24 are not a well-formed "lib,member"). Sets
+ * options.present = true. Call only on a line whose form_type() == 'U'. */
+AutoReportOptions parse_uspec(const SourceLine &sl);
 
 } // namespace rpgc
 

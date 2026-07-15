@@ -1,0 +1,10 @@
+     C* Phase B: U-spec col 27 = N suppresses date and page number.
+     U                    N
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0N
+     OPRTOUT  H                *AUTO
+     O                                   20 'REPORT TITLE'
+     OPRTOUT  D  1
+     O                         N01       10

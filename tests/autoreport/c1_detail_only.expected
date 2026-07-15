@@ -1,0 +1,12 @@
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   6 ITEMNO
+     I                                        7   90QTY
+     OPRTOUT  H  2    1P
+     O       OR       OA
+     O                                 6    'ITEM'
+     O                                 11   'QTY'
+     OPRTOUT  D  1    N1P
+     O                         ITEMNO  6
+     O                         QTY   K 11

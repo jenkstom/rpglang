@@ -1,0 +1,14 @@
+     C* Phase B: three H-*AUTO records. Date/page on the first only.
+     U
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0N
+     OPRTOUT  H                *AUTO
+     O                                   20 'LINE ONE TITLE'
+     OPRTOUT  H                *AUTO
+     O                                   20 'LINE TWO'
+     OPRTOUT  H                *AUTO
+     O                                   20 'LINE THREE'
+     OPRTOUT  D  1
+     O                         N01       10

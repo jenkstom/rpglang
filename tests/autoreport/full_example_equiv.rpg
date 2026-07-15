@@ -1,0 +1,22 @@
+     C* Hand-written equivalent of the full worked example (no Auto Report).
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 BRANCHL1
+     I                                        4   8 ITEM
+     I                                        9  150AMT
+     C                N1P  EXSR A$$SUM
+     CL1         AMTR      ADD  AMT1      AMTR    90
+     C           A$$SUM    BEGSR
+     C                     ADD  AMT       AMT1    90
+     C                     ENDSR
+     OPRTOUT  H  206  1P
+     O                                   30 'SALES REPORT'
+     OPRTOUT  D  1    N1P
+     O                         ITEM       5
+     O                         AMT   K   15
+     OPRTOUT  T 12    L1
+     O                         AMT1  KB  15
+     OPRTOUT  T 12    LR
+     O                                   12 'FINAL TOTALS'
+     O                         AMTR  KB  15

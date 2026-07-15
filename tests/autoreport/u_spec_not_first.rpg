@@ -1,0 +1,10 @@
+     C* Phase A: a 'U' line that does NOT precede all other specs is a hard
+     C* error (manual 90211). Here an H-spec precedes the U line.
+     H        Y                                1
+     U
+     FUNFDATA  IP  F    80              DISK
+     FUNFOUT   O   F    132             PRINTER
+     IUNFDATA      AA
+     I                                        1   2   0N
+     OUNFOUT   D  1
+     O                         N         10

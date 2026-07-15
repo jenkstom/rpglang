@@ -25,6 +25,7 @@
 #include "ospec.h"
 #include "espec.h"
 #include "uspec.h"
+#include "autoreport.h"
 #include "program.h"
 #include "codegen.h"
 #include "driver.h"
@@ -125,6 +126,7 @@ struct Options {
     bool print_help    = false;
     bool verbose       = false;
     bool save_temps    = false;
+    bool dump_autoreport = false;   // --dump-autoreport: print post-Auto-Report source
     int  opt_level     = 0;
 };
 
@@ -146,6 +148,7 @@ void print_help() {
         "    --runtime <path>   path to librpgruntime.a\n"
         "    -O<level>          LLVM optimization level (0-3, default 0)\n"
         "    --save-temps       keep intermediate .ll/.o files\n"
+        "    --dump-autoreport  print source after Auto Report expansion and exit\n"
         "    -v                 verbose (print each tool invocation)\n"
         "    --version          print version and exit\n"
         "    -h, --help         print this help and exit\n"
@@ -217,6 +220,8 @@ bool parse_args(int argc, char **argv, Options &opts) {
             opts.runtime_lib = argv[i];
         } else if (a == "--save-temps") {
             opts.save_temps = true;
+        } else if (a == "--dump-autoreport") {
+            opts.dump_autoreport = true;
         } else if (a.size() >= 2 && a[0] == '-' && a[1] == 'O') {
             // -O<level> : -O0..-O3
             std::string lvl = a.substr(2);
@@ -309,10 +314,26 @@ int main(int argc, char **argv) {
                 return 1;
             }
         }
-        // D3: Auto Report Option Specifications ('U' form type) aren't
-        // expanded by this compiler; fail loudly now rather than silently
-        // compiling a program with no real output specs (see uspec.h).
-        rpgc::reject_uspecs(src);
+        // D3: Auto Report preprocessing (manual Ch. 26). Runs after /COPY
+        // expansion and before any spec parser: it rewrites the source lines
+        // themselves, expanding U-spec/H-*AUTO constructs into ordinary
+        // F/I/C/O-spec text that the parsers below consume unchanged. No-op
+        // (changed=false) for ordinary programs. --dump-autoreport prints the
+        // post-expansion source and exits (for golden-source tests).
+        {
+            auto slash = input_file.find_last_of('/');
+            std::string base_dir = (slash == std::string::npos)
+                ? std::string(".") : input_file.substr(0, slash);
+            rpgc::AutoReportReport ar;
+            if (!rpgc::expand_autoreport(src, base_dir, ar)) {
+                return 1;   // hard Auto Report error already reported
+            }
+            if (opts.dump_autoreport) {
+                for (const auto &sl : src)
+                    std::cout << sl.text << '\n';
+                return 0;
+            }
+        }
 
         rpgc::Program prog;
         prog.hspec      = rpgc::parse_hspec(src);

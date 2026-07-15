@@ -97,6 +97,11 @@ std::vector<CondInd> parse_conditions(const std::string &line) {
     return out;
 }
 
+/* parse_op() is defined below, outside this anonymous namespace, so it has
+ * external linkage and can be declared in cspec.h for the analyzer to share. */
+
+} // namespace
+
 /* Parse the operation opcode plus, for IFxx/DOWxx/DOUxx/CASxx, the trailing
  * two-letter comparison operator. Returns the Op and sets `cmp_out`. */
 Op parse_op(const std::string &s, CmpOp *cmp_out) {
@@ -203,8 +208,6 @@ Op parse_op(const std::string &s, CmpOp *cmp_out) {
     if (u == "FORCE") return Op::FORCE;
     return Op::Unknown;
 }
-
-} // namespace
 
 int parse_indicator_token(const std::string &s) {
     return ind_token(s);

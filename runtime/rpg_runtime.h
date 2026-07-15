@@ -132,6 +132,11 @@ void rpg_rt_line_put_num(long value, int end_pos);
  * fractional digits (Section C). decimals<=0 behaves like line_put_num. */
 void rpg_rt_line_put_num_dec(long value, int end_pos, int decimals);
 
+/* UDATE (Auto Report Ch. 26): the current date formatted "mm/dd/yy" (8 chars),
+ * placed right-justified to `end_pos` -- the date field of a generated H-*AUTO
+ * page heading. */
+void rpg_rt_line_put_date(int end_pos);
+
 /* Emit the current line buffer to `file_id`, followed by `space_after` newlines
  * (default 1). Then clears the buffer. */
 void rpg_rt_emit_line(int file_id, int space_after);

@@ -1,0 +1,9 @@
+     C* Phase C2: no control levels -- only LR total (record-count case).
+     U
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1  300COUNT
+     OPRTOUT  D                *AUTO
+     O                         COUNT  A     'RECORD COUNT'
+     O                                R     'TOTAL'

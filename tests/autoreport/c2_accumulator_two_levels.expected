@@ -1,0 +1,32 @@
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   3 BRANCHL1
+     I                                        4   5 REGIONL2
+     I                                        6  122SOLDVA
+     I                                       13  192VALUE
+     C                     EXSR A$$SUM
+     CL1         SOLDV2    ADD  SOLDV1    SOLDV29  2
+     CL1         VALUE2    ADD  VALUE1    VALUE29  2
+     CL2         SOLDVR    ADD  SOLDV2    SOLDVR9  2
+     CL2         VALUER    ADD  VALUE2    VALUER9  2
+     C           A$$SUM    BEGSR
+     C                     ADD  SOLDVA    SOLDV19  2
+     C                     ADD  VALUE     VALUE19  2
+     C                     ENDSR
+     OPRTOUT  D  1    N1P
+     O                         SOLDVAK 7
+     O                         VALUE K 16
+     OPRTOUT  T 12    L1
+     O                         SOLDV1KB7
+     O                         VALUE1KB16
+     O                                 17   '*'
+     OPRTOUT  T  2    L2
+     O                         SOLDV2KB7
+     O                         VALUE2KB16
+     O                                 17   '**'
+     OPRTOUT  T 12    LR
+     O                                 12   'FINAL TOTALS'
+     O                         SOLDVRKB7
+     O                         VALUERKB16
+     O                                 17   '***'

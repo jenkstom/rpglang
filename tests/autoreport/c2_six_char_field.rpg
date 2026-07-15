@@ -1,0 +1,9 @@
+     C* Phase C2: six-char field naming (SOLDVA -> SOLDV1, SOLDVR).
+     U
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   30KEY   L1
+     I                                        4  102SOLDVA
+     OPRTOUT  D                *AUTO
+     O                         SOLDVA A     'AMOUNT'

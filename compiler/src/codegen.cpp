@@ -1629,6 +1629,10 @@ private:
         line_put_num_dec_ = Function::Create(
             FunctionType::get(voidTy, {i64, i32, i32}, false),
             Function::ExternalLinkage, "rpg_rt_line_put_num_dec", mod_.get());
+        // Auto Report (Ch. 26): UDATE date field on a generated page heading.
+        line_put_date_ = Function::Create(
+            FunctionType::get(voidTy, {i32}, false),
+            Function::ExternalLinkage, "rpg_rt_line_put_date", mod_.get());
         emit_line_ = Function::Create(
             FunctionType::get(voidTy, {i32, i32}, false),
             Function::ExternalLinkage, "rpg_rt_emit_line", mod_.get());
@@ -2378,18 +2382,36 @@ private:
 
         // Collect control fields (I-fields tagged with a control level L1-L9),
         // and create a "previous value" global for each so the cycle can detect
-        // a break by comparing current vs previous.
-        struct CtlField { const ISpecField *spec; llvm::GlobalVariable *prev; int level; };
+        // a break by comparing current vs previous. Numeric fields get an i32
+        // prev; character (alphameric) fields get a byte-array prev of the same
+        // length and are compared byte-by-byte.
+        struct CtlField { const ISpecField *spec; llvm::GlobalVariable *prev;
+                          int level; bool is_char; int char_len; };
         std::vector<CtlField> ctl_fields;
         for (const auto &fld : prog.in_fields) {
             if (fld.control_level.size() == 2 && fld.control_level[0]=='L'
                 && fld.control_level[1]>='1' && fld.control_level[1]<='9') {
-                auto *gv = new GlobalVariable(
-                    *mod_, Type::getInt32Ty(c), /*isConstant=*/false,
-                    GlobalValue::InternalLinkage,
-                    ConstantInt::get(Type::getInt32Ty(c), -1),
-                    "prev_" + fld.name);
-                ctl_fields.push_back({&fld, gv, fld.control_level[1]-'0'});
+                bool is_char = (fld.decimals < 0);
+                int flen = fld.to - fld.from + 1;
+                if (flen < 1) flen = 1;
+                GlobalVariable *gv;
+                if (is_char) {
+                    auto *arrTy = ArrayType::get(Type::getInt8Ty(c), (unsigned)flen);
+                    std::vector<Constant *> init(flen,
+                        ConstantInt::get(Type::getInt8Ty(c), 0));
+                    gv = new GlobalVariable(
+                        *mod_, arrTy, /*isConstant=*/false,
+                        GlobalValue::InternalLinkage,
+                        ConstantArray::get(arrTy, init), "prev_" + fld.name);
+                } else {
+                    gv = new GlobalVariable(
+                        *mod_, Type::getInt32Ty(c), /*isConstant=*/false,
+                        GlobalValue::InternalLinkage,
+                        ConstantInt::get(Type::getInt32Ty(c), -1),
+                        "prev_" + fld.name);
+                }
+                ctl_fields.push_back({&fld, gv, fld.control_level[1]-'0',
+                                      is_char, flen});
             }
         }
 
@@ -2521,13 +2543,34 @@ private:
         if (!ctl_fields.empty()) {
             auto *maxbrk = builder_.CreateAlloca(i32ty, nullptr, "maxbrk");
             builder_.CreateStore(ConstantInt::get(i32ty, 0), maxbrk);
+            auto *i8ty = Type::getInt8Ty(c);
             for (auto &cf : ctl_fields) {
-                Value *cur  = syms_.load_field(cf.spec->name);
-                Value *prv  = builder_.CreateLoad(i32ty, cf.prev, "pv");
-                // B3: control-level fields compare sign-blind (manual
-                // 53885-53887: -5 is considered equal to +5).
-                Value *same = builder_.CreateICmpEQ(
-                    emit_abs_i32(cur), emit_abs_i32(prv), "eq");
+                Value *same;
+                if (cf.is_char) {
+                    // Character control field: compare current bytes vs the
+                    // previous-record bytes, element by element. A break is
+                    // any byte difference (manual control-level semantics).
+                    Value *curPtr; int plen;
+                    syms_.resolve_char_operand(cf.spec->name, curPtr, plen);
+                    same = ConstantInt::getTrue(c);   // assume equal
+                    for (int b = 0; b < cf.char_len; ++b) {
+                        Value *curB = builder_.CreateLoad(i8ty,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        curPtr, b, "cb_p"), "cb");
+                        Value *prvB = builder_.CreateLoad(i8ty,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        cf.prev, b, "pb_p"), "pb");
+                        Value *byteEq = builder_.CreateICmpEQ(curB, prvB, "be");
+                        same = builder_.CreateAnd(same, byteEq, "seq");
+                    }
+                } else {
+                    Value *cur  = syms_.load_field(cf.spec->name);
+                    Value *prv  = builder_.CreateLoad(i32ty, cf.prev, "pv");
+                    // B3: control-level fields compare sign-blind (manual
+                    // 53885-53887: -5 is considered equal to +5).
+                    same = builder_.CreateICmpEQ(
+                        emit_abs_i32(cur), emit_abs_i32(prv), "eq");
+                }
                 Value *curmax = builder_.CreateLoad(i32ty, maxbrk, "mx");
                 Value *lvlc   = ConstantInt::get(i32ty, cf.level);
                 // newmax = (!same && lvl>curmax) ? lvl : curmax
@@ -2539,7 +2582,20 @@ private:
             }
             // Update previous values to current (step 25 "make data available").
             for (auto &cf : ctl_fields) {
-                builder_.CreateStore(syms_.load_field(cf.spec->name), cf.prev);
+                if (cf.is_char) {
+                    Value *curPtr; int plen;
+                    syms_.resolve_char_operand(cf.spec->name, curPtr, plen);
+                    for (int b = 0; b < cf.char_len; ++b) {
+                        Value *curB = builder_.CreateLoad(i8ty,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        curPtr, b, "cb_p"), "cb");
+                        builder_.CreateStore(curB,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        cf.prev, b, "pb_p"));
+                    }
+                } else {
+                    builder_.CreateStore(syms_.load_field(cf.spec->name), cf.prev);
+                }
             }
             // Cascade-set L1..maxbrk only when NOT on the first cycle (F23).
             Value *notFirst = builder_.CreateNot(
@@ -2804,16 +2860,32 @@ private:
         }
 
         // Control fields (per primary file; control levels are a primary-file
-        // concept). Reuse the same structure as the single-file cycle.
-        struct CtlField { const ISpecField *spec; llvm::GlobalVariable *prev; int level; };
+        // concept). Reuse the same structure as the single-file cycle, including
+        // the character-field byte-array prev (see generate_cycle for details).
+        struct CtlField { const ISpecField *spec; llvm::GlobalVariable *prev;
+                          int level; bool is_char; int char_len; };
         std::vector<CtlField> ctl_fields;
         for (const auto &fld : prog.in_fields) {
             if (fld.control_level.size() == 2 && fld.control_level[0]=='L'
                 && fld.control_level[1]>='1' && fld.control_level[1]<='9') {
-                auto *gv = new GlobalVariable(*mod_, Type::getInt32Ty(c),
-                    /*isConstant=*/false, GlobalValue::InternalLinkage,
-                    ConstantInt::get(Type::getInt32Ty(c), -1), "prev_" + fld.name);
-                ctl_fields.push_back({&fld, gv, fld.control_level[1]-'0'});
+                bool is_char = (fld.decimals < 0);
+                int flen = fld.to - fld.from + 1;
+                if (flen < 1) flen = 1;
+                GlobalVariable *gv;
+                if (is_char) {
+                    auto *arrTy = ArrayType::get(Type::getInt8Ty(c), (unsigned)flen);
+                    std::vector<Constant *> init(flen,
+                        ConstantInt::get(Type::getInt8Ty(c), 0));
+                    gv = new GlobalVariable(*mod_, arrTy, /*isConstant=*/false,
+                        GlobalValue::InternalLinkage,
+                        ConstantArray::get(arrTy, init), "prev_" + fld.name);
+                } else {
+                    gv = new GlobalVariable(*mod_, Type::getInt32Ty(c),
+                        /*isConstant=*/false, GlobalValue::InternalLinkage,
+                        ConstantInt::get(Type::getInt32Ty(c), -1), "prev_" + fld.name);
+                }
+                ctl_fields.push_back({&fld, gv, fld.control_level[1]-'0',
+                                      is_char, flen});
             }
         }
 
@@ -3273,13 +3345,31 @@ private:
         if (!ctl_fields.empty()) {
             auto *maxbrk = builder_.CreateAlloca(i32ty, nullptr, "maxbrk");
             builder_.CreateStore(ConstantInt::get(i32ty, 0), maxbrk);
+            auto *i8ty = Type::getInt8Ty(c);
             for (auto &cf : ctl_fields) {
-                Value *cur  = syms_.load_field(cf.spec->name);
-                Value *prv  = builder_.CreateLoad(i32ty, cf.prev, "pv");
-                // B3: control-level fields compare sign-blind (manual
-                // 53885-53887: -5 is considered equal to +5).
-                Value *same = builder_.CreateICmpEQ(
-                    emit_abs_i32(cur), emit_abs_i32(prv), "eq");
+                Value *same;
+                if (cf.is_char) {
+                    Value *curPtr; int plen;
+                    syms_.resolve_char_operand(cf.spec->name, curPtr, plen);
+                    same = ConstantInt::getTrue(c);
+                    for (int b = 0; b < cf.char_len; ++b) {
+                        Value *curB = builder_.CreateLoad(i8ty,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        curPtr, b, "cb_p"), "cb");
+                        Value *prvB = builder_.CreateLoad(i8ty,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        cf.prev, b, "pb_p"), "pb");
+                        same = builder_.CreateAnd(same,
+                            builder_.CreateICmpEQ(curB, prvB, "be"), "seq");
+                    }
+                } else {
+                    Value *cur  = syms_.load_field(cf.spec->name);
+                    Value *prv  = builder_.CreateLoad(i32ty, cf.prev, "pv");
+                    // B3: control-level fields compare sign-blind (manual
+                    // 53885-53887: -5 is considered equal to +5).
+                    same = builder_.CreateICmpEQ(
+                        emit_abs_i32(cur), emit_abs_i32(prv), "eq");
+                }
                 Value *curmax = builder_.CreateLoad(i32ty, maxbrk, "mx");
                 Value *lvlc   = ConstantInt::get(i32ty, cf.level);
                 Value *changed = builder_.CreateNot(same, "ch");
@@ -3288,8 +3378,22 @@ private:
                 Value *newmax  = builder_.CreateSelect(take, lvlc, curmax, "nm");
                 builder_.CreateStore(newmax, maxbrk);
             }
-            for (auto &cf : ctl_fields)
-                builder_.CreateStore(syms_.load_field(cf.spec->name), cf.prev);
+            for (auto &cf : ctl_fields) {
+                if (cf.is_char) {
+                    Value *curPtr; int plen;
+                    syms_.resolve_char_operand(cf.spec->name, curPtr, plen);
+                    for (int b = 0; b < cf.char_len; ++b) {
+                        Value *curB = builder_.CreateLoad(i8ty,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        curPtr, b, "cb_p"), "cb");
+                        builder_.CreateStore(curB,
+                            builder_.CreateConstGEP1_32(ArrayType::get(i8ty, cf.char_len),
+                                                        cf.prev, b, "pb_p"));
+                    }
+                } else {
+                    builder_.CreateStore(syms_.load_field(cf.spec->name), cf.prev);
+                }
+            }
             // F23: cascade only when not on the first cycle.
             Value *notFirst = builder_.CreateNot(
                 builder_.CreateLoad(Type::getInt1Ty(c), firstflag, "first2"), "nf");
@@ -3650,6 +3754,11 @@ private:
         } else if (is_page_field(f.name)) {
             // PAGE / PAGE1-PAGE7 (D14): place the page counter.
             emit_page_field(main, f);
+        } else if (is_date_field(f.name)) {
+            // Auto Report (Ch. 26): UDATE on a generated H-*AUTO page heading --
+            // place the current date as "mm/dd/yy", right-justified to end_pos.
+            builder_.CreateCall(line_put_date_,
+                {ConstantInt::get(i32, f.end_pos, true)});
         } else if (syms_.has_field(f.name)) {
             if (syms_.is_char_field(f.name)) {
                 // Character field: put_str with its bytes.
@@ -3698,6 +3807,16 @@ private:
         if (u.size() == 5 && u.substr(0,4) == "PAGE" &&
             u[4] >= '1' && u[4] <= '7') return true;
         return false;
+    }
+
+    /* True if `name` is the UDATE reserved date field (Auto Report Ch. 26).
+     * UDAY/UMONTH/UYEAR are recognized for completeness but only UDATE is
+     * emitted by the generated headings today. */
+    bool is_date_field(const std::string &name) {
+        std::string u;
+        std::transform(name.begin(), name.end(), std::back_inserter(u),
+                       [](unsigned char ch){ return std::toupper(ch); });
+        return u == "UDATE" || u == "UDAY" || u == "UMONTH" || u == "UYEAR";
     }
 
     /* Place a PAGE / PAGE1-PAGE7 page-counter value (D14). The page counters
@@ -6157,6 +6276,7 @@ private:
     llvm::Function               *line_put_str_    = nullptr;
     llvm::Function               *line_put_num_    = nullptr;
     llvm::Function               *line_put_num_dec_ = nullptr;  // Section C
+    llvm::Function               *line_put_date_   = nullptr;  // Auto Report UDATE
     llvm::Function               *emit_line_       = nullptr;
     // Phase 10 edit-code formatter.
     llvm::Function               *edit_fn_         = nullptr;

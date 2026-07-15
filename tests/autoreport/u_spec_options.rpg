@@ -1,0 +1,11 @@
+     C* Phase A: a bare 'U' (Auto Report Option) line at the top of an
+     C* otherwise-ordinary program. Auto Report preprocessing consumes the
+     C* U line (no *AUTO constructs to expand) and the program compiles and
+     C* runs identically to the same program without the U line.
+     U
+     FUARDATA  IP  F    80              DISK
+     FUAROUT   O   F    132             PRINTER
+     IUARDATA      AA
+     I                                        1   2   0N
+     OUAROUT   D  1
+     O                         N         10

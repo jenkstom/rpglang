@@ -1,0 +1,10 @@
+     C* Phase C1: D-*AUTO detail + column headings, no accumulation.
+     U
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   6 ITEMNO
+     I                                        7   90QTY
+     OPRTOUT  D                *AUTO
+     O                         ITEMNO       'ITEM'
+     O                         QTY          'QTY'

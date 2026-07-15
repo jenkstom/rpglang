@@ -1,0 +1,10 @@
+     C* Phase B: a single H-*AUTO page heading with a title constant.
+     U
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0N
+     OPRTOUT  H                *AUTO
+     O                                   20 'SALES REPORT'
+     OPRTOUT  D  1
+     O                         N01       10

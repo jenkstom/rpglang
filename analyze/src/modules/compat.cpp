@@ -11,32 +11,18 @@
 #include "../util.h"
 
 #include <functional>
-#include <set>
 #include <unordered_map>
 
 namespace analyze {
 
 namespace {
 
-/* Mirrors cspec.cpp's parse_op() recognized mnemonics -- kept in sync by
- * hand since parse_op itself is private to that translation unit. */
-bool is_known_opcode(const std::string &upperOp) {
-    static const std::set<std::string> known = {
-        "ADD", "Z-ADD", "ZADD", "Z-SUB", "ZSUB", "SETON", "SETOF", "COMP", "GOTO", "TAG",
-        "MOVE", "MOVEL", "SUB", "MULT", "DIV", "MVR", "DO", "ELSE", "END", "EXSR", "BEGSR",
-        "ENDSR", "EXCPT", "XFOOT", "SQRT", "LOKUP", "LOOKUP", "MOVEA", "TESTZ", "TESTB",
-        "CHAIN", "SETLL", "READE", "READP", "READ", "BITON", "BITOF", "DEFN", "SORTA", "TIME",
-        "MHHZO", "MHLZO", "MLHZO", "MLLZO",
-    };
-    if (known.count(upperOp)) return true;
-    for (const char *prefix : {"IF", "DOW", "DOU", "CAS"}) {
-        size_t plen = std::string(prefix).size();
-        if (upperOp.rfind(prefix, 0) != 0) continue;
-        std::string suffix = upperOp.substr(plen);
-        static const std::set<std::string> cmp = {"", "EQ", "NE", "GT", "LT", "GE", "LE"};
-        if (cmp.count(suffix)) return true;
-    }
-    return false;
+/* Whether the compiler recognizes `op` as a supported opcode. Delegates to the
+ * parser's own parse_op() -- the single source of truth -- so this module can
+ * never drift out of sync the way the old hand-maintained table did. parse_op
+ * upper-cases internally, so callers need not. */
+bool is_known_opcode(const std::string &op) {
+    return rpgc::parse_op(op) != rpgc::Op::Unknown;
 }
 
 ModuleResult run(const ProgramIR &ir, const ModuleOptions &opts) {
@@ -93,17 +79,23 @@ ModuleResult run(const ProgramIR &ir, const ModuleOptions &opts) {
         }
     }
 
-    // COMPAT-FEATURE: Auto Report ('U' spec) source.
+    // COMPAT-FEATURE: Auto Report source. The 'U' option spec, H-*AUTO page
+    // headings, and D/T-*AUTO output specs are all expanded by
+    // expand_autoreport() before the analyzer sees the lines, so a handled
+    // program has none of these left in raw_lines. A surviving O-spec line
+    // whose cols 32-36 spell *AUTO is a stray field-name *AUTO (which the
+    // column parser rejects as a hard error).
     for (auto &sl : ir.raw_lines) {
-        if (form_type(sl) == 'U') {
+        if (sl.comment) continue;
+        if (form_type(sl) != 'O') continue;
+        if (upper_str(rpgc::col_trim(sl.text, 32, 36)) == "*AUTO") {
             Finding fnd;
             fnd.id = "COMPAT-FEATURE";
             fnd.severity = Severity::Error;
             fnd.module = "compat";
-            fnd.message = "Auto Report Option Specifications ('U' form type) are not supported";
-            fnd.file = ir.path;
-            fnd.line = sl.lineno;
-            fnd.spec = 'U';
+            fnd.message = "stray *AUTO in O-spec field-name column (Auto "
+                          "Report constructs are expanded by the preprocessor; "
+                          "a surviving *AUTO is a malformed field name)";
             r.findings.push_back(fnd);
             notes.push_back(fnd.message);
             break;

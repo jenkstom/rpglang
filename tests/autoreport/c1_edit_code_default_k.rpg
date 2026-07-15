@@ -1,0 +1,8 @@
+     C* Phase C1: numeric field gets edit code K automatically.
+     U
+     FSALES   IP F       80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   50QTY
+     OPRTOUT  D                *AUTO
+     O                         QTY          'QUANTITY'

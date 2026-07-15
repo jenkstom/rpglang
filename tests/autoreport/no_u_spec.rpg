@@ -1,0 +1,10 @@
+     C* Phase A: an ordinary program (no U line, no *AUTO). Auto Report
+     C* preprocessing must be a no-op: this compiles and runs unchanged.
+     FHDATA   IP  F    80              DISK
+     FHOUT    O   F    132             PRINTER
+     IHDATA       AA
+     I                                     1   2   0N
+     OHOUT    H  1    1P
+     O                                 20   'MY REPORT'
+     OHOUT    D  1
+     O                         N       10

@@ -1,0 +1,11 @@
+     C* Phase B: a real field on a heading line gets N1P (so it does not
+     C* print on page 1 before the first record is read).
+     U
+     FINDATA  IP  F    80              DISK
+     FPRTOUT  O   F    132             PRINTER
+     IINDATA      AA
+     I                                     1   2   0CUSTNO
+     OPRTOUT  H                *AUTO
+     O                         CUSTNO    30
+     OPRTOUT  D  1
+     O                         N01       10

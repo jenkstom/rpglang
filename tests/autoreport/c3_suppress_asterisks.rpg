@@ -1,0 +1,9 @@
+     C* Phase C3: suppress asterisks (U-spec col 28 = N).
+     U                     N
+     FSALES   IPF        80            DISK
+     FPRTOUT  OF F      132            PRINTER
+     ISALES       AA
+     I                                        1   30KEY   L1
+     I                                        4   90AMT
+     OPRTOUT  D                *AUTO
+     O                         AMT    A     'AMOUNT'
