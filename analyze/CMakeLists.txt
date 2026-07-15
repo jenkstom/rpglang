@@ -17,6 +17,7 @@ add_executable(rpg-analyze
     src/registry.cpp
     src/render_text.cpp
     src/render_json.cpp
+    src/render_html.cpp
     ${RPGANALYZE_MODULE_SOURCES}
     ${RPGANALYZE_CMD_SOURCES}
 )

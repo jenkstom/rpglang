@@ -10,6 +10,7 @@
 #include "report.h"
 #include "render_text.h"
 #include "render_json.h"
+#include "render_html.h"
 #include "cmds/cmds.h"
 
 #include <algorithm>
@@ -71,6 +72,7 @@ void print_help() {
         "    --no-module NAME     Disable one module (use with --all to exclude).\n"
         "    --no-findings        Suppress the synthesized findings section.\n"
         "    --section-order a,b,c  Custom ordering of report sections.\n"
+        "    --html               Emit a tabbed HTML dashboard instead of text.\n"
         "    -o, --output FILE    Write report to a file instead of stdout.\n"
         "\n"
         "UTILITY COMMAND OPTIONS:\n"
@@ -80,6 +82,7 @@ void print_help() {
         "    --dot                callgraph: emit Graphviz dot instead of a text tree.\n"
         "    --threshold F        duplicate: minimum similarity to report (default 0.9).\n"
         "    --html               portfolio: emit an HTML dashboard instead of text.\n"
+        "                         report: emit a tabbed HTML report instead of text.\n"
         "\n"
         "MODULES:\n";
     for (auto &m : module_catalog())
@@ -246,6 +249,11 @@ int run_report_command(const Options &o) {
             for (auto &rep : reports) arr.push_back(render_json(rep, jopts));
             *out << arr.dump(2) << "\n";
         }
+    } else if (o.html) {
+        HtmlRenderOptions hopts;
+        hopts.no_findings = o.no_findings;
+        hopts.min_severity = o.severity;
+        *out << render_html(reports, hopts);
     } else {
         TextRenderOptions topts;
         topts.color = !o.no_color;

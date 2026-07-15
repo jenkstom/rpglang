@@ -892,6 +892,37 @@ PY
     rm -f "$tmpf" /tmp/rpgc_clean_auto_exe /tmp/rpgc_clean_auto.log
 fi
 
+# --- Phase: rpg-analyze (static analyzer) ------------------------------------
+hr; echo "Phase: rpg-analyze (static analyzer)"; hr
+# --html on the default `report` command emits a self-contained, tabbed HTML
+# dashboard (previously --html was silently ignored unless `portfolio` was
+# given). Verify the output is an HTML document carrying the program id, a
+# tab bar, and at least one structured table.
+if [[ ! -x "$BIN/rpg-analyze" ]]; then
+    bad "rpg-analyze: binary not built"
+else
+    if "$BIN/rpg-analyze" --html "$ROOT/tests/chain.rpg" -o /tmp/rpg_an.html >/dev/null 2>&1; then
+        if grep -q '<!doctype html>' /tmp/rpg_an.html \
+           && grep -q 'class="tabs"' /tmp/rpg_an.html \
+           && grep -q '<table' /tmp/rpg_an.html \
+           && grep -q 'RPG Analysis &mdash; CHAIN' /tmp/rpg_an.html; then
+            ok "rpg-analyze --html: emits a tabbed HTML dashboard"
+        else
+            bad "rpg-analyze --html: output missing expected HTML structure"; head -c 200 /tmp/rpg_an.html
+        fi
+    else
+        bad "rpg-analyze --html: exited non-zero"
+    fi
+    # The text and JSON paths must be unaffected by the new --html branch.
+    "$BIN/rpg-analyze" "$ROOT/tests/chain.rpg" 2>/dev/null | grep -q 'RPG ANALYSIS -- CHAIN' \
+        && ok "rpg-analyze (text): default report unchanged" \
+        || bad "rpg-analyze (text): default report broken"
+    "$BIN/rpg-analyze" --json "$ROOT/tests/chain.rpg" 2>/dev/null | grep -q '"program_id": "CHAIN"' \
+        && ok "rpg-analyze --json: JSON report unchanged" \
+        || bad "rpg-analyze --json: JSON report broken"
+    rm -f /tmp/rpg_an.html
+fi
+
 hr
 if [[ $fail -eq 0 ]]; then echo "ALL TESTS PASSED"; exit 0
 else echo "SOME TESTS FAILED"; exit 1; fi

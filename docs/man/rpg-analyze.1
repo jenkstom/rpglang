@@ -85,6 +85,11 @@ Suppress the synthesized findings section.
 .BR \-\-section-order " " \fIa,b,c\fR
 Custom ordering of report sections.
 .TP
+.B \-\-html
+(report) Emit a self-contained, tabbed HTML dashboard instead of text.
+Sections are grouped by category (one tab per group); a final Findings tab
+lists all findings with severity badges. Open the output in a browser.
+.TP
 .BR \-o ", " \-\-output " " \fIFILE\fR
 Write report to a file instead of stdout.
 .SH UTILITY COMMAND OPTIONS
@@ -106,6 +111,8 @@ Write report to a file instead of stdout.
 .TP
 .B \-\-html
 (portfolio) Emit an HTML dashboard instead of text.
+Also accepted by the \fBreport\fR command (see REPORT OPTIONS above), where
+it emits a tabbed HTML report.
 .SH MODULES
 .TP
 .B summary
@@ -202,6 +209,12 @@ Generate a call graph in dot format:
 .PP
 .RS
 .B rpg-analyze callgraph --dot *.rpg | dot -Tsvg > callgraph.svg
+.RE
+.PP
+Render a tabbed HTML dashboard of the full report:
+.PP
+.RS
+.B rpg-analyze --html tests/report.rpg -o report.html
 .RE
 .SH SEE ALSO
 .BR rpgc (1)

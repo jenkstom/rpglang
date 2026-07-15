@@ -21,6 +21,23 @@ inline std::string upper_str(std::string s) {
     return s;
 }
 
+/* Escapes a string for safe embedding in HTML text/attribute context. */
+inline std::string html_escape(const std::string &s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        switch (c) {
+            case '&':  out += "&amp;";  break;
+            case '<':  out += "&lt;";   break;
+            case '>':  out += "&gt;";   break;
+            case '"':  out += "&quot;"; break;
+            case '\'': out += "&#39;";  break;
+            default:   out += c;
+        }
+    }
+    return out;
+}
+
 inline std::string pad_right(const std::string &s, size_t width) {
     if (s.size() >= width) return s;
     return s + std::string(width - s.size(), ' ');
